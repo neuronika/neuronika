@@ -1,0 +1,10 @@
+[package]
+name = "neuronika"
+version = "0.1.0"
+authors = ["frjnn <f.iannelli.francesco229@gmail.com>", "stepac stefanopacchini@mail.com"]
+edition = "2018"
+
+[dependencies]
+ndarray = {version = "0.14.0", features = ["rayon"]}
+num-traits = "0.2"
+itertools = "0.10.0"
