@@ -1,13 +1,15 @@
 use super::Var;
-use num_traits::{One, Zero};
+use num_traits::{pow, One, Zero};
 use std::cell::{Ref, RefCell};
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use std::rc::Rc;
 
 use super::numeric::{
     add, add_assign, add_assign_v, assign, assign_v, div, div_assign_pow, mat_mat_mul, mat_vec_mul,
-    mul, scaled_add_assign, scaled_assign, sub, sub_assign, BackwardAction, DataRepr,
+    mul, pow_diff_add_assign, pow_diff_assign, relu_diff_add_assign, relu_diff_assign,
+    relu_forward, scaled_add_assign, scaled_assign, sub, sub_assign, BackwardAction, DataRepr,
     ForwardAction, PassCounter,
 };
 
@@ -244,10 +246,11 @@ where
 
         self.operand.forward();
 
-        let mut dest = self.data.borrow_mut();
-
-        assign(&mut dest, self.operand.data().deref());
-        dest.map_inplace(|x| -*x);
+        scaled_assign(
+            &mut self.data.borrow_mut(),
+            self.operand.data().deref(),
+            A::one().neg(),
+        );
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
@@ -623,23 +626,23 @@ where
     fn backward(&self, grad: &Ref<Self::Grad>) {
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                assign(
+                assign_v(
                     &mut self.lhs_grad.borrow_mut(),
-                    &(grad.deref() * &self.rhs_grad.borrow()),
+                    grad.deref() * &self.rhs.data(),
                 );
-                assign(
+                assign_v(
                     &mut self.rhs_grad.borrow_mut(),
-                    &(grad.deref() * &self.lhs_grad.borrow()),
+                    grad.deref() * &self.lhs.data(),
                 );
             }
             BackwardAction::Increment => {
-                add_assign(
+                add_assign_v(
                     &mut self.lhs_grad.borrow_mut(),
-                    &(grad.deref() * &self.rhs_grad.borrow()),
+                    grad.deref() * &self.rhs.data(),
                 );
-                add_assign(
+                add_assign_v(
                     &mut self.rhs_grad.borrow_mut(),
-                    &(grad.deref() * &self.lhs_grad.borrow()),
+                    grad.deref() * &self.lhs.data(),
                 );
             }
         }
@@ -759,19 +762,20 @@ where
     fn backward(&self, grad: &Ref<Self::Grad>) {
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                assign(
+                assign_v(
                     &mut self.lhs_grad.borrow_mut(),
-                    &(grad.deref() / &self.rhs_grad.borrow()),
+                    grad.deref() / &self.rhs.data(),
                 );
                 let mut tmp =
                     &(grad.deref() * &DataRepr::Scalar(A::one().neg())) * &self.lhs.data();
                 div_assign_pow(&mut tmp, &self.rhs.data(), 2);
-                assign_v(&mut self.lhs_grad.borrow_mut(), tmp);
+                assign_v(&mut self.rhs_grad.borrow_mut(), tmp);
             }
+
             BackwardAction::Increment => {
-                add_assign(
+                add_assign_v(
                     &mut self.lhs_grad.borrow_mut(),
-                    &(grad.deref() / &self.rhs_grad.borrow()),
+                    grad.deref() / &self.rhs.data(),
                 );
                 let mut tmp =
                     &(grad.deref() * &DataRepr::Scalar(A::one().neg())) * &self.lhs.data();
@@ -855,8 +859,8 @@ where
             },
         };
         let grad = data.zeros();
-        let lhs_grad = lhs.data().deref().zeros();
-        let rhs_grad = rhs.data().deref().zeros();
+        let lhs_grad = lhs.data().zeros();
+        let rhs_grad = rhs.data().zeros();
 
         InternalDot {
             data: RefCell::new(data),
@@ -938,7 +942,6 @@ where
         if self.counter.recurse_backward() {
             let rhs_data = self.rhs.data();
             let lhs_data = self.lhs.data();
-
             let grad = self.grad.borrow();
 
             match rhs_data.deref() {
@@ -1157,6 +1160,304 @@ where
         if !self.counter.is_zero() {
             self.lhs.clear();
             self.rhs.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalPow<A, OP>
+where
+    A: Copy,
+{
+    data: RefCell<DataRepr<A>>,
+    grad: RefCell<DataRepr<A>>,
+    operand: Rc<OP>,
+    exp: u16,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<A, OP> InternalPow<A, OP>
+where
+    A: Copy + Send + Sync + Zero + One + Neg<Output = A>,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    pub fn new(operand: Rc<OP>, exp: u16) -> Self {
+        let data = operand.data().deref().map(|el| pow(*el, exp as usize));
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalPow {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            exp: exp,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<A, OP> InternalRepr for InternalPow<A, OP>
+where
+    A: 'static
+        + Copy
+        + Debug
+        + Zero
+        + One
+        + Send
+        + Sync
+        + Neg<Output = A>
+        + Add<Output = A>
+        + Sub<Output = A>
+        + Mul<Output = A>
+        + Div<Output = A>
+        + AddAssign
+        + SubAssign
+        + MulAssign
+        + DivAssign
+        + TryFrom<u16>,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    type Data = DataRepr<A>;
+    type Grad = DataRepr<A>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+
+        let (mut data, exp) = { (self.data.borrow_mut(), self.exp) };
+        assign(&mut data, self.operand.data().deref());
+        data.map_inplace(|x| pow(*x, exp as usize));
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => pow_diff_assign(
+                &mut self.grad.borrow_mut(),
+                grad,
+                &self.operand.data(),
+                self.exp,
+            ),
+            BackwardAction::Increment => pow_diff_add_assign(
+                &mut self.grad.borrow_mut(),
+                grad,
+                &self.operand.data(),
+                self.exp,
+            ),
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalSum<A, OP>
+where
+    A: Copy,
+{
+    data: RefCell<DataRepr<A>>,
+    grad: RefCell<DataRepr<A>>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<A, OP> InternalSum<A, OP>
+where
+    A: Copy + Send + Sync + Zero + One,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    pub fn new(operand: Rc<OP>) -> Self {
+        let data = operand.data().deref().sum();
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalSum {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<A, OP> InternalRepr for InternalSum<A, OP>
+where
+    A: 'static
+        + Copy
+        + Debug
+        + Zero
+        + One
+        + Send
+        + Sync
+        + Neg<Output = A>
+        + Add<Output = A>
+        + Sub<Output = A>
+        + Mul<Output = A>
+        + Div<Output = A>
+        + AddAssign
+        + SubAssign
+        + MulAssign
+        + DivAssign,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    type Data = DataRepr<A>;
+    type Grad = DataRepr<A>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+
+        assign(&mut self.data.borrow_mut(), &self.operand.data().sum());
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => assign(&mut self.grad.borrow_mut(), grad),
+            BackwardAction::Increment => add_assign(&mut self.grad.borrow_mut(), grad),
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalReLU<A, OP>
+where
+    A: Copy,
+{
+    data: RefCell<DataRepr<A>>,
+    grad: RefCell<DataRepr<A>>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<A, OP> InternalReLU<A, OP>
+where
+    A: Copy + Send + Sync + Zero + One + PartialOrd,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    pub fn new(operand: Rc<OP>) -> Self {
+        let data = operand
+            .data()
+            .deref()
+            .map(|el| if *el > A::zero() { A::zero() } else { *el });
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalReLU {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<A, OP> InternalRepr for InternalReLU<A, OP>
+where
+    A: 'static
+        + Copy
+        + Debug
+        + Zero
+        + One
+        + Send
+        + Sync
+        + Neg<Output = A>
+        + Add<Output = A>
+        + Sub<Output = A>
+        + Mul<Output = A>
+        + Div<Output = A>
+        + AddAssign
+        + SubAssign
+        + MulAssign
+        + DivAssign
+        + PartialOrd,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    type Data = DataRepr<A>;
+    type Grad = DataRepr<A>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+        relu_forward(&mut self.data.borrow_mut(), &self.operand.data());
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                relu_diff_assign(&mut self.grad.borrow_mut(), grad, &self.data())
+            }
+            BackwardAction::Increment => {
+                relu_diff_add_assign(&mut self.grad.borrow_mut(), grad, &self.data())
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
             self.counter.clear();
         }
     }

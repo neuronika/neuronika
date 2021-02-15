@@ -8,11 +8,19 @@ mod tests {
     use ndarray::prelude::array;
     #[test]
     fn it_works() {
-        let w = Parameter::new(Matrix(array![[1, 1, 1], [1, 1, 1], [1, 1, 1]]));
-        let x = Input::new(Matrix(array![[3, 3, 3], [3, 3, 3], [3, 3, 3]]));
-        let b = Parameter::new(Vector(array![1, 1, 1]));
-        let mut h = w.mm(&x) + b;
+        let w = Parameter::new(Matrix(array![
+            [1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0]
+        ]));
+        let x = Input::new(Matrix(array![
+            [3.0, 3.0, 3.0],
+            [3.0, 3.0, 3.0],
+            [3.0, 3.0, 3.0]
+        ]));
+        let b = Parameter::new(Vector(array![1.0, 1.0, 1.0]));
+        let mut h = (w.mm(&x) + b).pow(2).sum();
         h.forward();
-        &mut h.backward(1);
+        &mut h.backward(1.0);
     }
 }

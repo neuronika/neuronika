@@ -6,6 +6,7 @@ use num_traits::{One, Zero};
 use numeric::DataRepr;
 use reprs::*;
 use std::cell::{Ref, RefCell};
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use std::rc::Rc;
@@ -176,6 +177,33 @@ where
                 Rc::clone(&other.repr),
             )),
             track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+
+    pub fn pow(&self, exp: u16) -> Var<InternalPow<A, T>, A>
+    where
+        A: TryFrom<u16>,
+    {
+        Var::new(
+            Rc::new(InternalPow::new(Rc::clone(&self.repr), exp)),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn sum(&self) -> Var<InternalSum<A, T>, A> {
+        Var::new(
+            Rc::new(InternalSum::new(Rc::clone(&self.repr))),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn relu(&self) -> Var<InternalReLU<A, T>, A>
+    where
+        A: PartialOrd,
+    {
+        Var::new(
+            Rc::new(InternalReLU::new(Rc::clone(&self.repr))),
+            self.upstream.clone(),
         )
     }
 }

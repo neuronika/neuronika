@@ -1,7 +1,8 @@
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
 use ndarray::{Array1, Array2, Axis, Zip};
-use num_traits::{pow, One, Zero};
+use num_traits::{pow, Float, One, Zero};
 use std::cell::Cell;
+use std::convert::TryFrom;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 pub(crate) type Vector<A> = Array1<A>; // One dimensional array.
@@ -84,6 +85,16 @@ where
             Self::Scalar(_) => Self::Scalar(A::zero()),
             Self::Vector(val) => Self::Vector(Vector::zeros(val.raw_dim())),
             Self::Matrix(val) => Self::Matrix(Matrix::zeros(val.raw_dim())),
+        }
+    }
+
+    // Computes the sum of this DataRepr struct's elements
+    // and returns it in a scalar.
+    pub(super) fn sum(&self) -> Self {
+        match self {
+            Self::Scalar(val) => Self::Scalar(*val),
+            Self::Vector(val) => Self::Scalar(val.sum()),
+            Self::Matrix(val) => Self::Scalar(val.sum()),
         }
     }
 
@@ -754,6 +765,248 @@ where
         },
     }
 }
+
+// Used in the accumulation of the gradient of the pow op.
+// Implements the necessary accumulation operations.
+// Computes: d/dx x^n = n * x^(n-1).
+macro_rules! impl_pow_accumulation_ops {
+    ($fun:ident, $op:tt) => {
+        pub(super) fn $fun<A>(
+            grad: &mut DataRepr<A>,
+            downstream_grad: &DataRepr<A>,
+            data: &DataRepr<A>,
+            exp: u16,
+        ) where
+            A: Copy
+                + Zero
+                + TryFrom<u16>
+                + One
+                + Add<Output = A>
+                + AddAssign
+                + Mul<Output = A>
+                + Send
+                + Sync,
+        {
+            match (grad, downstream_grad, data) {
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1 ) * A::try_from(exp).ok().unwrap(),
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => *grad_val $op down_grad_val.sum() * pow(*data_val, exp as usize - 1 ) * A::try_from(exp).ok().unwrap(),
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => *grad_val $op down_grad_val.sum() * pow(*data_val, exp as usize - 1 ) * A::try_from(exp).ok().unwrap(),
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, data_val| {
+                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * A::try_from(exp).ok().unwrap()
+                    }),
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * A::try_from(exp).ok().unwrap()
+                    }),
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(&down_grad_val.sum_axis(Axis(0)))
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * A::try_from(exp).ok().unwrap()
+                        }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, data_val| {
+                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * A::try_from(exp).ok().unwrap()
+                        }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * A::try_from(exp).ok().unwrap()
+                    }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * A::try_from(exp).ok().unwrap()
+                    }),
+                _ => panic!("erorr: gradient and data should have the same size."),
+            }
+        }
+    };
+}
+
+impl_pow_accumulation_ops!(pow_diff_assign, =);
+impl_pow_accumulation_ops!(pow_diff_add_assign, +=);
+
+pub(super) fn relu_forward<A>(data: &mut DataRepr<A>, src: &DataRepr<A>)
+where
+    A: Sync + Send + PartialOrd + Copy + Zero + One,
+{
+    match (data, src) {
+        (DataRepr::Scalar(data_val), DataRepr::Scalar(src_val)) => {
+            *data_val = if *src_val < A::zero() {
+                A::zero()
+            } else {
+                *src_val
+            }
+        }
+        (DataRepr::Vector(data_val), DataRepr::Vector(src_val)) => Zip::from(data_val)
+            .and(src_val)
+            .par_apply(|data_el, src_el| {
+                *data_el = if *src_el < A::zero() {
+                    A::zero()
+                } else {
+                    *src_el
+                }
+            }),
+        (DataRepr::Matrix(data_val), DataRepr::Matrix(src_val)) => Zip::from(data_val)
+            .and(src_val)
+            .par_apply(|data_el, src_el| {
+                *data_el = if *src_el < A::zero() {
+                    A::zero()
+                } else {
+                    *src_el
+                }
+            }),
+        _ => panic!("error: the two operands should have the same size."),
+    }
+}
+
+// Used in the accumulation of the gradient of the ReLU op.
+// Implements the necessary accumulation operations.
+macro_rules! impl_relu_accumulation_ops {
+    ($fun:ident, $op:tt) => {
+        pub(super) fn $fun<A>(
+            grad: &mut DataRepr<A>,
+            downstream_grad: &DataRepr<A>,
+            data: &DataRepr<A>,
+        ) where
+            A: Copy
+                + Zero
+                + One
+                + Add<Output = A>
+                + AddAssign
+                + Mul<Output = A>
+                + Send
+                + Sync
+                + PartialOrd,
+        {
+            match (grad, downstream_grad, data) {
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => *grad_val $op if *data_val > A::zero() { *down_grad_val } else { A::zero() },
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => {
+                    *grad_val $op if *data_val > A::zero() { down_grad_val.sum() } else { A::zero() }
+                }
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => *grad_val $op if *data_val > A::zero() { down_grad_val.sum() } else { A::zero() },
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, data_val| {
+                            *grad_val $op if *data_val > A::zero() { *down_grad_val } else { A::zero() }
+                    }),
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op if *data_val > A::zero() { *down_grad_val } else { A::zero() }
+                    }),
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(&down_grad_val.sum_axis(Axis(0)))
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op if *data_val > A::zero() { *down_grad_val } else { A::zero() }
+                        }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, data_val| {
+                            *grad_val $op if *data_val > A::zero() { *down_grad_val } else { A::zero() }
+                        }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op if *data_val > A::zero() { *down_grad_val } else { A::zero() }
+                    }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and_broadcast(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op if *data_val > A::zero() { *down_grad_val } else { A::zero() }
+                    }),
+                _ => panic!("erorr: gradient and data should have the same size."),
+            }
+        }
+    };
+}
+
+impl_relu_accumulation_ops!(relu_diff_assign, =);
+impl_relu_accumulation_ops!(relu_diff_add_assign, +=);
 
 // Implements scalar-scaled accumulation operations.
 macro_rules! impl_scaled_accumulation_ops {
