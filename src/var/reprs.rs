@@ -1,5 +1,5 @@
 use super::Var;
-use num_traits::{pow, One, Zero};
+use num_traits::{pow, Float, One, Zero};
 use std::cell::{Ref, RefCell};
 use std::convert::TryFrom;
 use std::fmt::Debug;
@@ -318,8 +318,8 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() + rhs.data().deref();
-        let lhs_grad = lhs.data().deref().zeros();
-        let rhs_grad = rhs.data().deref().zeros();
+        let lhs_grad = lhs.data().zeros();
+        let rhs_grad = rhs.data().zeros();
 
         InternalAdd {
             data: RefCell::new(data),
@@ -442,8 +442,8 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() - rhs.data().deref();
-        let lhs_grad = lhs.data().deref().zeros();
-        let rhs_grad = rhs.data().deref().zeros();
+        let lhs_grad = lhs.data().zeros();
+        let rhs_grad = rhs.data().zeros();
 
         InternalSub {
             data: RefCell::new(data),
@@ -570,8 +570,8 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() * rhs.data().deref();
-        let lhs_grad = lhs.data().deref().zeros();
-        let rhs_grad = rhs.data().deref().zeros();
+        let lhs_grad = lhs.data().zeros();
+        let rhs_grad = rhs.data().zeros();
 
         InternalMul {
             data: RefCell::new(data),
@@ -706,8 +706,8 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() / rhs.data().deref();
-        let lhs_grad = lhs.data().deref().zeros();
-        let rhs_grad = rhs.data().deref().zeros();
+        let lhs_grad = lhs.data().zeros();
+        let rhs_grad = rhs.data().zeros();
 
         InternalDiv {
             data: RefCell::new(data),
@@ -766,8 +766,8 @@ where
                     &mut self.lhs_grad.borrow_mut(),
                     grad.deref() / &self.rhs.data(),
                 );
-                let mut tmp =
-                    &(grad.deref() * &DataRepr::Scalar(A::one().neg())) * &self.lhs.data();
+                let mut tmp = grad.deref() * &self.lhs.data();
+                tmp.map_inplace(|el| *el * A::one().neg());
                 div_assign_pow(&mut tmp, &self.rhs.data(), 2);
                 assign_v(&mut self.rhs_grad.borrow_mut(), tmp);
             }
@@ -777,8 +777,8 @@ where
                     &mut self.lhs_grad.borrow_mut(),
                     grad.deref() / &self.rhs.data(),
                 );
-                let mut tmp =
-                    &(grad.deref() * &DataRepr::Scalar(A::one().neg())) * &self.lhs.data();
+                let mut tmp = grad.deref() * &self.lhs.data();
+                tmp.map_inplace(|el| *el * A::one().neg());
                 div_assign_pow(&mut tmp, &self.rhs.data(), 2);
                 add_assign_v(&mut self.lhs_grad.borrow_mut(), tmp);
             }
@@ -845,19 +845,17 @@ where
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let data = match lhs.data().deref() {
-            DataRepr::Scalar(_) => {
-                panic!("error: dot product for the scalar variant is undefined.")
+
+        let data = match (lhs.data().deref(), rhs.data().deref()) {
+            (DataRepr::Matrix(lhs_val), DataRepr::Vector(rhs_val)) => {
+                DataRepr::Vector(lhs_val.dot(rhs_val))
             }
-            DataRepr::Vector(_) => panic!("error: matrix dot product is undefined for vectors."),
-            DataRepr::Matrix(lhs_val) => match rhs.data().deref() {
-                DataRepr::Scalar(_) => {
-                    panic!("error: dot product for the scalar variant is undefined.")
-                }
-                DataRepr::Vector(rhs_val) => DataRepr::Vector(lhs_val.dot(rhs_val)),
-                DataRepr::Matrix(rhs_val) => DataRepr::Matrix(lhs_val.dot(rhs_val)),
-            },
+            (DataRepr::Matrix(lhs_val), DataRepr::Matrix(rhs_val)) => {
+                DataRepr::Matrix(lhs_val.dot(rhs_val))
+            }
+            _ => panic!("error: matrix dot product is defined only for matrices and vectors."),
         };
+
         let grad = data.zeros();
         let lhs_grad = lhs.data().zeros();
         let rhs_grad = rhs.data().zeros();
@@ -1043,14 +1041,16 @@ where
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let lhs_grad = lhs.data().deref().zeros();
-        let rhs_grad = lhs.data().deref().zeros();
+        let lhs_grad = lhs.data().zeros();
+        let rhs_grad = lhs.data().zeros();
+
         let data = match (lhs.data().deref(), rhs.data().deref()) {
             (DataRepr::Vector(lhs_val), DataRepr::Vector(rhs_val)) => {
                 DataRepr::Scalar(lhs_val.dot(rhs_val))
             }
             _ => panic!("error: vector dot product is defined only between vectors."),
         };
+
         InternalVecDot {
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
@@ -1341,6 +1341,89 @@ where
         match self.counter.backward_action() {
             BackwardAction::Set => assign(&mut self.grad.borrow_mut(), grad),
             BackwardAction::Increment => add_assign(&mut self.grad.borrow_mut(), grad),
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalLn<A, OP>
+where
+    A: Copy,
+{
+    data: RefCell<DataRepr<A>>,
+    grad: RefCell<DataRepr<A>>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<A, OP> InternalLn<A, OP>
+where
+    A: Copy + Send + Sync + Float,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    pub fn new(operand: Rc<OP>) -> Self {
+        let data = operand.data().deref().map(|el| el.ln());
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalLn {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<A, OP> InternalRepr for InternalLn<A, OP>
+where
+    A: 'static + Copy + Debug + Send + Sync + AddAssign + SubAssign + MulAssign + DivAssign + Float,
+    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    type Data = DataRepr<A>;
+    type Grad = DataRepr<A>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+
+        let mut data = self.data.borrow_mut();
+        assign(&mut data, self.operand.data().deref());
+        data.map_inplace(|el| el.ln());
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                assign_v(&mut self.grad.borrow_mut(), grad.deref() / &self.data())
+            }
+            BackwardAction::Increment => {
+                add_assign_v(&mut self.grad.borrow_mut(), grad.deref() / &self.data())
+            }
         }
 
         if self.counter.recurse_backward() {

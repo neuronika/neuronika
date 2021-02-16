@@ -4,7 +4,7 @@ use var::reprs::{Input, Parameter};
 
 #[cfg(test)]
 mod tests {
-    use super::{Input, Matrix, Parameter, Vector};
+    use super::{Input, Matrix, Parameter, Scalar, Vector};
     use ndarray::prelude::array;
     #[test]
     fn it_works() {

@@ -1,6 +1,6 @@
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
 use ndarray::{Array1, Array2, Axis, Zip};
-use num_traits::{pow, Float, One, Zero};
+use num_traits::{pow, One, Zero};
 use std::cell::Cell;
 use std::convert::TryFrom;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -202,10 +202,9 @@ impl PassCounter {
     }
 }
 
-// Implements fast, parallelized and simd-compatible arithmetic operations
+// Implements fast, parallelized and simd-enabled arithmetic operations
 // between scalars and other DataRepr values. It mimics ndarray's arithmetic
-// operations, as a consequence, the macro implemets two functions to ensure
-// commutativity.
+// operations, as a consequence, the macro implemets two functions.
 //
 // Types: Scalar <op> Scalar -> Scalar
 //        Scalar <op> Vector -> Vector
@@ -282,7 +281,11 @@ impl_ops_scal!(div_sm, div_ms, Matrix::<A>, /);
 //
 // Types: the result's type in determined by the left hand side operand.
 macro_rules! impl_ops {
-    ($fun:ident, $lhs_type:ty, $rhs_type:ty, $op:tt) => {
+    ($fun:ident,
+        $lhs_type:ty,
+        $rhs_type:ty,
+        $res_type:ty,
+        $op:tt) => {
         fn $fun<
             A: Copy
                 + Zero
@@ -295,12 +298,12 @@ macro_rules! impl_ops {
                 + Mul<Output = A>
                 + Sub<Output = A>
         > (
-            res: &mut $lhs_type,
+            res: &mut $res_type,
             lhs: &$lhs_type,
             rhs: &$rhs_type
         ) {
             Zip::from(res)
-                .and(lhs)
+                .and_broadcast(lhs)
                 .and_broadcast(rhs)
                 .par_apply(|res, lhs, rhs| *res = *lhs $op *rhs);
         }
@@ -312,38 +315,35 @@ macro_rules! impl_ops {
 // behaves like a scalar and, as such, is commutative.
 //
 // Vector-vector addition.
-impl_ops!(add_vv, Vector<A>, Vector<A>, +);
+impl_ops!(add_vv, Vector<A>, Vector<A>, Vector<A>, +);
 // Vector-vector subtraction.
-impl_ops!(sub_vv, Vector<A>, Vector<A>, -);
+impl_ops!(sub_vv, Vector<A>, Vector<A>, Vector<A>, -);
 // Vector-vector multiplication.
-impl_ops!(mul_vv, Vector<A>, Vector<A>, *);
+impl_ops!(mul_vv, Vector<A>, Vector<A>, Vector<A>, *);
 // Vector-vector division.
-impl_ops!(div_vv, Vector<A>, Vector<A>, /);
+impl_ops!(div_vv, Vector<A>, Vector<A>, Vector<A>, /);
 
-// N.B. this functions will all result in a ndarray's
-// error as a matrix cannot be broadcasted to a vector.
-// They act as graceful points of failure.
+// numpy's style operations.
 //
-// Vector-matrix addition.
-impl_ops!(add_vm, Vector<A>, Matrix<A>, +);
+impl_ops!(add_vm, Vector<A>, Matrix<A>, Matrix<A>, +);
 // Vector-matrix subtraction.
-impl_ops!(sub_vm, Vector<A>, Matrix<A>, -);
+impl_ops!(sub_vm, Vector<A>, Matrix<A>, Matrix<A>, -);
 // Vector-matrix multiplication.
-impl_ops!(mul_vm, Vector<A>, Matrix<A>, *);
+impl_ops!(mul_vm, Vector<A>, Matrix<A>, Matrix<A>,*);
 // Vector-matrix division.
-impl_ops!(div_vm, Vector<A>, Matrix<A>, /);
+impl_ops!(div_vm, Vector<A>, Matrix<A>, Matrix<A>, /);
 
 // Broadcasting will only take place if the matrix has the
 // same number of columns as the vector's elements.
 //
 // Matrix-vector addition.
-impl_ops!(add_mv, Matrix<A>, Vector<A>, +);
+impl_ops!(add_mv, Matrix<A>, Vector<A>, Matrix<A>, +);
 // Matrix-vector subtraction.
-impl_ops!(sub_mv, Matrix<A>, Vector<A>, -);
+impl_ops!(sub_mv, Matrix<A>, Vector<A>, Matrix<A>, -);
 // Matrix-vector element-wise multiplication.
-impl_ops!(mul_mv, Matrix<A>, Vector<A>, *);
+impl_ops!(mul_mv, Matrix<A>, Vector<A>, Matrix<A>, *);
 // Matrix-vector division.
-impl_ops!(div_mv, Matrix<A>, Vector<A>, /);
+impl_ops!(div_mv, Matrix<A>, Vector<A>, Matrix<A>, /);
 
 // In order for the broadcasting to take place one of the two
 // following things must happen: either one of the two matrix
@@ -351,13 +351,13 @@ impl_ops!(div_mv, Matrix<A>, Vector<A>, /);
 // number of columns of the other one but exactly one row.
 //
 // Matrix-matrix addition.
-impl_ops!(add_mm, Matrix<A>, Matrix<A>, +);
+impl_ops!(add_mm, Matrix<A>, Matrix<A>, Matrix<A>, +);
 // Matrix-matrix subtraction.
-impl_ops!(sub_mm, Matrix<A>, Matrix<A>, -);
+impl_ops!(sub_mm, Matrix<A>, Matrix<A>, Matrix<A>, -);
 // Matrix-matrix element-wise multiplication.
-impl_ops!(mul_mm, Matrix<A>, Matrix<A>, *);
+impl_ops!(mul_mm, Matrix<A>, Matrix<A>, Matrix<A>, *);
 // Matrix-matrix division.
-impl_ops!(div_mm, Matrix<A>, Matrix<A>, /);
+impl_ops!(div_mm, Matrix<A>, Matrix<A>, Matrix<A>, /);
 
 // Implements the Add, Sub, Mul and Div traits using the previously
 // defined ops.
@@ -420,9 +420,9 @@ macro_rules! impl_arithmetic_ops {
                             DataRepr::Vector(new)
                         },
                         DataRepr::Matrix(rhs_val) => {
-                            let mut new = Vector::zeros(lhs_val.raw_dim());
+                            let mut new = Matrix::zeros(rhs_val.raw_dim());
                             $vm_op(&mut new, lhs_val, rhs_val);
-                            DataRepr::Vector(new)
+                            DataRepr::Matrix(new)
                         },
                     },
                     DataRepr::Matrix(lhs_val) => match rhs {
@@ -466,14 +466,17 @@ impl<A: Copy + Neg<Output = A> + Zero + One + Send + Sync> Neg for &DataRepr<A> 
 }
 
 // Implements the arithmetic operation used during the forward
-// pass in the computational graph.
+// pass in the computational graph. Those operation are performed
+// in place as the data field of the downstream node is just updated
+// with the new forwarded value.
 macro_rules! impl_forward_arithmetic_ops {
     ($fun:ident,
         $op:tt,
         $sv_op:ident,
+        $sm_op:ident,
         $vs_op:ident,
         $vv_op:ident,
-        $sm_op:ident,
+        $vm_op:ident,
         $ms_op:ident,
         $mv_op:ident,
         $mm_op:ident
@@ -511,6 +514,8 @@ macro_rules! impl_forward_arithmetic_ops {
                 DataRepr::Matrix(trgt_val) => {
                     if let DataRepr::Scalar(lhs_val) = lhs {
                         $sm_op(trgt_val, lhs_val, rhs.matrix());
+                    } else if let DataRepr::Vector(lhs_val) = lhs {
+                        $vm_op(trgt_val, lhs_val, rhs.matrix());
                     } else if let DataRepr::Scalar(rhs_val) = rhs {
                         $ms_op(trgt_val, lhs.matrix(), &rhs_val);
                     } else if let DataRepr::Vector(rhs_val) = rhs {
@@ -525,13 +530,13 @@ macro_rules! impl_forward_arithmetic_ops {
 }
 
 // Implements the add operation used in forward passes.
-impl_forward_arithmetic_ops!(add, +, add_sv, add_vs, add_vv, add_sm, add_ms, add_mv, add_mm);
+impl_forward_arithmetic_ops!(add, +, add_sv, add_sm, add_vs, add_vv, add_vm, add_ms, add_mv, add_mm);
 // Implements the sub operation used in forward passes.
-impl_forward_arithmetic_ops!(sub, -, sub_sv, sub_vs, sub_vv, sub_sm, sub_ms, sub_mv, sub_mm);
+impl_forward_arithmetic_ops!(sub, -, sub_sv, sub_sm, sub_vs, sub_vv, sub_vm, sub_ms, sub_mv, sub_mm);
 // Implements the mul operation used in forward passes.
-impl_forward_arithmetic_ops!(mul, *, mul_sv, mul_vs, mul_vv, mul_sm, mul_ms, mul_mv, mul_mm);
+impl_forward_arithmetic_ops!(mul, *, mul_sv, mul_sm, mul_vs, mul_vv, mul_vm, mul_ms, mul_mv, mul_mm);
 // Implements the div operation used in forward passes.
-impl_forward_arithmetic_ops!(div, /, div_sv, div_vs, div_vv, div_sm, div_ms, div_mv, div_mm);
+impl_forward_arithmetic_ops!(div, /, div_sv, div_sm, div_vs, div_vv, div_vm, div_ms, div_mv, div_mm);
 
 // Implements the gradient accumulation functions.
 macro_rules! impl_accumulation_ops {
@@ -692,9 +697,9 @@ macro_rules! impl_accumulation_ops_v {
 impl_accumulation_ops!(assign, =);
 // Accumulation assignment by value.
 impl_accumulation_ops_v!(assign_v, =);
-// Accumulation add-assignemnt.
+// Accumulation add assignemnt.
 impl_accumulation_ops!(add_assign, +=);
-// Accumulation add-assignemnt by value.
+// Accumulation add assignemnt by value.
 impl_accumulation_ops_v!(add_assign_v, +=);
 // Accumulation sub assignment.
 impl_accumulation_ops!(sub_assign, -=);
@@ -1165,5 +1170,6 @@ pub(super) fn mat_vec_mul<
     );
 }
 
+// TO DO: add tests for vector - matrix ops.
 #[cfg(test)]
 mod tests;

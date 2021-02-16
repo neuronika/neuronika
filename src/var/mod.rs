@@ -2,7 +2,7 @@ pub(super) mod numeric;
 pub(super) mod reprs;
 
 use itertools::Itertools;
-use num_traits::{One, Zero};
+use num_traits::{Float, One, Zero};
 use numeric::DataRepr;
 use reprs::*;
 use std::cell::{Ref, RefCell};
@@ -206,6 +206,16 @@ where
             self.upstream.clone(),
         )
     }
+
+    pub fn ln(&self) -> Var<InternalLn<A, T>, A>
+    where
+        A: Float,
+    {
+        Var::new(
+            Rc::new(InternalLn::new(Rc::clone(&self.repr))),
+            self.upstream.clone(),
+        )
+    }
 }
 
 fn track_upstream<
@@ -278,3 +288,28 @@ impl_node_arithmetic_ops!(Add, add, InternalAdd);
 impl_node_arithmetic_ops!(Sub, sub, InternalSub);
 impl_node_arithmetic_ops!(Mul, mul, InternalMul);
 impl_node_arithmetic_ops!(Div, div, InternalDiv);
+
+impl<T, A> Neg for Var<T, A>
+where
+    A: Copy
+        + Debug
+        + Add<Output = A>
+        + Sub<Output = A>
+        + Mul<Output = A>
+        + Div<Output = A>
+        + AddAssign
+        + SubAssign
+        + MulAssign
+        + DivAssign
+        + Zero
+        + One
+        + Send
+        + Sync
+        + Neg<Output = A>,
+    T: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+{
+    type Output = Var<InternalNeg<A, T>, A>;
+    fn neg(self) -> Self::Output {
+        Var::new(Rc::new(InternalNeg::new(self.repr)), self.upstream.clone())
+    }
+}
