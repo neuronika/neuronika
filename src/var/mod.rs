@@ -2,57 +2,29 @@ pub(super) mod numeric;
 pub(super) mod reprs;
 
 use itertools::Itertools;
-use num_traits::{Float, One, Zero};
 use numeric::DataRepr;
-use reprs::*;
+use reprs::{
+    Borrow, InternalAdd, InternalDiv, InternalDot, InternalExp, InternalLn, InternalMul,
+    InternalNeg, InternalPow, InternalReLU, InternalRepr, InternalSigmoid, InternalSub,
+    InternalSum, InternalT, InternalVecDot, Parameter,
+};
 use std::cell::{Ref, RefCell};
-use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::ops::{Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
 // A pointer to a node in the computational graph.
-pub struct Var<T, A>
+pub struct Var<T>
 where
     T: InternalRepr,
-    A: 'static
-        + Copy
-        + Debug
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Zero
-        + One
-        + Send
-        + Sync,
 {
     repr: Rc<T>,
-    grad: Option<RefCell<DataRepr<A>>>,
-    upstream: Vec<Var<Parameter<A>, A>>,
+    grad: Option<RefCell<DataRepr>>,
+    upstream: Vec<Var<Parameter>>,
 }
 
-impl<T, A> Clone for Var<T, A>
+impl<T> Clone for Var<T>
 where
     T: InternalRepr,
-    A: Copy
-        + Debug
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Zero
-        + One
-        + Send
-        + Sync,
 {
     fn clone(&self) -> Self {
         Var {
@@ -63,52 +35,21 @@ where
     }
 }
 
-impl<A> Var<Parameter<A>, A>
-where
-    A: Copy
-        + Debug
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Zero
-        + One
-        + Send
-        + Sync,
-{
-    fn as_ptr(&self) -> *const Parameter<A> {
-        self.repr.deref() as *const Parameter<A>
+impl Var<Parameter> {
+    fn as_ptr(&self) -> *const Parameter {
+        self.repr.deref() as *const Parameter
     }
 
-    pub fn grad(&self) -> Ref<DataRepr<A>> {
+    pub fn grad(&self) -> Ref<DataRepr> {
         self.repr.deref().grad.borrow()
     }
 }
 
-impl<T, A> Var<T, A>
+impl<T> Var<T>
 where
-    T: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-    A: Copy
-        + Debug
-        + Neg<Output = A>
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Zero
-        + One
-        + Send
-        + Sync,
+    T: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    pub(super) fn new(repr: Rc<T>, upstream: Vec<Var<Parameter<A>, A>>) -> Self {
+    pub(super) fn new(repr: Rc<T>, upstream: Vec<Var<Parameter>>) -> Self {
         Var {
             repr: repr,
             grad: None,
@@ -128,7 +69,7 @@ where
         self.repr.clear();
     }
 
-    pub fn upstream(&self) -> &[Var<Parameter<A>, A>] {
+    pub fn upstream(&self) -> &[Var<Parameter>] {
         &self.upstream[..]
     }
 
@@ -138,12 +79,12 @@ where
         }
     }
 
-    pub fn upstream_mut(&mut self) -> &mut [Var<Parameter<A>, A>] {
+    pub fn upstream_mut(&mut self) -> &mut [Var<Parameter>] {
         &mut self.upstream[..]
     }
 
-    pub fn backward(&mut self, seed: A) {
-        let data_ref: &DataRepr<A> = &self.repr.data();
+    pub fn backward(&mut self, seed: f32) {
+        let data_ref: &DataRepr = &self.repr.data();
         self.grad
             .get_or_insert_with(|| RefCell::new(data_ref.map(|_| seed)))
             .borrow_mut()
@@ -154,9 +95,9 @@ where
         }
     }
 
-    pub fn dot<U>(&self, other: &Var<U, A>) -> Var<InternalVecDot<A, T, U>, A>
+    pub fn dot<U>(&self, other: &Var<U>) -> Var<InternalVecDot<T, U>>
     where
-        U: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+        U: InternalRepr<Data = DataRepr, Grad = DataRepr>,
     {
         Var::new(
             Rc::new(InternalVecDot::new(
@@ -167,9 +108,9 @@ where
         )
     }
 
-    pub fn mm<U>(&self, other: &Var<U, A>) -> Var<InternalDot<A, T, U>, A>
+    pub fn mm<U>(&self, other: &Var<U>) -> Var<InternalDot<T, U>>
     where
-        U: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+        U: InternalRepr<Data = DataRepr, Grad = DataRepr>,
     {
         Var::new(
             Rc::new(InternalDot::new(
@@ -180,63 +121,57 @@ where
         )
     }
 
-    pub fn pow(&self, exp: u16) -> Var<InternalPow<A, T>, A>
-    where
-        A: TryFrom<u16>,
-    {
+    pub fn pow(&self, exp: u16) -> Var<InternalPow<T>> {
         Var::new(
             Rc::new(InternalPow::new(Rc::clone(&self.repr), exp)),
             self.upstream.clone(),
         )
     }
 
-    pub fn sum(&self) -> Var<InternalSum<A, T>, A> {
+    pub fn sum(&self) -> Var<InternalSum<T>> {
         Var::new(
             Rc::new(InternalSum::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn relu(&self) -> Var<InternalReLU<A, T>, A>
-    where
-        A: PartialOrd,
-    {
+    pub fn relu(&self) -> Var<InternalReLU<T>> {
         Var::new(
             Rc::new(InternalReLU::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn ln(&self) -> Var<InternalLn<A, T>, A>
-    where
-        A: Float,
-    {
+    pub fn sigmoid(&self) -> Var<InternalSigmoid<T>> {
+        Var::new(
+            Rc::new(InternalSigmoid::new(Rc::clone(&self.repr))),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn ln(&self) -> Var<InternalLn<T>> {
         Var::new(
             Rc::new(InternalLn::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
+
+    pub fn exp(&self) -> Var<InternalExp<T>> {
+        Var::new(
+            Rc::new(InternalExp::new(Rc::clone(&self.repr))),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn t(&self) -> Var<InternalT<T>> {
+        Var::new(
+            Rc::new(InternalT::new(Rc::clone(&self.repr))),
+            self.upstream.clone(),
+        )
+    }
 }
 
-fn track_upstream<
-    A: Debug
-        + Copy
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Zero
-        + One
-        + Send
-        + Sync,
->(
-    lhs_up: &[Var<Parameter<A>, A>],
-    rhs_up: &[Var<Parameter<A>, A>],
-) -> Vec<Var<Parameter<A>, A>> {
+fn track_upstream(lhs_up: &[Var<Parameter>], rhs_up: &[Var<Parameter>]) -> Vec<Var<Parameter>> {
     lhs_up
         .iter()
         .merge_join_by(rhs_up.iter(), |lhs_par, rhs_par| {
@@ -253,28 +188,13 @@ fn track_upstream<
 
 macro_rules! impl_node_arithmetic_ops {
     ($trait:ident, $fun:ident, $repr:ident) => {
-        impl<A, LHS, RHS> $trait<Var<RHS, A>> for Var<LHS, A>
+        impl<LHS, RHS> $trait<Var<RHS>> for Var<LHS>
         where
-            A: Copy
-                + Debug
-                + Add<Output = A>
-                + Sub<Output = A>
-                + Mul<Output = A>
-                + Div<Output = A>
-                + AddAssign
-                + SubAssign
-                + MulAssign
-                + DivAssign
-                + Zero
-                + One
-                + Send
-                + Sync
-                + Neg<Output = A>,
-            RHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-            LHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+            RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+            LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
         {
-            type Output = Var<$repr<A, LHS, RHS>, A>;
-            fn $fun(self, other: Var<RHS, A>) -> Self::Output {
+            type Output = Var<$repr<LHS, RHS>>;
+            fn $fun(self, other: Var<RHS>) -> Self::Output {
                 Var::new(
                     Rc::new($repr::new(self.repr, other.repr)),
                     track_upstream(&self.upstream, &other.upstream),
@@ -289,26 +209,11 @@ impl_node_arithmetic_ops!(Sub, sub, InternalSub);
 impl_node_arithmetic_ops!(Mul, mul, InternalMul);
 impl_node_arithmetic_ops!(Div, div, InternalDiv);
 
-impl<T, A> Neg for Var<T, A>
+impl<T> Neg for Var<T>
 where
-    A: Copy
-        + Debug
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Zero
-        + One
-        + Send
-        + Sync
-        + Neg<Output = A>,
-    T: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    T: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Output = Var<InternalNeg<A, T>, A>;
+    type Output = Var<InternalNeg<T>>;
     fn neg(self) -> Self::Output {
         Var::new(Rc::new(InternalNeg::new(self.repr)), self.upstream.clone())
     }

@@ -1,16 +1,16 @@
 use super::Var;
-use num_traits::{pow, Float, One, Zero};
+use num_traits::pow;
 use std::cell::{Ref, RefCell};
-use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::ops::{Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::Deref;
 use std::rc::Rc;
 
 use super::numeric::{
-    add, add_assign, add_assign_v, assign, assign_v, div, div_assign_pow, mat_mat_mul, mat_vec_mul,
-    mul, pow_diff_add_assign, pow_diff_assign, relu_diff_add_assign, relu_diff_assign,
-    relu_forward, scaled_add_assign, scaled_assign, sub, sub_assign, BackwardAction, DataRepr,
-    ForwardAction, PassCounter,
+    add, add_assign, add_assign_v, assign, assign_v, div, div_assign_pow, exp_diff_add_assign,
+    exp_diff_assign, exp_forward, mat_mat_mul, mat_vec_mul, mul, pow_diff_add_assign,
+    pow_diff_assign, pow_forward, relu_diff_add_assign, relu_diff_assign, relu_forward,
+    scaled_add_assign, scaled_assign, sigmoid_diff_add_assign, sigmoid_diff_assign,
+    sigmoid_forward, sub, sub_assign, BackwardAction, DataRepr, ForwardAction, PassCounter,
 };
 
 #[derive(Debug)]
@@ -39,11 +39,9 @@ pub trait InternalRepr: Debug + 'static {
     fn clear(&self);
 }
 
-impl<A: 'static + Copy> InternalRepr
-    for Rc<dyn InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>>
-{
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+impl InternalRepr for Rc<dyn InternalRepr<Data = DataRepr, Grad = DataRepr>> {
+    type Data = DataRepr;
+    type Grad = DataRepr;
     fn forward(&self) {
         self.deref().forward()
     }
@@ -62,30 +60,13 @@ impl<A: 'static + Copy> InternalRepr
 }
 
 #[derive(Debug)]
-pub struct Parameter<A: 'static + Copy> {
-    pub(crate) data: RefCell<DataRepr<A>>,
-    pub(crate) grad: RefCell<DataRepr<A>>,
+pub struct Parameter {
+    pub(crate) data: RefCell<DataRepr>,
+    pub(crate) grad: RefCell<DataRepr>,
 }
 
-impl<A> Parameter<A>
-where
-    A: Copy
-        + Debug
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Neg<Output = A>
-        + Zero
-        + One
-        + Send
-        + Sync,
-{
-    pub fn new(data: DataRepr<A>) -> Var<Self, A> {
+impl Parameter {
+    pub fn new(data: DataRepr) -> Var<Self> {
         let zeroed_data = data.zeros();
         let node = Rc::new(Parameter {
             data: RefCell::new(data),
@@ -96,7 +77,7 @@ where
         Var::new(node, upstream)
     }
 
-    pub fn grad(&self) -> Borrow<DataRepr<A>> {
+    pub fn grad(&self) -> Borrow<DataRepr> {
         Borrow::FromRefCell(self.grad.borrow())
     }
 
@@ -105,25 +86,9 @@ where
     }
 }
 
-impl<A> InternalRepr for Parameter<A>
-where
-    A: Copy
-        + Debug
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Zero
-        + One
-        + Send
-        + Sync,
-{
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+impl InternalRepr for Parameter {
+    type Data = DataRepr;
+    type Grad = DataRepr;
     fn forward(&self) {}
     fn backward(&self, gradient: &Ref<Self::Grad>) {
         add_assign(&mut self.grad.borrow_mut(), gradient);
@@ -138,29 +103,12 @@ where
 }
 
 #[derive(Debug)]
-pub struct Input<A: Copy> {
-    pub(crate) data: RefCell<DataRepr<A>>,
+pub struct Input {
+    pub(crate) data: RefCell<DataRepr>,
 }
 
-impl<A> Input<A>
-where
-    A: Copy
-        + Debug
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + Neg<Output = A>
-        + Zero
-        + One
-        + Send
-        + Sync,
-{
-    pub fn new(data: DataRepr<A>) -> Var<Self, A> {
+impl Input {
+    pub fn new(data: DataRepr) -> Var<Self> {
         Var::new(
             Rc::new(Input {
                 data: RefCell::new(data),
@@ -170,9 +118,9 @@ where
     }
 }
 
-impl<A: 'static + Copy + Debug> InternalRepr for Input<A> {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+impl InternalRepr for Input {
+    type Data = DataRepr;
+    type Grad = DataRepr;
     fn forward(&self) {}
     fn backward(&self, _: &Ref<Self::Grad>) {}
     fn data(&self) -> Borrow<Self::Data> {
@@ -185,21 +133,17 @@ impl<A: 'static + Copy + Debug> InternalRepr for Input<A> {
 }
 
 #[derive(Debug)]
-pub struct InternalNeg<A, OP>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    grad: RefCell<DataRepr<A>>,
+pub struct InternalNeg<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
     operand: Rc<OP>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, OP> InternalNeg<A, OP>
+impl<OP> InternalNeg<OP>
 where
-    A: Copy + Send + Sync + Zero + One + Neg<Output = A>,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = -operand.data().deref();
@@ -216,28 +160,12 @@ where
     }
 }
 
-impl<A, OP> InternalRepr for InternalNeg<A, OP>
+impl<OP> InternalRepr for InternalNeg<OP>
 where
-    A: 'static
-        + Copy
-        + Debug
-        + Zero
-        + One
-        + Send
-        + Sync
-        + Neg<Output = A>
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -249,16 +177,14 @@ where
         scaled_assign(
             &mut self.data.borrow_mut(),
             self.operand.data().deref(),
-            A::one().neg(),
+            -1.0,
         );
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         match self.counter.backward_action() {
-            BackwardAction::Set => scaled_assign(&mut self.grad.borrow_mut(), grad, A::one().neg()),
-            BackwardAction::Increment => {
-                scaled_add_assign(&mut self.grad.borrow_mut(), grad, A::one().neg())
-            }
+            BackwardAction::Set => scaled_assign(&mut self.grad.borrow_mut(), grad, -1.0),
+            BackwardAction::Increment => scaled_add_assign(&mut self.grad.borrow_mut(), grad, -1.0),
         }
 
         if self.counter.recurse_backward() {
@@ -283,37 +209,20 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalAdd<A, LHS, RHS>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    lhs_grad: RefCell<DataRepr<A>>,
-    rhs_grad: RefCell<DataRepr<A>>,
+pub struct InternalAdd<LHS, RHS> {
+    data: RefCell<DataRepr>,
+    lhs_grad: RefCell<DataRepr>,
+    rhs_grad: RefCell<DataRepr>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, LHS, RHS> InternalAdd<A, LHS, RHS>
+impl<LHS, RHS> InternalAdd<LHS, RHS>
 where
-    A: Copy
-        + Zero
-        + One
-        + Neg
-        + Send
-        + Sync
-        + Add<Output = A>
-        + Div<Output = A>
-        + Mul<Output = A>
-        + Sub<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -333,29 +242,13 @@ where
     }
 }
 
-impl<A, LHS, RHS> InternalRepr for InternalAdd<A, LHS, RHS>
+impl<LHS, RHS> InternalRepr for InternalAdd<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg
-        + Send
-        + Sync
-        + Add<Output = A>
-        + AddAssign
-        + Sub<Output = A>
-        + SubAssign
-        + Mul<Output = A>
-        + MulAssign
-        + Div<Output = A>
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -407,37 +300,20 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalSub<A, LHS, RHS>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    lhs_grad: RefCell<DataRepr<A>>,
-    rhs_grad: RefCell<DataRepr<A>>,
+pub struct InternalSub<LHS, RHS> {
+    data: RefCell<DataRepr>,
+    lhs_grad: RefCell<DataRepr>,
+    rhs_grad: RefCell<DataRepr>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, LHS, RHS> InternalSub<A, LHS, RHS>
+impl<LHS, RHS> InternalSub<LHS, RHS>
 where
-    A: Copy
-        + Zero
-        + One
-        + Neg
-        + Send
-        + Sync
-        + Add<Output = A>
-        + Div<Output = A>
-        + Mul<Output = A>
-        + Sub<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -457,29 +333,13 @@ where
     }
 }
 
-impl<A, LHS, RHS> InternalRepr for InternalSub<A, LHS, RHS>
+impl<LHS, RHS> InternalRepr for InternalSub<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg<Output = A>
-        + Send
-        + Sync
-        + Add<Output = A>
-        + AddAssign
-        + Sub<Output = A>
-        + SubAssign
-        + Mul<Output = A>
-        + MulAssign
-        + Div<Output = A>
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -499,11 +359,7 @@ where
         match self.counter.backward_action() {
             BackwardAction::Set => {
                 assign(&mut self.lhs_grad.borrow_mut(), grad.deref());
-                scaled_assign(
-                    &mut self.rhs_grad.borrow_mut(),
-                    grad.deref(),
-                    A::one().neg(),
-                );
+                scaled_assign(&mut self.rhs_grad.borrow_mut(), grad.deref(), -1.0);
             }
             BackwardAction::Increment => {
                 add_assign(&mut self.lhs_grad.borrow_mut(), grad.deref());
@@ -535,37 +391,20 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalMul<A, LHS, RHS>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    lhs_grad: RefCell<DataRepr<A>>,
-    rhs_grad: RefCell<DataRepr<A>>,
+pub struct InternalMul<LHS, RHS> {
+    data: RefCell<DataRepr>,
+    lhs_grad: RefCell<DataRepr>,
+    rhs_grad: RefCell<DataRepr>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, LHS, RHS> InternalMul<A, LHS, RHS>
+impl<LHS, RHS> InternalMul<LHS, RHS>
 where
-    A: Copy
-        + Zero
-        + One
-        + Neg
-        + Send
-        + Sync
-        + Add<Output = A>
-        + Div<Output = A>
-        + Mul<Output = A>
-        + Sub<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -585,29 +424,13 @@ where
     }
 }
 
-impl<A, LHS, RHS> InternalRepr for InternalMul<A, LHS, RHS>
+impl<LHS, RHS> InternalRepr for InternalMul<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg<Output = A>
-        + Send
-        + Sync
-        + Add<Output = A>
-        + AddAssign
-        + Sub<Output = A>
-        + SubAssign
-        + Mul<Output = A>
-        + MulAssign
-        + Div<Output = A>
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -671,37 +494,20 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalDiv<A, LHS, RHS>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    lhs_grad: RefCell<DataRepr<A>>,
-    rhs_grad: RefCell<DataRepr<A>>,
+pub struct InternalDiv<LHS, RHS> {
+    data: RefCell<DataRepr>,
+    lhs_grad: RefCell<DataRepr>,
+    rhs_grad: RefCell<DataRepr>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, LHS, RHS> InternalDiv<A, LHS, RHS>
+impl<LHS, RHS> InternalDiv<LHS, RHS>
 where
-    A: Copy
-        + Zero
-        + One
-        + Neg
-        + Send
-        + Sync
-        + Add<Output = A>
-        + Div<Output = A>
-        + Mul<Output = A>
-        + Sub<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -721,29 +527,13 @@ where
     }
 }
 
-impl<A, LHS, RHS> InternalRepr for InternalDiv<A, LHS, RHS>
+impl<LHS, RHS> InternalRepr for InternalDiv<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg<Output = A>
-        + Send
-        + Sync
-        + Add<Output = A>
-        + AddAssign
-        + Sub<Output = A>
-        + SubAssign
-        + Mul<Output = A>
-        + MulAssign
-        + Div<Output = A>
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -767,7 +557,7 @@ where
                     grad.deref() / &self.rhs.data(),
                 );
                 let mut tmp = grad.deref() * &self.lhs.data();
-                tmp.map_inplace(|el| *el * A::one().neg());
+                tmp.map_inplace(|el| el * -1.0);
                 div_assign_pow(&mut tmp, &self.rhs.data(), 2);
                 assign_v(&mut self.rhs_grad.borrow_mut(), tmp);
             }
@@ -778,7 +568,7 @@ where
                     grad.deref() / &self.rhs.data(),
                 );
                 let mut tmp = grad.deref() * &self.lhs.data();
-                tmp.map_inplace(|el| *el * A::one().neg());
+                tmp.map_inplace(|el| el * -1.0);
                 div_assign_pow(&mut tmp, &self.rhs.data(), 2);
                 add_assign_v(&mut self.lhs_grad.borrow_mut(), tmp);
             }
@@ -808,40 +598,21 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalDot<A, LHS, RHS>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    grad: RefCell<DataRepr<A>>,
-    lhs_grad: RefCell<DataRepr<A>>,
-    rhs_grad: RefCell<DataRepr<A>>,
+pub struct InternalDot<LHS, RHS> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
+    lhs_grad: RefCell<DataRepr>,
+    rhs_grad: RefCell<DataRepr>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, LHS, RHS> InternalDot<A, LHS, RHS>
+impl<LHS, RHS> InternalDot<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg
-        + Send
-        + Sync
-        + Add<Output = A>
-        + Div<Output = A>
-        + Mul<Output = A>
-        + Sub<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -873,29 +644,13 @@ where
     }
 }
 
-impl<A, LHS, RHS> InternalRepr for InternalDot<A, LHS, RHS>
+impl<LHS, RHS> InternalRepr for InternalDot<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg<Output = A>
-        + Send
-        + Sync
-        + Add<Output = A>
-        + AddAssign
-        + Sub<Output = A>
-        + SubAssign
-        + Mul<Output = A>
-        + MulAssign
-        + Div<Output = A>
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -908,20 +663,20 @@ where
         match self.rhs.data().deref() {
             DataRepr::Matrix(_) => mat_mat_mul(
                 &mut self.data.borrow_mut(),
-                A::one(),
+                1.0,
                 self.lhs.data().deref(),
                 self.rhs.data().deref(),
-                A::zero(),
+                0.0,
                 false,
                 false,
             ),
 
             DataRepr::Vector(_) => mat_vec_mul(
                 &mut self.data.borrow_mut(),
-                A::one(),
+                1.0,
                 self.lhs.data().deref(),
                 self.rhs.data().deref(),
-                A::zero(),
+                0.0,
             ),
             _ => panic!("error: attempted matrix product on two vectors."),
         }
@@ -946,19 +701,19 @@ where
                 DataRepr::Matrix(_) => {
                     mat_mat_mul(
                         &mut self.lhs_grad.borrow_mut(),
-                        A::one(),
+                        1.0,
                         grad.deref(),
                         &rhs_data,
-                        A::zero(),
+                        0.0,
                         false,
                         true,
                     );
                     mat_mat_mul(
                         &mut self.rhs_grad.borrow_mut(),
-                        A::one(),
+                        1.0,
                         &lhs_data,
                         grad.deref(),
-                        A::zero(),
+                        0.0,
                         true,
                         false,
                     );
@@ -971,10 +726,10 @@ where
                         );
                         mat_vec_mul(
                             &mut self.rhs_grad.borrow_mut(),
-                            A::one(),
+                            1.0,
                             &lhs_data,
                             grad.deref(),
-                            A::zero(),
+                            0.0,
                         );
                     } else {
                         panic!("error: the gradient of rhs should be a vector");
@@ -1005,39 +760,20 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalVecDot<A, LHS, RHS>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    lhs_grad: RefCell<DataRepr<A>>,
-    rhs_grad: RefCell<DataRepr<A>>,
+pub struct InternalVecDot<LHS, RHS> {
+    data: RefCell<DataRepr>,
+    lhs_grad: RefCell<DataRepr>,
+    rhs_grad: RefCell<DataRepr>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, LHS, RHS> InternalVecDot<A, LHS, RHS>
+impl<LHS, RHS> InternalVecDot<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg<Output = A>
-        + Send
-        + Sync
-        + Add<Output = A>
-        + AddAssign
-        + Sub<Output = A>
-        + SubAssign
-        + Mul<Output = A>
-        + MulAssign
-        + Div<Output = A>
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -1063,29 +799,13 @@ where
     }
 }
 
-impl<A, LHS, RHS> InternalRepr for InternalVecDot<A, LHS, RHS>
+impl<LHS, RHS> InternalRepr for InternalVecDot<LHS, RHS>
 where
-    A: 'static
-        + Debug
-        + Copy
-        + Zero
-        + One
-        + Neg<Output = A>
-        + Send
-        + Sync
-        + Add<Output = A>
-        + AddAssign
-        + Sub<Output = A>
-        + SubAssign
-        + Mul<Output = A>
-        + MulAssign
-        + Div<Output = A>
-        + DivAssign,
-    LHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
-    RHS: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1166,25 +886,21 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalPow<A, OP>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    grad: RefCell<DataRepr<A>>,
+pub struct InternalPow<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
     operand: Rc<OP>,
     exp: u16,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, OP> InternalPow<A, OP>
+impl<OP> InternalPow<OP>
 where
-    A: Copy + Send + Sync + Zero + One + Neg<Output = A>,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>, exp: u16) -> Self {
-        let data = operand.data().deref().map(|el| pow(*el, exp as usize));
+        let data = operand.data().deref().map(|el| pow(el, exp as usize));
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
@@ -1199,29 +915,12 @@ where
     }
 }
 
-impl<A, OP> InternalRepr for InternalPow<A, OP>
+impl<OP> InternalRepr for InternalPow<OP>
 where
-    A: 'static
-        + Copy
-        + Debug
-        + Zero
-        + One
-        + Send
-        + Sync
-        + Neg<Output = A>
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + TryFrom<u16>,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1231,8 +930,7 @@ where
         self.operand.forward();
 
         let (mut data, exp) = { (self.data.borrow_mut(), self.exp) };
-        assign(&mut data, self.operand.data().deref());
-        data.map_inplace(|x| pow(*x, exp as usize));
+        pow_forward(&mut data, self.operand.data().deref(), exp);
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
@@ -1273,21 +971,17 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalSum<A, OP>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    grad: RefCell<DataRepr<A>>,
+pub struct InternalSum<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
     operand: Rc<OP>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, OP> InternalSum<A, OP>
+impl<OP> InternalSum<OP>
 where
-    A: Copy + Send + Sync + Zero + One,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().sum();
@@ -1304,28 +998,12 @@ where
     }
 }
 
-impl<A, OP> InternalRepr for InternalSum<A, OP>
+impl<OP> InternalRepr for InternalSum<OP>
 where
-    A: 'static
-        + Copy
-        + Debug
-        + Zero
-        + One
-        + Send
-        + Sync
-        + Neg<Output = A>
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1365,21 +1043,17 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalLn<A, OP>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    grad: RefCell<DataRepr<A>>,
+pub struct InternalLn<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
     operand: Rc<OP>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, OP> InternalLn<A, OP>
+impl<OP> InternalLn<OP>
 where
-    A: Copy + Send + Sync + Float,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().map(|el| el.ln());
@@ -1396,13 +1070,12 @@ where
     }
 }
 
-impl<A, OP> InternalRepr for InternalLn<A, OP>
+impl<OP> InternalRepr for InternalLn<OP>
 where
-    A: 'static + Copy + Debug + Send + Sync + AddAssign + SubAssign + MulAssign + DivAssign + Float,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1448,27 +1121,23 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalReLU<A, OP>
-where
-    A: Copy,
-{
-    data: RefCell<DataRepr<A>>,
-    grad: RefCell<DataRepr<A>>,
+pub struct InternalReLU<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
     operand: Rc<OP>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<A, OP> InternalReLU<A, OP>
+impl<OP> InternalReLU<OP>
 where
-    A: Copy + Send + Sync + Zero + One + PartialOrd,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand
             .data()
             .deref()
-            .map(|el| if *el > A::zero() { A::zero() } else { *el });
+            .map(|el| if el > 0.0 { 0.0 } else { el });
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
@@ -1482,29 +1151,12 @@ where
     }
 }
 
-impl<A, OP> InternalRepr for InternalReLU<A, OP>
+impl<OP> InternalRepr for InternalReLU<OP>
 where
-    A: 'static
-        + Copy
-        + Debug
-        + Zero
-        + One
-        + Send
-        + Sync
-        + Neg<Output = A>
-        + Add<Output = A>
-        + Sub<Output = A>
-        + Mul<Output = A>
-        + Div<Output = A>
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + DivAssign
-        + PartialOrd,
-    OP: InternalRepr<Data = DataRepr<A>, Grad = DataRepr<A>>,
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
 {
-    type Data = DataRepr<A>;
-    type Grad = DataRepr<A>;
+    type Data = DataRepr;
+    type Grad = DataRepr;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1523,6 +1175,234 @@ where
             BackwardAction::Increment => {
                 relu_diff_add_assign(&mut self.grad.borrow_mut(), grad, &self.data())
             }
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalSigmoid<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP> InternalSigmoid<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(operand: Rc<OP>) -> Self {
+        let data = operand.data().deref().map(|el| {
+            if el >= 15.0 {
+                1.0
+            } else if el <= -15.0 {
+                0.0
+            } else {
+                1.0 / (1.0 + (-el).exp())
+            }
+        });
+
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalSigmoid {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP> InternalRepr for InternalSigmoid<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+        sigmoid_forward(&mut self.data.borrow_mut(), &self.operand.data());
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                sigmoid_diff_assign(&mut self.grad.borrow_mut(), grad, &self.data())
+            }
+            BackwardAction::Increment => {
+                sigmoid_diff_add_assign(&mut self.grad.borrow_mut(), grad, &self.data())
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalExp<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP> InternalExp<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(operand: Rc<OP>) -> Self {
+        let data = operand.data().deref().map(|el| el.exp());
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalExp {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP> InternalRepr for InternalExp<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+        exp_forward(&mut self.data.borrow_mut(), &self.operand.data());
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => exp_diff_assign(&mut self.grad.borrow_mut(), grad, &self.data()),
+            BackwardAction::Increment => {
+                exp_diff_add_assign(&mut self.grad.borrow_mut(), grad, &self.data())
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalT<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP> InternalT<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(operand: Rc<OP>) -> Self {
+        let data = operand.data().deref().t();
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalT {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP> InternalRepr for InternalT<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+        assign(&mut self.data.borrow_mut(), &self.operand.data().t());
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => assign(&mut self.grad.borrow_mut(), &grad.t()),
+            BackwardAction::Increment => add_assign(&mut self.grad.borrow_mut(), &grad.t()),
         }
 
         if self.counter.recurse_backward() {

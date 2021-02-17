@@ -22,7 +22,7 @@ fn add_test() {
 
     // Scalar + Vector.
     let res = &scalar + &vector;
-    let scalar_vector_res: &Vector<f32> = (res).vector();
+    let scalar_vector_res: &Vector = (res).vector();
     assert_eq!(*scalar_vector_res, array![2.0, 3.0, 4.0]);
 
     // Scalar + Vector forward.
@@ -32,7 +32,7 @@ fn add_test() {
 
     // Scalar + Matrix.
     let res = &scalar + &matrix;
-    let scalar_matrix_res: &Matrix<f32> = (res).matrix();
+    let scalar_matrix_res: &Matrix = (res).matrix();
     assert_eq!(
         *scalar_matrix_res,
         array![[2.0, 3.0, 4.0], [5.0, 6.0, 7.0], [8.0, 9.0, 10.0]]
@@ -46,7 +46,7 @@ fn add_test() {
 
     // Vector + Scalar.
     let res = &vector + &scalar;
-    let vector_scalar_res: &Vector<f32> = (res).vector();
+    let vector_scalar_res: &Vector = (res).vector();
     assert_eq!(*vector_scalar_res, *scalar_vector_res);
 
     // Vector + Scalar forward.
@@ -56,7 +56,7 @@ fn add_test() {
 
     // Vector + Vector.
     let res = &vector + &DataRepr::Vector(array![3.0, 2.0, 1.0]);
-    let vector_vector_res: &Vector<f32> = res.vector();
+    let vector_vector_res: &Vector = res.vector();
     assert_eq!(*vector_vector_res, array![4.0, 4.0, 4.0]);
 
     // Vector + Vector forward.
@@ -68,9 +68,23 @@ fn add_test() {
     );
     assert_eq!(*forward_vec_res.vector(), *vector_vector_res);
 
+    // Vector + Matrix
+    let res = &vector + &matrix;
+    let vector_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *vector_matrix_res,
+        array![[2.0, 4.0, 6.0], [5.0, 7.0, 9.0], [8.0, 10.0, 12.0]]
+    );
+
+    // Vector + Matrix forward.
+    let mut forward_vec_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    add(&mut forward_vec_res, &vector, &matrix);
+    assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
+
     // Matrix + Scalar.
     let res = &matrix + &scalar;
-    let matrix_scalar_res: &Matrix<f32> = res.matrix();
+    let matrix_scalar_res: &Matrix = res.matrix();
     assert_eq!(*matrix_scalar_res, *scalar_matrix_res);
 
     // Matrix + Scalar forward.
@@ -81,7 +95,7 @@ fn add_test() {
 
     // Matrix + Vector.
     let res = &matrix + &vector;
-    let matrix_vector_res: &Matrix<f32> = res.matrix();
+    let matrix_vector_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_vector_res,
         array![[2.0, 4.0, 6.0], [5.0, 7.0, 9.0], [8.0, 10.0, 12.0]]
@@ -96,7 +110,7 @@ fn add_test() {
     // Matrix + Matrix.
     let res =
         &matrix + &DataRepr::Matrix(array![[9.0, 8.0, 7.0], [6.0, 5.0, 4.0], [3.0, 2.0, 1.0]]);
-    let matrix_matrix_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_res,
         array![[10.0, 10.0, 10.0], [10.0, 10.0, 10.0], [10.0, 10.0, 10.0]]
@@ -114,7 +128,7 @@ fn add_test() {
 
     // Matrix + Matrix broadcast.
     let res = &matrix + &DataRepr::Matrix(array![[1.0, 2.0, 3.0]]);
-    let matrix_matrix_b_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_b_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_b_res,
         array![[2.0, 4.0, 6.0], [5.0, 7.0, 9.0], [8.0, 10.0, 12.0]]
@@ -148,7 +162,7 @@ fn sub_test() {
 
     // Scalar - Vector.
     let res = &scalar - &vector;
-    let scalar_vector_res: &Vector<f32> = (res).vector();
+    let scalar_vector_res: &Vector = (res).vector();
     assert_eq!(*scalar_vector_res, array![0.0, -1.0, -2.0]);
 
     // Scalar - Vector forward.
@@ -158,7 +172,7 @@ fn sub_test() {
 
     // Scalar - Matrix.
     let res = &scalar - &matrix;
-    let scalar_matrix_res: &Matrix<f32> = (res).matrix();
+    let scalar_matrix_res: &Matrix = (res).matrix();
     assert_eq!(
         *scalar_matrix_res,
         array![[0.0, -1.0, -2.0], [-3.0, -4.0, -5.0], [-6.0, -7.0, -8.0]]
@@ -172,7 +186,7 @@ fn sub_test() {
 
     // Vector - Scalar.
     let res = &vector - &scalar;
-    let vector_scalar_res: &Vector<f32> = (res).vector();
+    let vector_scalar_res: &Vector = (res).vector();
     assert_eq!(*vector_scalar_res, -scalar_vector_res);
 
     // Vector - Scalar forward.
@@ -182,7 +196,7 @@ fn sub_test() {
 
     // Vector - Vector.
     let res = &vector - &DataRepr::Vector(array![3.0, 2.0, 1.0]);
-    let vector_vector_res: &Vector<f32> = res.vector();
+    let vector_vector_res: &Vector = res.vector();
     assert_eq!(*vector_vector_res, array![-2.0, 0.0, 2.0]);
 
     // Vector - Vector forward.
@@ -194,9 +208,23 @@ fn sub_test() {
     );
     assert_eq!(*forward_vec_res.vector(), *vector_vector_res);
 
+    // Vector - Matrix
+    let res = &vector - &matrix;
+    let vector_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *vector_matrix_res,
+        array![[0.0, 0.0, 0.0], [-3.0, -3.0, -3.0], [-6.0, -6.0, -6.0]]
+    );
+
+    // Vector - Matrix forward.
+    let mut forward_vec_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    sub(&mut forward_vec_res, &vector, &matrix);
+    assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
+
     // Matrix - Scalar.
     let res = &matrix - &scalar;
-    let matrix_scalar_res: &Matrix<f32> = res.matrix();
+    let matrix_scalar_res: &Matrix = res.matrix();
     assert_eq!(*matrix_scalar_res, -scalar_matrix_res);
 
     // Matrix - Scalar forward.
@@ -207,7 +235,7 @@ fn sub_test() {
 
     // Matrix - Vector.
     let res = &matrix - &vector;
-    let matrix_vector_res: &Matrix<f32> = res.matrix();
+    let matrix_vector_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_vector_res,
         array![[0.0, 0.0, 0.0], [3.0, 3.0, 3.0], [6.0, 6.0, 6.0]]
@@ -222,7 +250,7 @@ fn sub_test() {
     // Matrix - Matrix.
     let res =
         &matrix - &DataRepr::Matrix(array![[9.0, 8.0, 7.0], [6.0, 5.0, 4.0], [3.0, 2.0, 1.0]]);
-    let matrix_matrix_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_res,
         array![[-8.0, -6.0, -4.0], [-2.0, 0.0, 2.0], [4.0, 6.0, 8.0]]
@@ -240,7 +268,7 @@ fn sub_test() {
 
     // Matrix - Matrix broadcast.
     let res = &matrix - &DataRepr::Matrix(array![[1.0, 2.0, 3.0]]);
-    let matrix_matrix_b_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_b_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_b_res,
         array![[0.0, 0.0, 0.0], [3.0, 3.0, 3.0], [6.0, 6.0, 6.0]]
@@ -274,7 +302,7 @@ fn mul_test() {
 
     // Scalar * Vector.
     let res = &scalar * &vector;
-    let scalar_vector_res: &Vector<f32> = (res).vector();
+    let scalar_vector_res: &Vector = (res).vector();
     assert_eq!(*scalar_vector_res, array![3.0, 6.0, 9.0]);
 
     // Scalar * Vector forward.
@@ -284,7 +312,7 @@ fn mul_test() {
 
     // Scalar * Matrix.
     let res = &scalar * &matrix;
-    let scalar_matrix_res: &Matrix<f32> = (res).matrix();
+    let scalar_matrix_res: &Matrix = (res).matrix();
     assert_eq!(
         *scalar_matrix_res,
         array![[3.0, 6.0, 9.0], [12.0, 15.0, 18.0], [21.0, 24.0, 27.0]]
@@ -298,7 +326,7 @@ fn mul_test() {
 
     // Vector * Scalar.
     let res = &vector * &scalar;
-    let vector_scalar_res: &Vector<f32> = (res).vector();
+    let vector_scalar_res: &Vector = (res).vector();
     assert_eq!(*vector_scalar_res, *scalar_vector_res);
 
     // Vector * Scalar forward.
@@ -308,7 +336,7 @@ fn mul_test() {
 
     // Vector * Vector.
     let res = &vector * &DataRepr::Vector(array![3.0, 2.0, 1.0]);
-    let vector_vector_res: &Vector<f32> = res.vector();
+    let vector_vector_res: &Vector = res.vector();
     assert_eq!(*vector_vector_res, array![3.0, 4.0, 3.0]);
 
     // Vector * Vector forward.
@@ -320,9 +348,23 @@ fn mul_test() {
     );
     assert_eq!(*forward_vec_res.vector(), *vector_vector_res);
 
+    // Vector * Matrix
+    let res = &vector * &matrix;
+    let vector_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *vector_matrix_res,
+        array![[1.0, 4.0, 9.0], [4.0, 10.0, 18.0], [7.0, 16.0, 27.0]]
+    );
+
+    // Vector * Matrix forward.
+    let mut forward_vec_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    mul(&mut forward_vec_res, &vector, &matrix);
+    assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
+
     // Matrix * Scalar.
     let res = &matrix * &scalar;
-    let matrix_scalar_res: &Matrix<f32> = res.matrix();
+    let matrix_scalar_res: &Matrix = res.matrix();
     assert_eq!(*matrix_scalar_res, *scalar_matrix_res);
 
     // Matrix * Scalar forward.
@@ -333,7 +375,7 @@ fn mul_test() {
 
     // Matrix * Vector.
     let res = &matrix * &vector;
-    let matrix_vector_res: &Matrix<f32> = res.matrix();
+    let matrix_vector_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_vector_res,
         array![[1.0, 4.0, 9.0], [4.0, 10.0, 18.0], [7.0, 16.0, 27.0]]
@@ -348,7 +390,7 @@ fn mul_test() {
     // Matrix * Matrix.
     let res =
         &matrix * &DataRepr::Matrix(array![[9.0, 8.0, 7.0], [6.0, 5.0, 4.0], [3.0, 2.0, 1.0]]);
-    let matrix_matrix_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_res,
         array![[9.0, 16.0, 21.0], [24.0, 25.0, 24.0], [21.0, 16.0, 9.0]]
@@ -366,7 +408,7 @@ fn mul_test() {
 
     // Matrix * Matrix broadcast.
     let res = &matrix * &DataRepr::Matrix(array![[1.0, 2.0, 3.0]]);
-    let matrix_matrix_b_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_b_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_b_res,
         array![[1.0, 4.0, 9.0], [4.0, 10.0, 18.0], [7.0, 16.0, 27.0]]
@@ -400,7 +442,7 @@ fn div_test() {
 
     // Scalar / Vector.
     let res = &scalar / &vector;
-    let scalar_vector_res: &Vector<f32> = (res).vector();
+    let scalar_vector_res: &Vector = (res).vector();
     assert_eq!(*scalar_vector_res, array![1.0, 1.0, 1.0]);
 
     // Scalar / Vector forward.
@@ -410,7 +452,7 @@ fn div_test() {
 
     // Scalar / Matrix.
     let res = &scalar / &matrix;
-    let scalar_matrix_res: &Matrix<f32> = (res).matrix();
+    let scalar_matrix_res: &Matrix = (res).matrix();
     assert_eq!(
         *scalar_matrix_res,
         array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
@@ -424,7 +466,7 @@ fn div_test() {
 
     // Vector / Scalar.
     let res = &vector / &scalar;
-    let vector_scalar_res: &Vector<f32> = (res).vector();
+    let vector_scalar_res: &Vector = (res).vector();
     assert_eq!(*vector_scalar_res, *scalar_vector_res);
 
     // Vector / Scalar forward.
@@ -434,7 +476,7 @@ fn div_test() {
 
     // Vector / Vector.
     let res = &vector / &DataRepr::Vector(array![1.0, 3.0, 6.0]);
-    let vector_vector_res: &Vector<f32> = res.vector();
+    let vector_vector_res: &Vector = res.vector();
     assert_eq!(*vector_vector_res, array![3.0, 1.0, 0.5]);
 
     // Vector / Vector forward.
@@ -446,9 +488,23 @@ fn div_test() {
     );
     assert_eq!(*forward_vec_res.vector(), *vector_vector_res);
 
+    // Vector / Matrix
+    let res = &vector / &matrix;
+    let vector_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *vector_matrix_res,
+        array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+    );
+
+    // Vector / Matrix forward.
+    let mut forward_vec_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    div(&mut forward_vec_res, &vector, &matrix);
+    assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
+
     // Matrix / Scalar.
     let res = &matrix / &scalar;
-    let matrix_scalar_res: &Matrix<f32> = res.matrix();
+    let matrix_scalar_res: &Matrix = res.matrix();
     assert_eq!(*matrix_scalar_res, *scalar_matrix_res);
 
     // Matrix / Scalar forward.
@@ -459,7 +515,7 @@ fn div_test() {
 
     // Matrix / Vector.
     let res = &matrix / &vector;
-    let matrix_vector_res: &Matrix<f32> = res.matrix();
+    let matrix_vector_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_vector_res,
         array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
@@ -474,7 +530,7 @@ fn div_test() {
     // Matrix / Matrix.
     let res =
         &matrix / &DataRepr::Matrix(array![[6.0, 6.0, 6.0], [6.0, 6.0, 6.0], [6.0, 6.0, 6.0]]);
-    let matrix_matrix_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_res,
         array![[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, 0.5]]
@@ -492,7 +548,7 @@ fn div_test() {
 
     // Matrix / Matrix broadcast.
     let res = &matrix / &DataRepr::Matrix(array![[3.0, 6.0, 3.0]]);
-    let matrix_matrix_b_res: &Matrix<f32> = res.matrix();
+    let matrix_matrix_b_res: &Matrix = res.matrix();
     assert_eq!(
         *matrix_matrix_b_res,
         array![[1.0, 0.5, 1.0], [1.0, 0.5, 1.0], [1.0, 0.5, 1.0]]
