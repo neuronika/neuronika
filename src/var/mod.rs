@@ -4,9 +4,9 @@ pub(super) mod reprs;
 use itertools::Itertools;
 use numeric::DataRepr;
 use reprs::{
-    Borrow, InternalAdd, InternalDiv, InternalDot, InternalExp, InternalLn, InternalMul,
-    InternalNeg, InternalPow, InternalReLU, InternalRepr, InternalSigmoid, InternalSub,
-    InternalSum, InternalT, InternalVecDot, Parameter,
+    Borrow, InternalAdd, InternalBinConcat, InternalDiv, InternalDot, InternalExp, InternalLn,
+    InternalMul, InternalMultiConcat, InternalNeg, InternalPow, InternalReLU, InternalRepr,
+    InternalSigmoid, InternalSub, InternalSum, InternalT, InternalVecDot, Parameter,
 };
 use std::cell::{Ref, RefCell};
 use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
@@ -169,6 +169,35 @@ where
             self.upstream.clone(),
         )
     }
+
+    pub fn cat<U>(&self, other: &Var<U>, axis: usize) -> Var<InternalBinConcat<T, U>>
+    where
+        U: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    {
+        Var::new(
+            Rc::new(InternalBinConcat::new(
+                Rc::clone(&self.repr),
+                Rc::clone(&other.repr),
+                axis,
+            )),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+}
+
+pub fn multi_cat<T>(vars: &[&Var<T>], axis: usize) -> Var<InternalMultiConcat<T>>
+where
+    T: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    let clones: Vec<Rc<T>> = vars.iter().map(|v| Rc::clone(&v.repr)).collect();
+    let upstreams: Vec<&[Var<Parameter>]> = vars.iter().map(|var| var.upstream()).collect();
+
+    let upstream = track_multi_upstream(upstreams);
+
+    Var::new(
+        Rc::new(InternalMultiConcat::new(&clones[..], axis)),
+        upstream,
+    )
 }
 
 fn track_upstream(lhs_up: &[Var<Parameter>], rhs_up: &[Var<Parameter>]) -> Vec<Var<Parameter>> {
@@ -179,11 +208,30 @@ fn track_upstream(lhs_up: &[Var<Parameter>], rhs_up: &[Var<Parameter>]) -> Vec<V
         })
         .map(|choice| match choice {
             itertools::EitherOrBoth::Left(lhs_par) => lhs_par,
-            itertools::EitherOrBoth::Right(lhs_par) => lhs_par,
+            itertools::EitherOrBoth::Right(rhs_par) => rhs_par,
             itertools::EitherOrBoth::Both(lhs_par, _) => lhs_par,
         })
         .cloned()
         .collect()
+}
+
+fn track_multi_upstream(upstreams: Vec<&[Var<Parameter>]>) -> Vec<Var<Parameter>> {
+    upstreams
+        .iter()
+        .fold(Vec::<Var<Parameter>>::new(), |mut acc, other| {
+            let mut addings = Vec::<Var<Parameter>>::new();
+            acc.iter()
+                .merge_join_by(other.iter(), |acc_el, other_el| {
+                    acc_el.as_ptr().cmp(&other_el.as_ptr())
+                })
+                .for_each(|choice| match choice {
+                    itertools::EitherOrBoth::Left(_) => (),
+                    itertools::EitherOrBoth::Right(rhs) => addings.push(rhs.clone()),
+                    itertools::EitherOrBoth::Both(_, _) => (),
+                });
+            acc.extend(addings);
+            acc
+        })
 }
 
 macro_rules! impl_node_arithmetic_ops {

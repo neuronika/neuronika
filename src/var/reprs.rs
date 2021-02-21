@@ -1,16 +1,18 @@
 use super::Var;
 use num_traits::pow;
-use std::cell::{Ref, RefCell};
+use std::cell::{Ref, RefCell, RefMut};
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
 
 use super::numeric::{
-    add, add_assign, add_assign_v, assign, assign_v, div, div_assign_pow, exp_diff_add_assign,
-    exp_diff_assign, exp_forward, mat_mat_mul, mat_vec_mul, mul, pow_diff_add_assign,
-    pow_diff_assign, pow_forward, relu_diff_add_assign, relu_diff_assign, relu_forward,
-    scaled_add_assign, scaled_assign, sigmoid_diff_add_assign, sigmoid_diff_assign,
-    sigmoid_forward, sub, sub_assign, BackwardAction, DataRepr, ForwardAction, PassCounter,
+    add, add_assign, add_assign_v, assign, assign_v, cat_backward_add_assign, cat_backward_assign,
+    cat_forward, div, div_assign_pow, exp_diff_add_assign, exp_diff_assign, exp_forward,
+    mat_mat_mul, mat_vec_mul, mul, multicat_backward_add_assign, multicat_backward_assign,
+    multicat_forward, pow_diff_add_assign, pow_diff_assign, pow_forward, relu_diff_add_assign,
+    relu_diff_assign, relu_forward, scaled_add_assign, scaled_assign, sigmoid_diff_add_assign,
+    sigmoid_diff_assign, sigmoid_forward, sub, sub_assign, BackwardAction, DataRepr, ForwardAction,
+    PassCounter,
 };
 
 #[derive(Debug)]
@@ -1330,7 +1332,7 @@ where
         match self.counter.backward_action() {
             BackwardAction::Set => exp_diff_assign(&mut self.grad.borrow_mut(), grad, &self.data()),
             BackwardAction::Increment => {
-                exp_diff_add_assign(&mut self.grad.borrow_mut(), grad, &self.data())
+                exp_diff_add_assign(&mut self.grad.borrow_mut(), grad, &self.data.borrow())
             }
         }
 
@@ -1423,5 +1425,216 @@ where
             self.operand.clear();
             self.counter.clear();
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalMultiConcat<OP> {
+    axis: usize,
+    data: RefCell<DataRepr>,
+    operands: Vec<Rc<OP>>,
+    op_grads: Vec<RefCell<DataRepr>>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP> InternalMultiConcat<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(operands: &[Rc<OP>], axis: usize) -> Self {
+        let reprs: Vec<Borrow<DataRepr>> = operands.iter().map(|op| op.data()).collect();
+        let data_refs: Vec<&DataRepr> = reprs.iter().map(|bor| bor.deref()).collect();
+
+        let data = DataRepr::cat(&data_refs[..], axis);
+
+        let requires_grad = operands
+            .iter()
+            .fold(true, |acc, op| acc || op.requires_grad());
+
+        let op_grads: Vec<RefCell<DataRepr>> = data_refs
+            .iter()
+            .map(|data| RefCell::new(data.zeros()))
+            .collect();
+
+        InternalMultiConcat {
+            axis: axis,
+            data: RefCell::new(data),
+            operands: operands.to_vec(),
+            op_grads: op_grads,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP> InternalRepr for InternalMultiConcat<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+        for op in &self.operands[..] {
+            op.forward();
+        }
+
+        let mut data = self.data.borrow_mut();
+        let operands_data = self.operands.iter().map(|op| op.data()).collect();
+
+        multicat_forward(&mut data, operands_data, self.axis);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        {
+            let ops_data = self.operands.iter().map(|op| op.data()).collect();
+            let mut ops_grads: Vec<RefMut<DataRepr>> =
+                self.op_grads.iter().map(|grad| grad.borrow_mut()).collect();
+
+            match self.counter.backward_action() {
+                BackwardAction::Set => multicat_backward_assign(
+                    &self.data.borrow(),
+                    ops_data,
+                    grad.deref(),
+                    ops_grads.as_mut_slice(),
+                    self.axis,
+                ),
+                BackwardAction::Increment => multicat_backward_add_assign(
+                    &self.data.borrow(),
+                    ops_data,
+                    grad.deref(),
+                    ops_grads.as_mut_slice(),
+                    self.axis,
+                ),
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            for (op, op_grad) in self.operands.iter().zip(self.op_grads.iter()) {
+                op.backward(&op_grad.borrow());
+            }
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            for op in &self.operands[..] {
+                op.clear();
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InternalBinConcat<LHS, RHS> {
+    axis: usize,
+    data: RefCell<DataRepr>,
+    lhs: Rc<LHS>,
+    rhs: Rc<RHS>,
+    lhs_grad: RefCell<DataRepr>,
+    rhs_grad: RefCell<DataRepr>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<LHS, RHS> InternalBinConcat<LHS, RHS>
+where
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
+        let data = DataRepr::cat(&[lhs.data().deref(), rhs.data().deref()], axis);
+
+        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+
+        let lhs_grad = lhs.data().zeros();
+        let rhs_grad = rhs.data().zeros();
+
+        InternalBinConcat {
+            axis: axis,
+            data: RefCell::new(data),
+            lhs: lhs,
+            rhs: rhs,
+            lhs_grad: RefCell::new(lhs_grad),
+            rhs_grad: RefCell::new(rhs_grad),
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<LHS, RHS> InternalRepr for InternalBinConcat<LHS, RHS>
+where
+    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.lhs.forward();
+        self.rhs.forward();
+
+        cat_forward(
+            &mut self.data.borrow_mut(),
+            self.lhs.data().deref(),
+            self.lhs.data().deref(),
+            self.axis,
+        );
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => cat_backward_assign(
+                &mut self.lhs_grad.borrow_mut(),
+                &mut self.rhs_grad.borrow_mut(),
+                grad,
+                self.axis,
+            ),
+
+            BackwardAction::Increment => cat_backward_add_assign(
+                &mut self.lhs_grad.borrow_mut(),
+                &mut self.rhs_grad.borrow_mut(),
+                grad,
+                self.axis,
+            ),
+        }
+
+        if self.counter.recurse_backward() {
+            self.lhs.backward(&self.lhs_grad.borrow());
+            self.rhs.backward(&self.rhs_grad.borrow());
+        }
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.lhs.clear();
+            self.rhs.clear();
+            self.counter.clear();
+        }
+    }
+
+    fn data(&self) -> Borrow<'_, Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
     }
 }

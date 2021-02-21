@@ -1,7 +1,9 @@
+use super::Borrow;
+use itertools::izip;
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
-use ndarray::{Array1, Array2, Axis, Zip};
+use ndarray::{concatenate, s, Array1, Array2, ArrayView1, ArrayView2, Axis, Zip};
 use num_traits::pow;
-use std::cell::Cell;
+use std::cell::{Cell, RefMut};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 pub(crate) type Vector = Array1<f32>; // One dimensional array.
@@ -65,14 +67,37 @@ impl DataRepr {
             _ => panic!("error: not a matrix."),
         }
     }
-}
 
-impl DataRepr {
+    // Wrapper for ndarray's len method.
+    // Returns the number of elements contained in
+    // this DataRepr.
+    fn len(&self) -> usize {
+        match self {
+            Self::Scalar(_) => 1,
+            Self::Vector(val) => val.len(),
+            Self::Matrix(val) => val.len(),
+        }
+    }
+
+    // Wrapper for ndarray's shape method.
+    // Returns the shape of the underlying data.
+    fn shape(&self) -> &[usize] {
+        match self {
+            Self::Scalar(_) => &[0],
+            Self::Vector(val) => val.shape(),
+            Self::Matrix(val) => val.shape(),
+        }
+    }
+
     // Returns a new DataRepr struct corresponding to
     // the transposed self.
     pub(super) fn t(&self) -> Self {
         match self {
+            // The transposition of a scalar is the
+            // scalar.
             Self::Scalar(val) => Self::Scalar(*val),
+            // The transposition of the vector is the vector,
+            // because it has only one axis.
             Self::Vector(val) => {
                 let mut new = Vector::zeros(val.raw_dim());
                 Zip::from(&mut new)
@@ -80,6 +105,8 @@ impl DataRepr {
                     .par_apply(|new_el, val_el| *new_el = *val_el);
                 Self::Vector(new)
             }
+            // The transposition of a matrix is a matrix
+            // with swapped axes.
             Self::Matrix(val) => {
                 let mut new = Matrix::zeros((val.ncols(), val.nrows()));
                 Zip::from(&mut new)
@@ -91,7 +118,7 @@ impl DataRepr {
     }
 
     // Initializes a DataRepr struct with the corresponding
-    // zeroed type value.
+    // zeroed value.
     pub(super) fn zeros(&self) -> Self {
         match self {
             Self::Scalar(_) => Self::Scalar(0.0),
@@ -121,6 +148,9 @@ impl DataRepr {
     }
 
     // A wrapper for the ndarray's map method.
+    // Returns a new DataRepr identical in size,
+    // whose elements are a function of self's
+    // elements.
     pub(super) fn map<F>(&self, f: F) -> DataRepr
     where
         F: Fn(f32) -> f32,
@@ -133,6 +163,8 @@ impl DataRepr {
     }
 
     // A wrapper for the ndarray's map_inplace method.
+    // Modifies self inplace so that each element is a
+    // function of itself.
     pub(super) fn map_inplace<F: Sync + Send>(&mut self, f: F)
     where
         F: Fn(f32) -> f32,
@@ -143,20 +175,55 @@ impl DataRepr {
             Self::Matrix(val) => val.par_map_inplace(|val| *val = f(*val)),
         }
     }
+
+    // Concatenates the DataReprs along the given axis.
+    pub(super) fn cat(slice: &[&DataRepr], axis: usize) -> DataRepr {
+        // The underlying data must be of the same type.
+        match slice[0] {
+            // Scalars can only be concatenated with other scalars.
+            DataRepr::Scalar(_) => {
+                let unboxed: Vec<f32> = slice.iter().map(|repr| repr.scalar()).collect();
+                DataRepr::Vector(Vector::from(unboxed))
+            }
+            // Vectors can only be concatenated with other vectors.
+            DataRepr::Vector(_) => {
+                let unboxed: Vec<ArrayView1<f32>> =
+                    slice.iter().map(|repr| repr.vector().view()).collect();
+                DataRepr::Vector(concatenate(Axis(axis), &unboxed).ok().unwrap())
+            }
+            // Matrixes can only be concatenated with other matrices.
+            DataRepr::Matrix(_) => {
+                let unboxed: Vec<ArrayView2<f32>> =
+                    slice.iter().map(|repr| repr.matrix().view()).collect();
+                DataRepr::Matrix(concatenate(Axis(axis), &unboxed).ok().unwrap())
+            }
+        }
+    }
 }
 
+// Forward action tracker. Ensures
+// that the actual computation only happens
+// when the node is fully accumulated.
 #[derive(Debug, PartialEq)]
 pub enum ForwardAction {
     Evaluate,
     Cached,
 }
 
+// Backward action tracker. Keeps track
+// of the gradient accumulation.
 #[derive(Debug, PartialEq)]
 pub enum BackwardAction {
+    // Set the gradient.
     Set,
+    // Accumulates the gradient.
     Increment,
 }
 
+// Keeps track of the number of times
+// that a node in the computational graph
+// has been evaluated during either the forward
+// or the backward pass.
 #[derive(Debug, Default)]
 pub struct PassCounter {
     forward_count: Cell<usize>,
@@ -171,15 +238,12 @@ impl PassCounter {
 
     #[inline(always)]
     pub fn is_zero(&self) -> bool {
-        debug_assert!(self.recurse_backward(), "Not fully backpropagated.");
         self.forward_count.get() == 0
     }
 
     pub fn recurse_backward(&self) -> bool {
         let backward_count = self.backward_count.get();
         let forward_count = self.forward_count.get();
-
-        assert!(backward_count <= forward_count);
 
         if backward_count == forward_count {
             self.clear();
@@ -214,9 +278,11 @@ impl PassCounter {
     }
 }
 
-// Implements fast, parallelized and simd-enabled arithmetic operations
-// between scalars and other DataRepr values. It mimics ndarray's arithmetic
-// operations, as a consequence, the macro implemets two functions.
+// Implements fast, parallelized and simd-enabled
+// arithmetic operations between scalars and other
+// DataRepr values. It mimics ndarray's arithmetic
+// operations, as a consequence, the macro implemets
+// two functions: scalar-others and others-scalar.
 //
 // Types: Scalar <op> Scalar -> Scalar
 //        Scalar <op> Vector -> Vector
@@ -264,12 +330,13 @@ impl_ops_scal!(mul_sm, mul_ms, Matrix, *);
 // Scalar-matrix and matrix-scalar division.
 impl_ops_scal!(div_sm, div_ms, Matrix, /);
 
-// Implements fast, parallelized and simd-enabled arithmetic operations
-// between non scalar DataRepr values. It mimics ndarray's arithmetic
-// operations including shape broadcasting when needed. If two shapes
-// are not broadcastable together ndarray's broadcasting error is returned.
+// Implements fast, parallelized and simd-enabled
+// arithmetic operations between non scalar DataRepr
+// values. It mimics ndarray's arithmetic operations
+// including shape broadcasting when needed.
 //
-// Types: the result's type in determined by the left hand side operand.
+// If two shapes are not broadcastable together
+// ndarray's broadcasting panic error happens.
 macro_rules! impl_ops {
     ($fun:ident,
         $lhs_type:ty,
@@ -303,7 +370,8 @@ impl_ops!(mul_vv, Vector, Vector, Vector, *);
 // Vector-vector division.
 impl_ops!(div_vv, Vector, Vector, Vector, /);
 
-// numpy's style operations.
+// numpy's style operations. ndarray currently
+// doesn't support this.
 //
 impl_ops!(add_vm, Vector, Matrix, Matrix, +);
 // Vector-matrix subtraction.
@@ -313,8 +381,9 @@ impl_ops!(mul_vm, Vector, Matrix, Matrix,*);
 // Vector-matrix division.
 impl_ops!(div_vm, Vector, Matrix, Matrix, /);
 
-// Broadcasting will only take place if the matrix has the
-// same number of columns as the vector's elements.
+// Broadcasting will only take place if the
+// matrix has the same number of columns as
+// the vector's elements.
 //
 // Matrix-vector addition.
 impl_ops!(add_mv, Matrix, Vector, Matrix, +);
@@ -325,10 +394,12 @@ impl_ops!(mul_mv, Matrix, Vector, Matrix, *);
 // Matrix-vector division.
 impl_ops!(div_mv, Matrix, Vector, Matrix, /);
 
-// In order for the broadcasting to take place one of the two
-// following things must happen: either one of the two matrix
-// must be a singleton or, if it's not, it must have the same
-// number of columns of the other one but exactly one row.
+// In order for the broadcasting to take place
+// one of the two following things must happen:
+// either one of the two matrix is a singleton
+// or, if it's not, it must have the same
+// number of columns of the other but
+// exactly one row.
 //
 // Matrix-matrix addition.
 impl_ops!(add_mm, Matrix, Matrix, Matrix, +);
@@ -339,11 +410,11 @@ impl_ops!(mul_mm, Matrix, Matrix, Matrix, *);
 // Matrix-matrix division.
 impl_ops!(div_mm, Matrix, Matrix, Matrix, /);
 
-// Implements the Add, Sub, Mul and Div traits using the previously
-// defined ops.
+// Implements the Add, Sub, Mul and Div traits
+// using the previously defined ops.
 //
-// The +, -, *, / operations all create a new DataRepr struct
-// with its value determined by the operands' ones.
+// The +, -, *, / operations all create a new
+// DataRepr struct.
 macro_rules! impl_arithmetic_ops {
     ($trait:ident,
         $fun:ident,
@@ -362,53 +433,58 @@ macro_rules! impl_arithmetic_ops {
             type Output = DataRepr;
 
             fn $fun(self, rhs: Self) -> DataRepr {
-                match self {
-                    DataRepr::Scalar(lhs_val) => match rhs {
-                        DataRepr::Scalar(rhs_val) => DataRepr::Scalar(*lhs_val $op *rhs_val),
-                        DataRepr::Vector(rhs_val) => {
-                            let mut new = Vector::zeros(rhs_val.raw_dim());
-                            $sv_op(&mut new, *lhs_val, rhs_val);
-                            DataRepr::Vector(new)
-                            },
-                        DataRepr::Matrix(rhs_val) => {
-                            let mut new = Matrix::zeros(rhs_val.raw_dim());
-                            $sm_op(&mut new, *lhs_val, rhs_val);
-                            DataRepr::Matrix(new)
-                        }
+                match (self, rhs)  {
+                    (DataRepr::Scalar(lhs_val), DataRepr::Scalar(rhs_val)) => {
+                        // Just sums the lhs and the rhs.
+                        DataRepr::Scalar(*lhs_val $op *rhs_val)
                     },
-                    DataRepr::Vector(lhs_val) => match rhs {
-                        DataRepr::Scalar(rhs_val) => {
-                            let mut new = Vector::zeros(lhs_val.raw_dim());
-                            $vs_op(&mut new, lhs_val, *rhs_val);
-                            DataRepr::Vector(new)
-                        },
-                        DataRepr::Vector(rhs_val) => {
-                            let mut new = Vector::zeros(lhs_val.raw_dim());
-                            $vv_op(&mut new, lhs_val, rhs_val);
-                            DataRepr::Vector(new)
-                        },
-                        DataRepr::Matrix(rhs_val) => {
-                            let mut new = Matrix::zeros(rhs_val.raw_dim());
-                            $vm_op(&mut new, lhs_val, rhs_val);
-                            DataRepr::Matrix(new)
-                        },
+                    (DataRepr::Scalar(lhs_val), DataRepr::Vector(rhs_val)) => {
+                        // Performs the scalar-vector op.
+                        let mut new = Vector::zeros(rhs_val.raw_dim());
+                        $sv_op(&mut new, *lhs_val, rhs_val);
+                        DataRepr::Vector(new)
                     },
-                    DataRepr::Matrix(lhs_val) => match rhs {
-                        DataRepr::Scalar(rhs_val) => {
-                            let mut new = Matrix::zeros(lhs_val.raw_dim());
-                            $ms_op(&mut new, lhs_val, *rhs_val);
-                            DataRepr::Matrix(new)
-                        },
-                        DataRepr::Vector(rhs_val) => {
-                            let mut new = Matrix::zeros(lhs_val.raw_dim());
-                            $mv_op(&mut new, lhs_val, rhs_val);
-                            DataRepr::Matrix(new)
-                        },
-                        DataRepr::Matrix(rhs_val) => {
-                            let mut new = Matrix::zeros(lhs_val.raw_dim());
-                            $mm_op(&mut new, lhs_val, rhs_val);
-                            DataRepr::Matrix(new)
-                        },
+                    (DataRepr::Scalar(lhs_val),  DataRepr::Matrix(rhs_val)) => {
+                        // Performs the scalar-matrix op.
+                        let mut new = Matrix::zeros(rhs_val.raw_dim());
+                        $sm_op(&mut new, *lhs_val, rhs_val);
+                        DataRepr::Matrix(new)
+                    },
+                    (DataRepr::Vector(lhs_val), DataRepr::Scalar(rhs_val)) => {
+                        // Performs the vector-scalar op.
+                        let mut new = Vector::zeros(lhs_val.raw_dim());
+                        $vs_op(&mut new, lhs_val, *rhs_val);
+                        DataRepr::Vector(new)
+                    },
+                    (DataRepr::Vector(lhs_val),   DataRepr::Vector(rhs_val)) => {
+                        // Performs the vector-vector op.
+                        let mut new = Vector::zeros(lhs_val.raw_dim());
+                        $vv_op(&mut new, lhs_val, rhs_val);
+                        DataRepr::Vector(new)
+                    },
+                    (DataRepr::Vector(lhs_val), DataRepr::Matrix(rhs_val)) => {
+                        // Performs the vector-matrix op.
+                        let mut new = Matrix::zeros(rhs_val.raw_dim());
+                        $vm_op(&mut new, lhs_val, rhs_val);
+                        DataRepr::Matrix(new)
+                    },
+                    (DataRepr::Matrix(lhs_val) ,DataRepr::Scalar(rhs_val)) => {
+                        // Performs the matrix-scalar op.
+                        let mut new = Matrix::zeros(lhs_val.raw_dim());
+                        $ms_op(&mut new, lhs_val, *rhs_val);
+                        DataRepr::Matrix(new)
+                    },
+                    (DataRepr::Matrix(lhs_val), DataRepr::Vector(rhs_val)) => {
+                        // Performs the matrix-scalar op.
+                        let mut new = Matrix::zeros(lhs_val.raw_dim());
+                        $mv_op(&mut new, lhs_val, rhs_val);
+                        DataRepr::Matrix(new)
+                    },
+                    (DataRepr::Matrix(lhs_val), DataRepr::Matrix(rhs_val)) => {
+                        // Performs the matrix-matrix op.
+                        let mut new = Matrix::zeros(lhs_val.raw_dim());
+                        $mm_op(&mut new, lhs_val, rhs_val);
+                        DataRepr::Matrix(new)
                     },
                 }
             }
@@ -433,10 +509,11 @@ impl Neg for &DataRepr {
     }
 }
 
-// Implements the arithmetic operation used during the forward
-// pass in the computational graph. Those operation are performed
-// in place as the data field of the downstream node is just updated
-// with the new forwarded value.
+// Implements the arithmetic operations used
+// during the forward pass in the computational
+// graph. Those operation are performed
+// in place as the data field of the downstream
+// node is just updated with the forwarded value/s.
 macro_rules! impl_forward_arithmetic_ops {
     ($fun:ident,
         $op:tt,
@@ -452,30 +529,47 @@ macro_rules! impl_forward_arithmetic_ops {
         pub(super) fn $fun(trgt: &mut DataRepr, lhs: &DataRepr, rhs: &DataRepr) {
             match trgt {
                 // We already know the operands' types.
+                // A scalar can only be the result of a scalar-scalar
+                // operations.
                 DataRepr::Scalar(_) => {
                     *trgt = DataRepr::Scalar(rhs.scalar() $op lhs.scalar());
                 }
                 // We already know the operands' types.
+                // A vector can be the result of a scalar-vector or
+                // vector-scalar or vector-vector operation.
                 DataRepr::Vector(trgt_val) => {
+                    // If lhs is a scalar then rhs is a vector.
                     if let DataRepr::Scalar(lhs_val) = lhs {
                         $sv_op(trgt_val, *lhs_val, rhs.vector());
+                        // If rhs is a scalar then lhs is a vector.
                     } else if let DataRepr::Scalar(rhs_val) = rhs {
                         $vs_op(trgt_val, lhs.vector(), *rhs_val);
+                        // At this point they must necessarily be
+                        // both vectors.
                     } else {
                         $vv_op(trgt_val, lhs.vector(), rhs.vector())
                     }
                 }
                 // We already know the operands' types.
+                // A matrix can be the result of a scalar-matrix or
+                // matrix-scalar or vector-matrix or matrix-vector or
+                // matrix-matrix operation.
                 DataRepr::Matrix(trgt_val) => {
+                    // If lhs is a scalar then rhs is a matrix.
                     if let DataRepr::Scalar(lhs_val) = lhs {
                         $sm_op(trgt_val, *lhs_val, rhs.matrix());
+                        // If lhs is a vector then rhs is a vector.
                     } else if let DataRepr::Vector(lhs_val) = lhs {
                         $vm_op(trgt_val, lhs_val, rhs.matrix());
+                        // If rhs is a scalar then lhs is a matrix.
                     } else if let DataRepr::Scalar(rhs_val) = rhs {
                         $ms_op(trgt_val, lhs.matrix(), *rhs_val);
+                        // If rhs is a vector then lhs is a matrix.
                     } else if let DataRepr::Vector(rhs_val) = rhs {
                         $mv_op(trgt_val, lhs.matrix(), rhs_val);
                     } else {
+                        // At this point they must necessarily be
+                        // two matrices.
                         $mm_op(trgt_val, lhs.matrix(), rhs.matrix())
                     };
                 }
@@ -500,120 +594,71 @@ macro_rules! impl_accumulation_ops {
             trgt: &mut DataRepr,
             src: &DataRepr,
         ) {
-            match trgt {
-                DataRepr::Scalar(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        *trgt_val $op *src_val;
-                    },
-                    DataRepr::Vector(src_val) => {
-                        *trgt_val $op src_val.sum()
+            match (trgt, src) {
+                (DataRepr::Scalar(trgt_val), DataRepr::Scalar(src_val)) =>{
+                    *trgt_val $op *src_val;
+                },
+                (DataRepr::Scalar(trgt_val), DataRepr::Vector(src_val)) => {
+                    // Reduces src_val.
+                    *trgt_val $op src_val.sum()
+                },
+                (DataRepr::Scalar(trgt_val), DataRepr::Matrix(src_val)) => {
+                    // Reduces src_val.
+                    *trgt_val $op src_val.sum()
+                },
+                (DataRepr::Vector(trgt_val), DataRepr::Scalar(src_val)) => {
+                    Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op *src_val)
+                }
+                (DataRepr::Vector(trgt_val), DataRepr::Vector(src_val)) => {
+                    // Checks wether one of the two vectors is bigger.
+                    // The only admissible case is when either or both
+                    // are a singletons.
+                    if trgt_val.len() >= src_val.len() {
+                        // This broadcast fails if src and trgt don't have
+                        // the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(src_val)
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
+                    } else {
+                        // trgt could be a singleton. Broadcasting fails if src
+                        // and trgt don't have the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&src_val.sum_axis(Axis(0)))
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
                     }
-                    DataRepr::Matrix(src_val) => {
-                        *trgt_val $op src_val.sum()
+                }
+                (DataRepr::Vector(trgt_val), DataRepr::Matrix(src_val)) => {
+                    // Reduces src.
+                    let reduced_src = src_val.sum_axis(Axis(0));
+                    // Checks wether one of the tow vectors is bigger.
+                    // The only admissible case is when either or both
+                    // are singletons.
+                    if trgt_val.len() >= reduced_src.len() {
+                        // This broadcast fails if src and trgt don't have
+                        // the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&reduced_src)
+                            .par_apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
+                    } else {
+                        // trgt could be a singleton. Broadcasting fails if src
+                        // and trgt don't have the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&reduced_src.sum_axis(Axis(0)))
+                            .apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
                     }
                 },
-                DataRepr::Vector(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op *src_val)
-                    }
-                    DataRepr::Vector(src_val) => {
-                        if trgt_val.dim() >= src_val.dim() {
-                            Zip::from(trgt_val)
-                                .and_broadcast(src_val)
-                                .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
-                        } else {
-                            Zip::from(trgt_val)
-                                .and_broadcast(&src_val.sum_axis(Axis(0)))
-                                .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
-                        }
-                    }
-                    DataRepr::Matrix(src_val) => {
-                        let reduced_src = src_val.sum_axis(Axis(0));
-                        if trgt_val.dim() < reduced_src.dim() {
-                            Zip::from(trgt_val)
-                                .and_broadcast(&reduced_src.sum_axis(Axis(0)))
-                                .apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
-                        } else {
-                            Zip::from(trgt_val)
-                                .and(&reduced_src)
-                                .par_apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
-                        }
-                    }
-                },
-                DataRepr::Matrix(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op *src_val)
-                    }
-                    DataRepr::Vector(src_val) => Zip::from(trgt_val)
+                (DataRepr::Matrix(trgt_val), DataRepr::Scalar(src_val)) => {
+                    Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op *src_val)
+                }
+                (DataRepr::Matrix(trgt_val), DataRepr::Vector(src_val)) => {
+                    Zip::from(trgt_val)
                         .and_broadcast(src_val)
-                        .apply(|trgt_val, src_val| *trgt_val $op *src_val),
-                    DataRepr::Matrix(src_val) => Zip::from(trgt_val)
+                        .apply(|trgt_val, src_val| *trgt_val $op *src_val)
+                },
+                (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
+                    Zip::from(trgt_val)
                         .and_broadcast(src_val)
-                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val),
-                },
-            }
-        }
-    };
-}
-
-// Implements the gradient accumulation functions; the src
-// is passed by value.
-macro_rules! impl_accumulation_ops_v {
-    ($fun:ident, $op:tt) => {
-        pub(super) fn $fun(
-            trgt: &mut DataRepr,
-            src: DataRepr,
-        ) {
-            match trgt {
-                DataRepr::Scalar(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        *trgt_val $op src_val;
-                    },
-                    DataRepr::Vector(src_val) => {
-                        *trgt_val $op src_val.sum()
-                    }
-                    DataRepr::Matrix(src_val) => {
-                        *trgt_val $op src_val.sum()
-                    }
-                },
-                DataRepr::Vector(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op src_val)
-                    }
-                    DataRepr::Vector(src_val) => {
-                        if trgt_val.dim() >= src_val.dim() {
-                            Zip::from(trgt_val)
-                                .and_broadcast(&src_val)
-                                .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
-                        } else {
-                            Zip::from(trgt_val)
-                                .and_broadcast(&src_val.sum_axis(Axis(0)))
-                                .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
-                        }
-                    }
-                    DataRepr::Matrix(src_val) => {
-                        let reduced_src = src_val.sum_axis(Axis(0));
-                        if trgt_val.dim() < reduced_src.dim() {
-                            Zip::from(trgt_val)
-                                .and_broadcast(&reduced_src.sum_axis(Axis(0)))
-                                .apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
-                        } else {
-                            Zip::from(trgt_val)
-                                .and(&reduced_src)
-                                .par_apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
-                        }
-                    }
-                },
-                DataRepr::Matrix(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op src_val)
-                    }
-                    DataRepr::Vector(src_val) => Zip::from(trgt_val)
-                        .and_broadcast(&src_val)
-                        .apply(|trgt_val, src_val| *trgt_val $op *src_val),
-                    DataRepr::Matrix(src_val) => Zip::from(trgt_val)
-                        .and_broadcast(&src_val)
-                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val),
+                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val)
                 },
             }
         }
@@ -622,68 +667,163 @@ macro_rules! impl_accumulation_ops_v {
 
 // Accumulation assignment.
 impl_accumulation_ops!(assign, =);
-// Accumulation assignment by value.
-impl_accumulation_ops_v!(assign_v, =);
 // Accumulation add assignemnt.
 impl_accumulation_ops!(add_assign, +=);
-// Accumulation add assignemnt by value.
-impl_accumulation_ops_v!(add_assign_v, +=);
 // Accumulation sub assignment.
 impl_accumulation_ops!(sub_assign, -=);
 
-// Used in the computation of the first order derivative
-// of the division operation.
+// Implements the gradient accumulation
+// functions; the src is passed by value
+// and thus consumed.
+macro_rules! impl_accumulation_ops_v {
+    ($fun:ident, $op:tt) => {
+        pub(super) fn $fun(
+            trgt: &mut DataRepr,
+            src: DataRepr,
+        ) {
+            match (trgt, src) {
+                (DataRepr::Scalar(trgt_val), DataRepr::Scalar(src_val)) => {
+                    *trgt_val $op src_val;
+                },
+                (DataRepr::Scalar(trgt_val), DataRepr::Vector(src_val)) => {
+                    // Reduces src_val.
+                    *trgt_val $op src_val.sum()
+                }
+                (DataRepr::Scalar(trgt_val), DataRepr::Matrix(src_val)) => {
+                    // Reduces src_val.
+                    *trgt_val $op src_val.sum()
+                },
+                (DataRepr::Vector(trgt_val), DataRepr::Scalar(src_val)) => {
+                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op src_val)
+                }
+                (DataRepr::Vector(trgt_val), DataRepr::Vector(src_val)) => {
+                    // Checks wether one of the two vectors is bigger.
+                    // The only admissible case is when either or both
+                    // are a singletons.
+                    if trgt_val.len() >= src_val.len() {
+                        // This broadcast fails if src and trgt don't have
+                        // the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&src_val)
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
+                    } else {
+                        // trgt could be a singleton. Broadcasting fails if src
+                        // and trgt don't have the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&src_val.sum_axis(Axis(0)))
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val);
+                    }
+                },
+                (DataRepr::Vector(trgt_val), DataRepr::Matrix(src_val)) => {
+                    // Reduces src_val.
+                    let reduced_src = src_val.sum_axis(Axis(0));
+                    // Checks wether one of the two vectors is bigger.
+                    // The only admissible case is when either or both
+                    // are a singletons.
+                    if trgt_val.len() >= reduced_src.len() {
+                        // This broadcast fails if src and trgt don't have
+                        // the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&reduced_src)
+                            .par_apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
+                    } else {
+                        // trgt could be a singleton. Broadcasting fails if src
+                        // and trgt don't have the same shape.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&reduced_src.sum_axis(Axis(0)))
+                            .apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src);
+                    }
+                },
+                (DataRepr::Matrix(trgt_val), DataRepr::Scalar(src_val)) => {
+                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op src_val)
+                },
+                (DataRepr::Matrix(trgt_val), DataRepr::Vector(src_val)) => {
+                    Zip::from(trgt_val)
+                        .and_broadcast(&src_val)
+                        .apply(|trgt_val, src_val| *trgt_val $op *src_val)
+                },
+                (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
+                    Zip::from(trgt_val)
+                        .and_broadcast(&src_val)
+                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val)
+                }
+            }
+        }
+    };
+}
+
+// Accumulation assignment by value.
+impl_accumulation_ops_v!(assign_v, =);
+// Accumulation add assignemnt by value.
+impl_accumulation_ops_v!(add_assign_v, +=);
+
+// Used in the computation of the
+// gradient of the division operation.
 pub(super) fn div_assign_pow(trgt: &mut DataRepr, src: &DataRepr, exp: usize) {
-    match trgt {
-        DataRepr::Scalar(trgt_val) => match src {
-            DataRepr::Scalar(src_val) => {
-                *trgt_val /= pow(*src_val, exp);
-            }
-            DataRepr::Vector(src_val) => *trgt_val /= src_val.mapv(|x| pow(x, exp)).sum(),
-            DataRepr::Matrix(src_val) => *trgt_val /= src_val.mapv(|x| pow(x, exp)).sum(),
-        },
-        DataRepr::Vector(trgt_val) => match src {
-            DataRepr::Scalar(src_val) => {
-                Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val /= pow(*src_val, exp))
-            }
-            DataRepr::Vector(src_val) => {
-                if trgt_val.dim() >= src_val.dim() {
-                    Zip::from(trgt_val)
-                        .and_broadcast(src_val)
-                        .par_apply(|trgt_val, src_val| *trgt_val /= pow(*src_val, exp));
-                } else {
-                    Zip::from(trgt_val)
-                        .and_broadcast(&src_val.mapv(|x| pow(x, exp)).sum_axis(Axis(0)))
-                        .par_apply(|trgt_val, src_val| *trgt_val /= *src_val);
-                }
-            }
-            DataRepr::Matrix(src_val) => {
+    match (trgt, src) {
+        (DataRepr::Scalar(trgt_val), DataRepr::Scalar(src_val)) => {
+            *trgt_val /= pow(*src_val, exp);
+        }
+        (DataRepr::Scalar(trgt_val), DataRepr::Vector(src_val)) => {
+            // Reduces the source but first applies the pow fun.
+            let reduced_src = {
+                let pow_res = src_val.mapv(|x| pow(x, exp));
+                let sum_pow_res = pow_res.sum();
+                sum_pow_res
+            };
+            *trgt_val /= reduced_src
+        }
+        (DataRepr::Scalar(trgt_val), DataRepr::Matrix(src_val)) => {
+            // Reduces the source but first applies the pow fun.
+            // Reduces the source but first applies the pow fun.
+            let reduced_src = {
+                let pow_res = src_val.mapv(|x| pow(x, exp));
+                let sum_pow_res = pow_res.sum();
+                sum_pow_res
+            };
+            *trgt_val /= reduced_src
+        }
+        (DataRepr::Vector(trgt_val), DataRepr::Scalar(src_val)) => {
+            Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val /= pow(*src_val, exp))
+        }
+        (DataRepr::Vector(trgt_val), DataRepr::Vector(src_val)) => {
+            if trgt_val.len() >= src_val.len() {
+                Zip::from(trgt_val)
+                    .and_broadcast(src_val)
+                    .par_apply(|trgt_val, src_val| *trgt_val /= pow(*src_val, exp));
+            } else {
                 let reduced_src = src_val.mapv(|x| pow(x, exp)).sum_axis(Axis(0));
-                if trgt_val.dim() < reduced_src.dim() {
-                    Zip::from(trgt_val)
-                        .and_broadcast(&reduced_src.sum_axis(Axis(0)))
-                        .apply(|trgt_val, reduced_src| *trgt_val /= *reduced_src);
-                } else {
-                    Zip::from(trgt_val)
-                        .and(&reduced_src)
-                        .par_apply(|trgt_val, reduced_src| *trgt_val /= *reduced_src);
-                }
+                Zip::from(trgt_val)
+                    .and_broadcast(&reduced_src)
+                    .par_apply(|trgt_val, src_val| *trgt_val /= *src_val);
             }
-        },
-        DataRepr::Matrix(trgt_val) => match src {
-            DataRepr::Scalar(src_val) => {
-                Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val /= pow(*src_val, exp))
+        }
+        (DataRepr::Vector(trgt_val), DataRepr::Matrix(src_val)) => {
+            let reduced_src = src_val.mapv(|x| pow(x, exp)).sum_axis(Axis(0));
+            if trgt_val.len() >= reduced_src.len() {
+                Zip::from(trgt_val)
+                    .and_broadcast(&reduced_src)
+                    .par_apply(|trgt_val, reduced_src| *trgt_val /= *reduced_src);
+            } else {
+                Zip::from(trgt_val)
+                    .and_broadcast(&reduced_src.sum_axis(Axis(0)))
+                    .apply(|trgt_val, reduced_src| *trgt_val /= *reduced_src);
             }
-            DataRepr::Vector(src_val) => Zip::from(trgt_val)
-                .and_broadcast(src_val)
-                .apply(|trgt_val, src_val| *trgt_val /= pow(*src_val, exp)),
-            DataRepr::Matrix(src_val) => Zip::from(trgt_val)
-                .and_broadcast(src_val)
-                .par_apply(|trgt_val, src_val| *trgt_val /= pow(*src_val, exp)),
-        },
+        }
+        (DataRepr::Matrix(trgt_val), DataRepr::Scalar(src_val)) => {
+            Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val /= pow(*src_val, exp))
+        }
+        (DataRepr::Matrix(trgt_val), DataRepr::Vector(src_val)) => Zip::from(trgt_val)
+            .and_broadcast(src_val)
+            .apply(|trgt_val, src_val| *trgt_val /= pow(*src_val, exp)),
+        (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => Zip::from(trgt_val)
+            .and_broadcast(src_val)
+            .par_apply(|trgt_val, src_val| *trgt_val /= pow(*src_val, exp)),
     }
 }
 
+// Computes the power of the incoming
+// data during the forward pass.
 pub(super) fn pow_forward(data: &mut DataRepr, src: &DataRepr, exp: u16) {
     match (data, src) {
         (DataRepr::Scalar(data_val), DataRepr::Scalar(src_val)) => {
@@ -699,8 +839,9 @@ pub(super) fn pow_forward(data: &mut DataRepr, src: &DataRepr, exp: u16) {
     }
 }
 
-// Used in the accumulation of the gradient of the pow op.
-// Implements the necessary accumulation operations.
+// Used in the accumulation of the
+// gradient of the pow op. Implements the
+// necessary accumulation operations.
 // Computes: d/dx x^n = n * x^(n-1).
 macro_rules! impl_pow_accumulation_ops {
     ($fun:ident, $op:tt) => {
@@ -791,9 +932,13 @@ macro_rules! impl_pow_accumulation_ops {
     };
 }
 
+// Accumulation op for the set action.
 impl_pow_accumulation_ops!(pow_diff_assign, =);
+// Accumulation op for the increment action.
 impl_pow_accumulation_ops!(pow_diff_add_assign, +=);
 
+// Computes the ReLU of the incoming
+// data during the forward pass.
 pub(super) fn relu_forward(data: &mut DataRepr, src: &DataRepr) {
     match (data, src) {
         (DataRepr::Scalar(data_val), DataRepr::Scalar(src_val)) => {
@@ -809,8 +954,9 @@ pub(super) fn relu_forward(data: &mut DataRepr, src: &DataRepr) {
     }
 }
 
-// Used in the accumulation of the gradient of the ReLU op.
-// Implements the necessary accumulation operations.
+// Used in the accumulation of the gradient
+// of the ReLU op. Implements the necessary
+// accumulation operations.
 macro_rules! impl_relu_accumulation_ops {
     ($fun:ident, $op:tt) => {
         pub(super) fn $fun(
@@ -900,9 +1046,14 @@ macro_rules! impl_relu_accumulation_ops {
     };
 }
 
+// Accumulation op for the set action.
 impl_relu_accumulation_ops!(relu_diff_assign, =);
+// Accumulation op for the increment action.
 impl_relu_accumulation_ops!(relu_diff_add_assign, +=);
 
+// Computes the Sigmoid of the incoming
+// data during the forward pass. The sigmoid
+// is clipped at +15, -15.
 pub(super) fn sigmoid_forward(data: &mut DataRepr, src: &DataRepr) {
     match (data, src) {
         (DataRepr::Scalar(data_val), DataRepr::Scalar(src_val)) => {
@@ -940,8 +1091,9 @@ pub(super) fn sigmoid_forward(data: &mut DataRepr, src: &DataRepr) {
     }
 }
 
-// Used in the accumulation of the gradient of the Sigmoid op.
-// Implements the necessary accumulation operations.
+// Used in the accumulation of the gradient
+// of the Sigmoid op. Implements the necessary
+// accumulation operations.
 macro_rules! impl_sigmoid_accumulation_ops {
     ($fun:ident, $op:tt) => {
         pub(super) fn $fun(
@@ -1031,9 +1183,13 @@ macro_rules! impl_sigmoid_accumulation_ops {
     };
 }
 
+// Accumulation op for the set action.
 impl_sigmoid_accumulation_ops!(sigmoid_diff_assign, =);
+// Accumulation op for the increment action.
 impl_sigmoid_accumulation_ops!(sigmoid_diff_add_assign, +=);
 
+// Computes the Exponential of the incoming
+// data during the forward pass.
 pub(super) fn exp_forward(data: &mut DataRepr, src: &DataRepr) {
     match (data, src) {
         (DataRepr::Scalar(data_val), DataRepr::Scalar(src_val)) => *data_val = src_val.exp(),
@@ -1047,8 +1203,9 @@ pub(super) fn exp_forward(data: &mut DataRepr, src: &DataRepr) {
     }
 }
 
-// Used in the accumulation of the gradient of the Exp op.
-// Implements the necessary accumulation operations.
+// Used in the accumulation of the
+// gradient of the Exp op. Implements
+// the necessary accumulation operations.
 macro_rules! impl_exp_accumulation_ops {
     ($fun:ident, $op:tt) => {
         pub(super) fn $fun(
@@ -1138,10 +1295,13 @@ macro_rules! impl_exp_accumulation_ops {
     };
 }
 
+// Accumulation op for the set action.
 impl_exp_accumulation_ops!(exp_diff_assign, =);
+// Accumulation op for the increment action.
 impl_exp_accumulation_ops!(exp_diff_add_assign, +=);
 
-// Implements scalar-scaled accumulation operations.
+// Implements scalar-scaled accumulation
+// operations.
 macro_rules! impl_scaled_accumulation_ops {
     ($fun:ident, $op:tt) => {
         pub(super) fn $fun(
@@ -1149,57 +1309,57 @@ macro_rules! impl_scaled_accumulation_ops {
             src: &DataRepr,
             scalar:f32
         ) {
-            match trgt {
-                DataRepr::Scalar(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        *trgt_val $op *src_val * scalar;
-                    },
-                    DataRepr::Vector(src_val) => {
-                        *trgt_val $op src_val.sum() * scalar
-                    }
-                    DataRepr::Matrix(src_val) => {
-                        *trgt_val $op src_val.sum() * scalar
+            match (trgt, src) {
+                (DataRepr::Scalar(trgt_val), DataRepr::Scalar(src_val)) => {
+                    *trgt_val $op *src_val * scalar;
+                },
+                (DataRepr::Scalar(trgt_val), DataRepr::Vector(src_val)) => {
+                    *trgt_val $op src_val.sum() * scalar
+                }
+                (DataRepr::Scalar(trgt_val), DataRepr::Matrix(src_val)) => {
+                    *trgt_val $op src_val.sum() * scalar
+                },
+                (DataRepr::Vector(trgt_val), DataRepr::Scalar(src_val)) => {
+                    Zip::from(trgt_val)
+                        .par_apply(|trgt_val| *trgt_val $op *src_val * scalar)
+                },
+                (DataRepr::Vector(trgt_val), DataRepr::Vector(src_val)) => {
+                    if trgt_val.len() >= src_val.len() {
+                        Zip::from(trgt_val)
+                            .and_broadcast(src_val)
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar);
+                    } else {
+                        Zip::from(trgt_val)
+                            .and_broadcast(&src_val.sum_axis(Axis(0)))
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar);
                     }
                 },
-                DataRepr::Vector(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op *src_val * scalar)
-                    }
-                    DataRepr::Vector(src_val) => {
-                        if trgt_val.dim() >= src_val.dim() {
-                            Zip::from(trgt_val)
-                                .and_broadcast(src_val)
-                                .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar);
-                        } else {
-                            Zip::from(trgt_val)
-                                .and_broadcast(&src_val.sum_axis(Axis(0)))
-                                .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar);
-                        }
-                    }
-                    DataRepr::Matrix(src_val) => {
-                        let reduced_src = src_val.sum_axis(Axis(0));
-                        if trgt_val.dim() < reduced_src.dim() {
-                            Zip::from(trgt_val)
-                                .and_broadcast(&reduced_src.sum_axis(Axis(0)))
-                                .apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src * scalar);
-                        } else {
-                            Zip::from(trgt_val)
-                                .and(&reduced_src)
-                                .par_apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src * scalar);
-                        }
+                (DataRepr::Vector(trgt_val), DataRepr::Matrix(src_val)) => {
+                    let reduced_src = src_val.sum_axis(Axis(0));
+                    if trgt_val.len() >= reduced_src.len() {
+                        Zip::from(trgt_val)
+                            .and_broadcast(&reduced_src)
+                            .par_apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src * scalar);
+                    } else {
+                        Zip::from(trgt_val)
+                            .and_broadcast(&reduced_src.sum_axis(Axis(0)))
+                            .apply(|trgt_val, reduced_src| *trgt_val $op *reduced_src * scalar);
                     }
                 },
-                DataRepr::Matrix(trgt_val) => match src {
-                    DataRepr::Scalar(src_val) => {
-                        Zip::from(trgt_val).par_apply(|trgt_val| *trgt_val $op *src_val * scalar)
-                    }
-                    DataRepr::Vector(src_val) => Zip::from(trgt_val)
+                (DataRepr::Matrix(trgt_val), DataRepr::Scalar(src_val))=> {
+                        Zip::from(trgt_val)
+                            .par_apply(|trgt_val| *trgt_val $op *src_val * scalar)
+                },
+                (DataRepr::Matrix(trgt_val), DataRepr::Vector(src_val)) => {
+                    Zip::from(trgt_val)
                         .and_broadcast(src_val)
-                        .apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar),
-                    DataRepr::Matrix(src_val) => Zip::from(trgt_val)
-                        .and(src_val)
-                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar),
+                        .apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar)
                 },
+                (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
+                    Zip::from(trgt_val)
+                        .and(src_val)
+                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar)
+                }
             }
         }
     };
@@ -1218,8 +1378,8 @@ pub(super) fn mat_mat_mul(
     lhs: &DataRepr,
     rhs: &DataRepr,
     beta: f32,
-    t_lhs: bool,
-    t_rhs: bool,
+    t_lhs: bool, // When true trasposes lhs.
+    t_rhs: bool, // When true transposes rhs.
 ) {
     if t_lhs {
         general_mat_mul(
@@ -1263,6 +1423,436 @@ pub(super) fn mat_vec_mul(
         &mut trgt.vector_mut(),
     );
 }
+
+// Computes the binary concatenation of lhs
+// and rhs during the forward pass.
+pub(super) fn cat_forward(dest: &mut DataRepr, lhs: &DataRepr, rhs: &DataRepr, axis: usize) {
+    match (dest, axis) {
+        (DataRepr::Vector(dest_val), _) => {
+            // Chains lhs and rhs, zips the result
+            // to dest and then performs
+            // the assignment.
+            dest_val
+                .iter_mut()
+                .zip(lhs.vector().iter().chain(rhs.vector().iter()))
+                .for_each(|(dest_el, fused_el)| *dest_el = *fused_el);
+        }
+        (DataRepr::Matrix(dest_val), 0) => {
+            // Chains lhs and rhs, zips the result
+            // to dest and then performs
+            // the assignment.
+            dest_val
+                .iter_mut()
+                .zip(lhs.matrix().iter().chain(rhs.matrix().iter()))
+                .for_each(|(dest_el, fused_el)| *dest_el = *fused_el);
+        }
+        (DataRepr::Matrix(dest_val), 1) => {
+            // The concatenation must take place along the
+            // columns.
+
+            // Zips the genrows iterators.
+            for (mut dest_row, lhs_row, rhs_row) in izip!(
+                dest_val.genrows_mut().into_iter(),
+                lhs.matrix().genrows().into_iter(),
+                rhs.matrix().genrows().into_iter()
+            ) {
+                let dest_row = dest_row.as_slice_mut().unwrap();
+                let lhs_row = lhs_row.as_slice().unwrap();
+                let rhs_row = rhs_row.as_slice().unwrap();
+
+                // Splits each dest row in two parts accordingly
+                // to the lhs row lenght and it assigns to the
+                // resulting slices the lhs row and the rhs row.
+                let (dest_left, dest_right) = dest_row.split_at_mut(lhs_row.len());
+                Zip::from(dest_left)
+                    .and(lhs_row)
+                    .apply(|left_el, lhs_el| *left_el = *lhs_el);
+                Zip::from(dest_right)
+                    .and(rhs_row)
+                    .apply(|right_el, rhs_el| *right_el = *rhs_el);
+            }
+        }
+        _ => panic!("erorr: too large of an axis or scalar result."),
+    }
+}
+
+// Implements the binary concatenation
+// accumulation operations.
+macro_rules! impl_cat_acc_ops {
+    ($fun:ident, $op:tt) => {
+        pub(super) fn $fun(
+            lhs_grad: &mut DataRepr,
+            rhs_grad: &mut DataRepr,
+            grad: &DataRepr,
+            axis: usize,
+        ) {
+            match (lhs_grad, rhs_grad, axis, grad) {
+                (
+                    DataRepr::Vector(lhs_grad_val),
+                    DataRepr::Vector(rhs_grad_val),
+                    _,
+                    DataRepr::Scalar(grad_val)
+                ) => {
+                        // Assigns the scalar gradient to lhs and rhs grads.
+                        Zip::from(lhs_grad_val).apply(|el| *el $op *grad_val);
+                        Zip::from(rhs_grad_val).apply(|el| *el $op *grad_val);
+                    },
+                (
+                    DataRepr::Vector(lhs_grad_val),
+                    DataRepr::Vector(rhs_grad_val),
+                    _,
+                    DataRepr::Vector(grad_val)
+                ) => {
+                        // Splits the incoming gradient
+                        // accordingly to lhs_grad_val len, then
+                        // it performs the assignment.
+                        let (grad_val_left, grad_val_right) =
+                            grad_val.as_slice().unwrap().split_at(lhs_grad_val.len());
+                        Zip::from(lhs_grad_val)
+                            .and_broadcast(grad_val_left)
+                            .apply(|left_el, lhs_el| *left_el $op *lhs_el);
+                        Zip::from(rhs_grad_val)
+                            .and_broadcast(grad_val_right)
+                            .apply(|right_el, rhs_el| *right_el $op *rhs_el);
+                    },
+                (
+                    DataRepr::Vector(lhs_grad_val),
+                    DataRepr::Vector(rhs_grad_val),
+                    _,
+                    DataRepr::Matrix(grad_val)
+                ) => {
+                        // Reduces then splits the incoming
+                        // gradient accordingly to
+                        // lhs_grad_val len, then it performs
+                        // the assignment.
+                        let reduced = grad_val.sum_axis(Axis(0));
+                        let (grad_val_left, grad_val_right) =
+                            reduced.as_slice().unwrap().split_at(lhs_grad_val.len());
+                        Zip::from(lhs_grad_val)
+                            .and_broadcast(grad_val_left)
+                            .apply(|left_el, lhs_el| *left_el $op *lhs_el);
+                        Zip::from(rhs_grad_val)
+                            .and_broadcast(grad_val_right)
+                            .apply(|right_el, rhs_el| *right_el $op *rhs_el);
+                    },
+                (
+                    DataRepr::Matrix(lhs_grad_val),
+                    DataRepr::Matrix(rhs_grad_val),
+                    _,
+                    DataRepr::Scalar(grad_val)
+                ) => {
+                        // Assigns the scalar gradient to lhs and rhs grads.
+                        Zip::from(lhs_grad_val).apply(|el| *el $op *grad_val);
+                        Zip::from(rhs_grad_val).apply(|el| *el $op *grad_val);
+                    },
+                (
+                    DataRepr::Matrix(lhs_grad_val),
+                    DataRepr::Matrix(rhs_grad_val),
+                    0,
+                    DataRepr::Vector(grad_val)
+                ) => {
+                        // Assigns the vector to lhs and rhs grads
+                        // wit broadcasting.
+                        Zip::from(lhs_grad_val)
+                            .and_broadcast(grad_val)
+                            .apply(|left_el, lhs_el| *left_el $op *lhs_el);
+                        Zip::from(rhs_grad_val)
+                            .and_broadcast(grad_val)
+                            .apply(|right_el, rhs_el| *right_el $op *rhs_el);
+                    },
+                (
+                    DataRepr::Matrix(lhs_grad_val),
+                    DataRepr::Matrix(rhs_grad_val),
+                    0,
+                    DataRepr::Matrix(grad_val)
+                ) => {
+                        // Chains the lhs and rhs genrows
+                        // iterators then zips the result
+                        // to the grad_val genrows iterator.
+                        // At that point, it performs the element
+                        // wise assignment.
+                        grad_val
+                            .genrows()
+                            .into_iter()
+                            .zip(
+                                lhs_grad_val
+                                    .genrows_mut()
+                                    .into_iter()
+                                    .chain(rhs_grad_val.genrows_mut()),
+                            )
+                            .for_each(|(grad_row, mut dest_row)| {
+                                let grad_row = grad_row.as_slice().unwrap();
+                                let dest_row = dest_row.as_slice_mut().unwrap();
+
+                                dest_row
+                                    .iter_mut()
+                                    .zip(grad_row.iter())
+                                    .for_each(|(dest_el, grad_el)| {
+                                        *dest_el $op *grad_el;
+                                    });
+                            });
+                },
+                (
+                    DataRepr::Matrix(lhs_grad_val),
+                    DataRepr::Matrix(rhs_grad_val),
+                    1,
+                    DataRepr::Vector(grad_val)
+                ) => {
+                    // Splits the incoming gradient then
+                    // performs the assignment with broadcasting.
+                    let (grad_val_left, grad_val_right) =
+                        grad_val.as_slice().unwrap().split_at(lhs_grad_val.ncols());
+                    Zip::from(lhs_grad_val)
+                        .and_broadcast(grad_val_left)
+                        .apply(|left_el, lhs_el| *left_el $op *lhs_el);
+                    Zip::from(rhs_grad_val)
+                        .and_broadcast(grad_val_right)
+                        .apply(|right_el, rhs_el| *right_el $op *rhs_el);
+                },
+                (
+                    DataRepr::Matrix(lhs_grad_val),
+                    DataRepr::Matrix(rhs_grad_val),
+                    1,
+                    DataRepr::Matrix(grad_val)
+                ) => {
+                    // Zips the genrows iterators, then splits each of
+                    // the gradient rows and performs the assignment.
+                    izip!(
+                        grad_val.genrows().into_iter(),
+                        lhs_grad_val.genrows_mut().into_iter(),
+                        rhs_grad_val.genrows_mut().into_iter()
+                    )
+                    .for_each(|(grad_row, mut lhs_row, mut rhs_row)| {
+                        let grad_row = grad_row.as_slice().unwrap();
+                        let lhs_row = lhs_row.as_slice_mut().unwrap();
+                        let rhs_row = rhs_row.as_slice_mut().unwrap();
+
+                        let (grad_val_left, grad_val_right) = grad_row.split_at(lhs_row.len());
+
+                        lhs_row
+                            .iter_mut()
+                            .zip(grad_val_left.iter())
+                            .for_each(|(lhs, grad)| {
+                                *lhs $op *grad;
+                            });
+
+                        rhs_row
+                            .iter_mut()
+                            .zip(grad_val_right.iter())
+                            .for_each(|(rhs, grad)| {
+                                *rhs $op *grad;
+                            });
+                        });
+                },
+                _ => panic!("error: operands's type mismatch in concatenation."),
+            }
+        }
+    };
+}
+
+// Accumulation op for the set action.
+impl_cat_acc_ops!(cat_backward_assign, =);
+// Accumulation op for the increment action.
+impl_cat_acc_ops!(cat_backward_add_assign, +=);
+
+// Computes the multiple concatenation of the
+// incoming data during the forward pass.
+pub(super) fn multicat_forward(dest: &mut DataRepr, srcs: Vec<Borrow<DataRepr>>, axis: usize) {
+    let mut offset: usize = 0;
+    match (&dest, axis) {
+        (DataRepr::Vector(_), _) => {
+            // If dest is a vector then the operands' data are all vectors,
+            // otherwise panics. Gets their lengths.
+            let lens: Vec<usize> = srcs.iter().map(|bor| bor.len()).collect();
+
+            // Zips the lengths and the operands' DataReprs.
+            lens.iter().zip(srcs.iter()).for_each(|(len, op_data)| {
+                // Zips a mutable view of appropriate length of
+                // dest with the matching operand's data
+                // and performs the assignment.
+                Zip::from(dest.vector_mut().slice_mut(s![offset..offset + len]))
+                    .and(op_data.vector())
+                    .par_apply(|data_el, op_data_el| *data_el = *op_data_el);
+                // Increases the offset.
+                offset += len;
+            });
+        }
+        (DataRepr::Matrix(_), 0) => {
+            // If the data is a matrix then the operands' data are all matrices,
+            // otherwise panics. Gets their shapes.
+            let shapes: Vec<&[usize]> = srcs.iter().map(|bor| bor.shape()).collect();
+
+            // Zips the shapes and the operands' DataReprs.
+            shapes.iter().zip(srcs.iter()).for_each(|(shape, op_data)| {
+                // Zips a mutable view of appropriate size of the
+                // data with the matching operand's data
+                // and performs the assignment.
+                Zip::from(
+                    dest.matrix_mut()
+                        .slice_mut(s![offset..offset + shape[0], ..]),
+                )
+                .and(op_data.matrix())
+                .par_apply(|data_el, op_data_el| *data_el = *op_data_el);
+                // Increases the offset along axis 0.
+                offset += shape[0];
+            });
+        }
+        (DataRepr::Matrix(_), 1) => {
+            // If the data is a matrix then the operands' data are all matrices,
+            // otherwise panics. Gets their shapes.
+            let shapes: Vec<&[usize]> = srcs.iter().map(|bor| bor.shape()).collect();
+
+            // Zips the shapes and the operands' DataReprs.
+            shapes.iter().zip(srcs.iter()).for_each(|(shape, op_data)| {
+                // Zips a mutable view of appropriate size of the
+                // data with the matching operand's data
+                // and performs the assignment.
+                Zip::from(
+                    dest.matrix_mut()
+                        .slice_mut(s![.., offset..offset + shape[1]]),
+                )
+                .and(op_data.matrix())
+                .par_apply(|data_el, op_data_el| *data_el = *op_data_el);
+                // Increases the offset along axis 1.
+                offset += shape[1];
+            });
+        }
+        (_, _) => panic!("erorr: too large of an axis or scalar result."),
+    }
+}
+
+// Implements the binary concatenation
+// accumulation operations.
+macro_rules! impl_multi_cat_acc_ops {
+    ($fn:ident, $op:tt, $acc_fun:ident) => {
+        pub(super) fn $fn(
+            data: &DataRepr,
+            ops_data: Vec<Borrow<DataRepr>>,
+            grad: &DataRepr,
+            dest_grads: &mut [RefMut<DataRepr>],
+            axis: usize,
+        ) {
+            match (data, grad, axis) {
+                (_, DataRepr::Scalar(_), _) => {
+                    // If the downstream gradient is a scalar it assigns
+                    // it to all the components' gradients
+                    dest_grads.iter_mut().for_each(|mut op_grad| {
+                        $acc_fun(&mut op_grad, grad);
+                    });
+                },
+                (DataRepr::Vector(_), DataRepr::Vector(grad_val), _) => {
+                    // If the downstream gradient is a vector gets the lenght of all
+                    // the components, which are also vectors.
+                    let lens: Vec<usize> = ops_data.iter().map(|bor| bor.len()).collect();
+                    // The offset is used to sum the corresponding components of the
+                    // downstream gradient.
+                    let mut offset: usize = 0;
+
+                    // Zips the lenghts and the component's gradient so that
+                    // when a gradient has been fully accumulated the next
+                    // one will recieve the right portion of the downstream
+                    // gradient.
+                    lens.iter().zip(dest_grads).for_each(|(len, op_grad)|{
+                        Zip::from(op_grad.vector_mut())
+                            .and_broadcast(grad_val.slice(s![offset..offset + *len]))
+                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
+                        // Inrements the offset.
+                        offset += len;
+                    });
+                },
+                (DataRepr::Vector(_), DataRepr::Matrix(grad_val), _) => {
+                    // If the downstream gradient is a Matrix gets
+                    // the shapes of all the components, which are vectors.
+                    let lens: Vec<usize> = ops_data.iter().map(|bor| bor.len()).collect();
+                    // The offset is used to sum the corresponding components of the
+                    // downstream gradient.
+                    let mut offset: usize = 0;
+
+                    // Reduces the incoming gradient.
+                    let reduced_grad_val = grad_val.sum_axis(Axis(0));
+
+                    // Zip the lenght and the component's gradient so that
+                    // when a gradient has been fully accumulated the next
+                    // one will recieve the right portion of the downstream
+                    // gradient.
+                    lens.iter().zip(dest_grads).for_each(|(len, op_grad)|{
+                        Zip::from(op_grad.vector_mut())
+                            .and_broadcast(reduced_grad_val.slice(s![offset..offset + *len]))
+                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
+                        // Increases the offset.
+                        offset += len;
+                    });
+                },
+                (DataRepr::Matrix(_), DataRepr::Vector(grad_val), 0) => {
+                    // If the downstream gradient is a vector and the components
+                    // are matrices concatenated along the rows then it is simply
+                    // summed to each component's gradient with broadcasting.
+                    dest_grads.iter_mut().for_each(|op_grad| {
+                        Zip::from(op_grad.vector_mut())
+                            .and_broadcast(grad_val)
+                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
+                    });
+                },
+                (DataRepr::Matrix(_), DataRepr::Vector(grad_val), 1) => {
+                    // If the downstream gradient is a vector and the components
+                    // are matrices concatenated along the columns then operands's
+                    // data shapes are needed.
+                    let shapes: Vec<&[usize]> = ops_data.iter().map(|bor| bor.shape()).collect();
+                    let mut offset: usize = 0;
+
+                    // Sums with broadcasting to each row each operand's gradient
+                    // the corresponding subview of the incoming gradient.
+                    shapes.iter().zip(dest_grads).for_each(|(shape, op_grad)| {
+                        Zip::from(op_grad.matrix_mut())
+                            .and_broadcast(grad_val.slice(s![offset..offset + shape[1]]))
+                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
+                        // Increments the offset with the shape component
+                        // corresponding to the columns axis.
+                        offset += shape[1];
+                    });
+                },
+                (DataRepr::Matrix(_), DataRepr::Matrix(grad_val), 0) => {
+                    // Gets the shapes of the components, whic are matrices.
+                    let shapes: Vec<&[usize]> = ops_data.iter().map(|bor| bor.shape()).collect();
+                    let mut offset: usize = 0;
+
+                    // Sums to each component's grad the corresponing subview
+                    // of the incoming gradient.
+                    shapes.iter().zip(dest_grads).for_each(|(shape, op_grad)| {
+                        Zip::from(op_grad.matrix_mut())
+                            .and_broadcast(grad_val.slice(s![offset..offset + shape[0], ..]))
+                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
+                        // Increments the offset with the shape component
+                        // corresponding to the rows axis.
+                        offset += shape[0];
+                    });
+                },
+                (DataRepr::Matrix(_), DataRepr::Matrix(grad_val), 1) => {
+                    // Gets the shapes of the components, which are matrices.
+                    let shapes: Vec<&[usize]> = ops_data.iter().map(|bor| bor.shape()).collect();
+                    let mut offset: usize = 0;
+
+                    // Sums to each component's grad the corresponing subview
+                    // of the incoming gradient.
+                    shapes.iter().zip(dest_grads).for_each(|(shape, op_grad)| {
+                        Zip::from(op_grad.matrix_mut())
+                            .and_broadcast(grad_val.slice(s![.., offset..offset + shape[1]]))
+                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
+                        // Increments the offset with the shape component
+                        // corresponding to the columns axis.
+                        offset += shape[1];
+                    });
+                },
+                _ => panic!("error: operands's type mismatch in concatenation."),
+            }
+        }
+    };
+}
+
+// Accumulation op for the set action.
+impl_multi_cat_acc_ops!(multicat_backward_assign, =, assign);
+// Accumulation op for the increment action.
+impl_multi_cat_acc_ops!(multicat_backward_add_assign, +=, add_assign);
 
 #[cfg(test)]
 mod tests;
