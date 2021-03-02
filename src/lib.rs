@@ -20,7 +20,7 @@ mod tests {
             [3.0, 3.0, 3.0]
         ]));
         let b = Parameter::new(Vector(array![1.0, 1.0, 1.0]));
-        let mut h = (w.mm(&x) + b).pow(2).sum();
+        let mut h = (w.mm(&x) + b).softmax(1).sum();
         h.forward();
         &mut h.backward(1.0);
     }

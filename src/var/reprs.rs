@@ -8,11 +8,11 @@ use std::rc::Rc;
 use super::numeric::{
     add, add_assign, add_assign_v, assign, assign_v, cat_backward_add_assign, cat_backward_assign,
     cat_forward, div, div_assign_pow, exp_diff_add_assign, exp_diff_assign, exp_forward,
-    mat_mat_mul, mat_vec_mul, mul, multicat_backward_add_assign, multicat_backward_assign,
-    multicat_forward, pow_diff_add_assign, pow_diff_assign, pow_forward, relu_diff_add_assign,
-    relu_diff_assign, relu_forward, scaled_add_assign, scaled_assign, sigmoid_diff_add_assign,
-    sigmoid_diff_assign, sigmoid_forward, sub, sub_assign, BackwardAction, DataRepr, ForwardAction,
-    PassCounter,
+    mat_mat_mul, mat_vec_mul, mat_vec_mul_backward_lhs, mul, multicat_backward_add_assign,
+    multicat_backward_assign, multicat_forward, pow_diff_add_assign, pow_diff_assign, pow_forward,
+    relu_diff_add_assign, relu_diff_assign, relu_forward, scaled_add_assign, scaled_assign,
+    sigmoid_diff_add_assign, sigmoid_diff_assign, sigmoid_forward, softmax_backward,
+    softmax_forward, sub, sub_assign, BackwardAction, DataRepr, ForwardAction, Matrix, PassCounter,
 };
 
 #[derive(Debug)]
@@ -559,9 +559,8 @@ where
                     grad.deref() / &self.rhs.data(),
                 );
                 let mut tmp = grad.deref() * &self.lhs.data();
-                tmp.map_inplace(|el| el * -1.0);
                 div_assign_pow(&mut tmp, &self.rhs.data(), 2);
-                assign_v(&mut self.rhs_grad.borrow_mut(), tmp);
+                scaled_assign(&mut self.rhs_grad.borrow_mut(), &tmp, -1.0);
             }
 
             BackwardAction::Increment => {
@@ -570,9 +569,8 @@ where
                     grad.deref() / &self.rhs.data(),
                 );
                 let mut tmp = grad.deref() * &self.lhs.data();
-                tmp.map_inplace(|el| el * -1.0);
                 div_assign_pow(&mut tmp, &self.rhs.data(), 2);
-                add_assign_v(&mut self.lhs_grad.borrow_mut(), tmp);
+                scaled_add_assign(&mut self.lhs_grad.borrow_mut(), &tmp, -1.0);
             }
         }
 
@@ -679,8 +677,9 @@ where
                 self.lhs.data().deref(),
                 self.rhs.data().deref(),
                 0.0,
+                false,
             ),
-            _ => panic!("error: attempted matrix product on two vectors."),
+            _ => panic!("error: attempted matrix product on invalid inputs."),
         }
     }
 
@@ -722,9 +721,10 @@ where
                 }
                 DataRepr::Vector(rhs_val) => {
                     if let DataRepr::Vector(grad_val) = grad.deref() {
-                        assign_v(
+                        mat_vec_mul_backward_lhs(
                             &mut self.lhs_grad.borrow_mut(),
-                            DataRepr::Scalar(grad_val.dot(rhs_val)),
+                            grad_val,
+                            rhs_val,
                         );
                         mat_vec_mul(
                             &mut self.rhs_grad.borrow_mut(),
@@ -732,9 +732,10 @@ where
                             &lhs_data,
                             grad.deref(),
                             0.0,
+                            true,
                         );
                     } else {
-                        panic!("error: the gradient of rhs should be a vector");
+                        panic!("error: the incoming gradient should be a vector");
                     }
                 }
                 _ => panic!("error: rhs cannot be a scalar."),
@@ -780,7 +781,7 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let lhs_grad = lhs.data().zeros();
-        let rhs_grad = lhs.data().zeros();
+        let rhs_grad = rhs.data().zeros();
 
         let data = match (lhs.data().deref(), rhs.data().deref()) {
             (DataRepr::Vector(lhs_val), DataRepr::Vector(rhs_val)) => {
@@ -987,7 +988,7 @@ where
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().sum();
-        let grad = data.zeros();
+        let grad = operand.data().zeros();
         let requires_grad = operand.requires_grad();
 
         InternalSum {
@@ -1358,6 +1359,98 @@ where
 }
 
 #[derive(Debug)]
+pub struct InternalSoftmax<OP> {
+    axis: usize,
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
+    jacobian: RefCell<Matrix>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP> InternalSoftmax<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(operand: Rc<OP>, axis: usize) -> Self {
+        let (data, j_dim) = {
+            let op_data = operand.data();
+            let len = match axis {
+                0 => op_data.shape()[0],
+                1 => op_data.shape()[1],
+                _ => panic!("error: maximum number of axis is 2."),
+            };
+            (op_data.softmax(axis), len)
+        };
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        InternalSoftmax {
+            axis: axis,
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            jacobian: RefCell::new(Matrix::zeros((j_dim, j_dim))),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP> InternalRepr for InternalSoftmax<OP>
+where
+    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+        softmax_forward(&mut self.data.borrow_mut(), &self.operand.data(), self.axis);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        let action = match self.counter.backward_action() {
+            BackwardAction::Set => 0.0,
+            BackwardAction::Increment => 1.0,
+        };
+
+        softmax_backward(
+            &mut self.grad.borrow_mut(),
+            grad,
+            &self.data.borrow(),
+            &mut self.jacobian.borrow_mut(),
+            action,
+            self.axis,
+        );
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct InternalT<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
@@ -1372,7 +1465,7 @@ where
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().t();
-        let grad = data.zeros();
+        let grad = operand.data().zeros();
         let requires_grad = operand.requires_grad();
 
         InternalT {

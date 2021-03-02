@@ -1,7 +1,9 @@
 use super::Borrow;
 use itertools::izip;
+use rand::thread_rng;
+use rand_distr::{Distribution ,Normal, Uniform};
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
-use ndarray::{concatenate, s, Array1, Array2, ArrayView1, ArrayView2, Axis, Zip};
+use ndarray::{concatenate, s, Array1, Array2, ArrayView1, ArrayView2, Axis, Zip, Ix};
 use num_traits::pow;
 use std::cell::{Cell, RefMut};
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -18,6 +20,49 @@ pub enum DataRepr {
 }
 
 impl DataRepr {
+    // Creates a vector of val.
+    pub(super) fn constant_vec(shape: [usize; 1], val:f32) -> Self {
+        Self::Vector(Vector::from_elem(shape, val))
+    }
+
+    // Creates a matrix of val.
+    pub(super) fn constant_mat(shape: [usize; 2], val:f32) -> Self {
+        Self::Matrix(Matrix::from_elem(shape, val))
+    }
+
+    // Wrapper around ndarray's eye method.
+    pub(super) fn eye(n: Ix) -> Self {
+        Self::Matrix(Matrix::eye(n))
+    }
+
+    // Creates a vector whose elements are drawn from
+    // the uniform distribution U(low, high) -> [low, high).
+    pub(super) fn uniform_vec(shape: [usize; 1], low:f32, high:f32) -> Self {
+        let unif_dstr = Uniform::new(low, high);
+        Self::Vector(Vector::from_shape_simple_fn(shape, || unif_dstr.sample(&mut thread_rng())))
+    }
+
+    // Creates a matrix whose elements are drawn from
+    // the uniform distribution U(low, high) -> [low, high).
+    pub(super) fn uniform_mat(shape: [usize; 2], low:f32, high:f32) -> Self {
+        let unif_dstr = Uniform::new(low, high);
+        Self::Matrix(Matrix::from_shape_simple_fn(shape, || unif_dstr.sample(&mut thread_rng())))
+    }
+
+    // Creates a vector whose elements are sampled from
+    // the normal distribution N(mean, std^2).
+    pub(super) fn normal_vec(shape: [usize; 1], mean:f32, std:f32) -> Self {
+        let norm_dstr = Normal::new(mean, std).unwrap();
+        Self::Vector(Vector::from_shape_simple_fn(shape, || norm_dstr.sample(&mut thread_rng())))
+    }
+
+    // Creates a matrix whose elements are sampled from
+    // the normal distribution N(mean, std^2).
+    pub(super) fn normal_mat(shape: [usize; 2], mean:f32, std:f32) -> Self {
+        let norm_dstr = Normal::new(mean, std).unwrap();
+        Self::Matrix(Matrix::from_shape_simple_fn(shape, || norm_dstr.sample(&mut thread_rng())))
+    }
+
     // Used to extract a scalar from the DataRepr
     // struct when the value's type can be determined
     // with certainty.
@@ -81,9 +126,9 @@ impl DataRepr {
 
     // Wrapper for ndarray's shape method.
     // Returns the shape of the underlying data.
-    fn shape(&self) -> &[usize] {
+    pub(super) fn shape(&self) -> &[usize] {
         match self {
-            Self::Scalar(_) => &[0],
+            Self::Scalar(_) => &[1],
             Self::Vector(val) => val.shape(),
             Self::Matrix(val) => val.shape(),
         }
@@ -151,7 +196,7 @@ impl DataRepr {
     // Returns a new DataRepr identical in size,
     // whose elements are a function of self's
     // elements.
-    pub(super) fn map<F>(&self, f: F) -> DataRepr
+    pub(super) fn map<F>(&self, f: F) -> Self
     where
         F: Fn(f32) -> f32,
     {
@@ -177,7 +222,7 @@ impl DataRepr {
     }
 
     // Concatenates the DataReprs along the given axis.
-    pub(super) fn cat(slice: &[&DataRepr], axis: usize) -> DataRepr {
+    pub(super) fn cat(slice: &[&DataRepr], axis: usize) -> Self {
         // The underlying data must be of the same type.
         match slice[0] {
             // Scalars can only be concatenated with other scalars.
@@ -197,6 +242,43 @@ impl DataRepr {
                     slice.iter().map(|repr| repr.matrix().view()).collect();
                 DataRepr::Matrix(concatenate(Axis(axis), &unboxed).ok().unwrap())
             }
+        }
+    }
+
+    // Computes the Softmax along an axis of self.
+    pub(super) fn softmax(&self, axis: usize) -> Self {
+        match (self, axis) {
+            (DataRepr::Vector(op_val), _) => {
+                let max = op_val.fold(std::f32::MIN, |x, y| x.max(*y));
+                let num = op_val.map(|el| (el - max).exp());
+                let den = num.sum();
+                Self::Vector(num / den)
+            }
+            (DataRepr::Matrix(op_val), 0) => {
+                let mut new = Matrix::zeros(op_val.raw_dim());
+                Zip::from(op_val.gencolumns())
+                    .and(new.gencolumns_mut())
+                    .apply(|col_op, mut col_new| {
+                        let max = col_op.fold(std::f32::MIN, |x, y| x.max(*y));
+                        let num = &col_op.map(|el| (el - max).exp());
+                        let den = num.sum();
+                        col_new.assign(&(num / den))
+                    });
+                Self::Matrix(new)
+            }
+            (DataRepr::Matrix(op_val), 1) => {
+                let mut new = Matrix::zeros(op_val.raw_dim());
+                Zip::from(op_val.genrows())
+                    .and(new.genrows_mut())
+                    .apply(|row_op, mut row_new| {
+                        let max = row_op.fold(std::f32::MIN, |x, y| x.max(*y));
+                        let num = &row_op.map(|el| (el - max).exp());
+                        let den = num.sum();
+                        row_new.assign(&(num / den))
+                    });
+                Self::Matrix(new)
+            }
+            (_, _) => panic!("error: softmax is undefined for scalar inputs."),
         }
     }
 }
@@ -464,7 +546,14 @@ macro_rules! impl_arithmetic_ops {
                     },
                     (DataRepr::Vector(lhs_val), DataRepr::Matrix(rhs_val)) => {
                         // Performs the vector-matrix op.
-                        let mut new = Matrix::zeros(rhs_val.raw_dim());
+                        let mut new_dim = rhs_val.raw_dim();
+                        // numpy's broadcasting rules.
+                        new_dim[1] = if new_dim[1] == 1 {
+                            lhs_val.len()
+                        } else {
+                            new_dim[1]
+                        };
+                        let mut new = Matrix::zeros(new_dim);
                         $vm_op(&mut new, lhs_val, rhs_val);
                         DataRepr::Matrix(new)
                     },
@@ -476,13 +565,32 @@ macro_rules! impl_arithmetic_ops {
                     },
                     (DataRepr::Matrix(lhs_val), DataRepr::Vector(rhs_val)) => {
                         // Performs the matrix-scalar op.
-                        let mut new = Matrix::zeros(lhs_val.raw_dim());
+                        let mut new_dim = lhs_val.raw_dim();
+                        // numpy's broadcasting rules.
+                        new_dim[1] = if new_dim[1] == 1 {
+                            rhs_val.len()
+                        } else {
+                            new_dim[1]
+                        };
+                        let mut new = Matrix::zeros(new_dim);
                         $mv_op(&mut new, lhs_val, rhs_val);
                         DataRepr::Matrix(new)
                     },
                     (DataRepr::Matrix(lhs_val), DataRepr::Matrix(rhs_val)) => {
                         // Performs the matrix-matrix op.
-                        let mut new = Matrix::zeros(lhs_val.raw_dim());
+                        let mut new_dim = lhs_val.raw_dim();
+                        // numpy's broadcasting rules.
+                        new_dim[1] = if new_dim[1] == 1 {
+                            rhs_val.raw_dim()[1]
+                        } else {
+                            new_dim[1]
+                        };
+                        new_dim[0] = if new_dim[0] == 1 {
+                            rhs_val.raw_dim()[0]
+                        } else {
+                            new_dim[0]
+                        };
+                        let mut new = Matrix::zeros(new_dim);
                         $mm_op(&mut new, lhs_val, rhs_val);
                         DataRepr::Matrix(new)
                     },
@@ -859,59 +967,11 @@ macro_rules! impl_pow_accumulation_ops {
                     DataRepr::Scalar(data_val),
                 ) => *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1 ) * exp as f32,
                 (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => *grad_val $op down_grad_val.sum() * pow(*data_val, exp as usize - 1 ) * exp as f32,
-                (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => *grad_val $op down_grad_val.sum() * pow(*data_val, exp as usize - 1 ) * exp as f32,
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * exp as f32
-                    }),
-                (
                     DataRepr::Vector(grad_val),
                     DataRepr::Vector(down_grad_val),
                     DataRepr::Vector(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * exp as f32
-                    }),
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(&down_grad_val.sum_axis(Axis(0)))
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * exp as f32
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * exp as f32
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * exp as f32
@@ -921,12 +981,12 @@ macro_rules! impl_pow_accumulation_ops {
                     DataRepr::Matrix(down_grad_val),
                     DataRepr::Matrix(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op *down_grad_val * pow(*data_val, exp as usize - 1) * exp as f32
                     }),
-                _ => panic!("erorr: gradient and data should have the same size."),
+                _ => panic!("error: gradient and data should have the same size."),
             }
         }
     };
@@ -971,61 +1031,11 @@ macro_rules! impl_relu_accumulation_ops {
                     DataRepr::Scalar(data_val),
                 ) => *grad_val $op if *data_val > 0.0 { *down_grad_val } else { 0.0 },
                 (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => {
-                    *grad_val $op if *data_val > 0.0 { down_grad_val.sum() } else { 0.0 }
-                }
-                (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => *grad_val $op if *data_val > 0.0 { down_grad_val.sum() } else { 0.0 },
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op if *data_val > 0.0 { *down_grad_val } else { 0.0 }
-                    }),
-                (
                     DataRepr::Vector(grad_val),
                     DataRepr::Vector(down_grad_val),
                     DataRepr::Vector(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op if *data_val > 0.0 { *down_grad_val } else { 0.0 }
-                    }),
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(&down_grad_val.sum_axis(Axis(0)))
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op if *data_val > 0.0 { *down_grad_val } else { 0.0 }
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op if *data_val > 0.0 { *down_grad_val } else { 0.0 }
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op if *data_val > 0.0 { *down_grad_val } else { 0.0 }
@@ -1035,12 +1045,12 @@ macro_rules! impl_relu_accumulation_ops {
                     DataRepr::Matrix(down_grad_val),
                     DataRepr::Matrix(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op if *data_val > 0.0 { *down_grad_val } else { 0.0 }
                     }),
-                _ => panic!("erorr: gradient and data should have the same size."),
+                _ => panic!("error: gradient and data should have the same size."),
             }
         }
     };
@@ -1108,61 +1118,11 @@ macro_rules! impl_sigmoid_accumulation_ops {
                     DataRepr::Scalar(data_val),
                 ) => *grad_val $op *down_grad_val * *data_val * (1.0 - *data_val),
                 (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => {
-                    *grad_val $op down_grad_val.sum() * *data_val * (1.0 - *data_val)
-                }
-                (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => *grad_val $op down_grad_val.sum() * *data_val * (1.0 - *data_val),
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val * (1.0 - *data_val)
-                    }),
-                (
                     DataRepr::Vector(grad_val),
                     DataRepr::Vector(down_grad_val),
                     DataRepr::Vector(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val * (1.0 - *data_val)
-                    }),
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(&down_grad_val.sum_axis(Axis(0)))
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val * (1.0 - *data_val)
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val * (1.0 - *data_val)
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op *down_grad_val * *data_val * (1.0 - *data_val)
@@ -1172,7 +1132,7 @@ macro_rules! impl_sigmoid_accumulation_ops {
                     DataRepr::Matrix(down_grad_val),
                     DataRepr::Matrix(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op *down_grad_val * *data_val * (1.0 - *data_val)
@@ -1220,61 +1180,11 @@ macro_rules! impl_exp_accumulation_ops {
                     DataRepr::Scalar(data_val),
                 ) => *grad_val $op *down_grad_val * *data_val,
                 (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => {
-                    *grad_val $op down_grad_val.sum() * *data_val
-                }
-                (
-                    DataRepr::Scalar(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Scalar(data_val),
-                ) => *grad_val $op down_grad_val.sum() * *data_val,
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val
-                    }),
-                (
                     DataRepr::Vector(grad_val),
                     DataRepr::Vector(down_grad_val),
                     DataRepr::Vector(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val
-                    }),
-                (
-                    DataRepr::Vector(grad_val),
-                    DataRepr::Matrix(down_grad_val),
-                    DataRepr::Vector(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(&down_grad_val.sum_axis(Axis(0)))
-                        .and(data_val)
-                        .par_apply(|grad_val, down_grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Scalar(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and(data_val)
-                        .par_apply(|grad_val, data_val| {
-                            *grad_val $op *down_grad_val * *data_val
-                        }),
-                (
-                    DataRepr::Matrix(grad_val),
-                    DataRepr::Vector(down_grad_val),
-                    DataRepr::Matrix(data_val),
-                ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op *down_grad_val * *data_val
@@ -1284,12 +1194,12 @@ macro_rules! impl_exp_accumulation_ops {
                     DataRepr::Matrix(down_grad_val),
                     DataRepr::Matrix(data_val),
                 ) => Zip::from(grad_val)
-                        .and_broadcast(down_grad_val)
+                        .and(down_grad_val)
                         .and(data_val)
                         .par_apply(|grad_val, down_grad_val, data_val| {
                             *grad_val $op *down_grad_val * *data_val
                     }),
-                _ => panic!("erorr: gradient and data should have the same size."),
+                _ => panic!("error: gradient and data should have the same size."),
             }
         }
     };
@@ -1357,7 +1267,7 @@ macro_rules! impl_scaled_accumulation_ops {
                 },
                 (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
                     Zip::from(trgt_val)
-                        .and(src_val)
+                        .and_broadcast(src_val)
                         .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar)
                 }
             }
@@ -1414,7 +1324,18 @@ pub(super) fn mat_vec_mul(
     lhs: &DataRepr,
     rhs: &DataRepr,
     beta: f32,
+    transpose: bool,
 ) {
+    if transpose {
+        general_mat_vec_mul(
+            alpha,
+            &lhs.matrix().t(),
+            rhs.vector(),
+            beta,
+            &mut trgt.vector_mut(),
+        );
+        return;
+    }
     general_mat_vec_mul(
         alpha,
         lhs.matrix(),
@@ -1422,6 +1343,19 @@ pub(super) fn mat_vec_mul(
         beta,
         &mut trgt.vector_mut(),
     );
+}
+
+// Backpropagates the gradient for the lhs operand
+// in the mat_vec_mul op.
+pub(super) fn mat_vec_mul_backward_lhs(lhs_grad: &mut DataRepr, grad: &Vector, rhs: &Vector) {
+    lhs_grad
+        .matrix_mut()
+        .genrows_mut()
+        .into_iter()
+        .zip(grad.into_iter())
+        .for_each(|(mut row, grad_el)| {
+            row.assign(&rhs.map(|el| el * grad_el));
+        });
 }
 
 // Computes the binary concatenation of lhs
@@ -1491,16 +1425,6 @@ macro_rules! impl_cat_acc_ops {
                     DataRepr::Vector(lhs_grad_val),
                     DataRepr::Vector(rhs_grad_val),
                     _,
-                    DataRepr::Scalar(grad_val)
-                ) => {
-                        // Assigns the scalar gradient to lhs and rhs grads.
-                        Zip::from(lhs_grad_val).apply(|el| *el $op *grad_val);
-                        Zip::from(rhs_grad_val).apply(|el| *el $op *grad_val);
-                    },
-                (
-                    DataRepr::Vector(lhs_grad_val),
-                    DataRepr::Vector(rhs_grad_val),
-                    _,
                     DataRepr::Vector(grad_val)
                 ) => {
                         // Splits the incoming gradient
@@ -1513,51 +1437,6 @@ macro_rules! impl_cat_acc_ops {
                             .apply(|left_el, lhs_el| *left_el $op *lhs_el);
                         Zip::from(rhs_grad_val)
                             .and_broadcast(grad_val_right)
-                            .apply(|right_el, rhs_el| *right_el $op *rhs_el);
-                    },
-                (
-                    DataRepr::Vector(lhs_grad_val),
-                    DataRepr::Vector(rhs_grad_val),
-                    _,
-                    DataRepr::Matrix(grad_val)
-                ) => {
-                        // Reduces then splits the incoming
-                        // gradient accordingly to
-                        // lhs_grad_val len, then it performs
-                        // the assignment.
-                        let reduced = grad_val.sum_axis(Axis(0));
-                        let (grad_val_left, grad_val_right) =
-                            reduced.as_slice().unwrap().split_at(lhs_grad_val.len());
-                        Zip::from(lhs_grad_val)
-                            .and_broadcast(grad_val_left)
-                            .apply(|left_el, lhs_el| *left_el $op *lhs_el);
-                        Zip::from(rhs_grad_val)
-                            .and_broadcast(grad_val_right)
-                            .apply(|right_el, rhs_el| *right_el $op *rhs_el);
-                    },
-                (
-                    DataRepr::Matrix(lhs_grad_val),
-                    DataRepr::Matrix(rhs_grad_val),
-                    _,
-                    DataRepr::Scalar(grad_val)
-                ) => {
-                        // Assigns the scalar gradient to lhs and rhs grads.
-                        Zip::from(lhs_grad_val).apply(|el| *el $op *grad_val);
-                        Zip::from(rhs_grad_val).apply(|el| *el $op *grad_val);
-                    },
-                (
-                    DataRepr::Matrix(lhs_grad_val),
-                    DataRepr::Matrix(rhs_grad_val),
-                    0,
-                    DataRepr::Vector(grad_val)
-                ) => {
-                        // Assigns the vector to lhs and rhs grads
-                        // wit broadcasting.
-                        Zip::from(lhs_grad_val)
-                            .and_broadcast(grad_val)
-                            .apply(|left_el, lhs_el| *left_el $op *lhs_el);
-                        Zip::from(rhs_grad_val)
-                            .and_broadcast(grad_val)
                             .apply(|right_el, rhs_el| *right_el $op *rhs_el);
                     },
                 (
@@ -1596,23 +1475,6 @@ macro_rules! impl_cat_acc_ops {
                     DataRepr::Matrix(lhs_grad_val),
                     DataRepr::Matrix(rhs_grad_val),
                     1,
-                    DataRepr::Vector(grad_val)
-                ) => {
-                    // Splits the incoming gradient then
-                    // performs the assignment with broadcasting.
-                    let (grad_val_left, grad_val_right) =
-                        grad_val.as_slice().unwrap().split_at(lhs_grad_val.ncols());
-                    Zip::from(lhs_grad_val)
-                        .and_broadcast(grad_val_left)
-                        .apply(|left_el, lhs_el| *left_el $op *lhs_el);
-                    Zip::from(rhs_grad_val)
-                        .and_broadcast(grad_val_right)
-                        .apply(|right_el, rhs_el| *right_el $op *rhs_el);
-                },
-                (
-                    DataRepr::Matrix(lhs_grad_val),
-                    DataRepr::Matrix(rhs_grad_val),
-                    1,
                     DataRepr::Matrix(grad_val)
                 ) => {
                     // Zips the genrows iterators, then splits each of
@@ -1644,7 +1506,7 @@ macro_rules! impl_cat_acc_ops {
                             });
                         });
                 },
-                _ => panic!("error: operands's type mismatch in concatenation."),
+                _ => panic!("error: operands' or gradinents' type mismatch in concatenation."),
             }
         }
     };
@@ -1733,13 +1595,6 @@ macro_rules! impl_multi_cat_acc_ops {
             axis: usize,
         ) {
             match (data, grad, axis) {
-                (_, DataRepr::Scalar(_), _) => {
-                    // If the downstream gradient is a scalar it assigns
-                    // it to all the components' gradients
-                    dest_grads.iter_mut().for_each(|mut op_grad| {
-                        $acc_fun(&mut op_grad, grad);
-                    });
-                },
                 (DataRepr::Vector(_), DataRepr::Vector(grad_val), _) => {
                     // If the downstream gradient is a vector gets the lenght of all
                     // the components, which are also vectors.
@@ -1758,57 +1613,6 @@ macro_rules! impl_multi_cat_acc_ops {
                             .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
                         // Inrements the offset.
                         offset += len;
-                    });
-                },
-                (DataRepr::Vector(_), DataRepr::Matrix(grad_val), _) => {
-                    // If the downstream gradient is a Matrix gets
-                    // the shapes of all the components, which are vectors.
-                    let lens: Vec<usize> = ops_data.iter().map(|bor| bor.len()).collect();
-                    // The offset is used to sum the corresponding components of the
-                    // downstream gradient.
-                    let mut offset: usize = 0;
-
-                    // Reduces the incoming gradient.
-                    let reduced_grad_val = grad_val.sum_axis(Axis(0));
-
-                    // Zip the lenght and the component's gradient so that
-                    // when a gradient has been fully accumulated the next
-                    // one will recieve the right portion of the downstream
-                    // gradient.
-                    lens.iter().zip(dest_grads).for_each(|(len, op_grad)|{
-                        Zip::from(op_grad.vector_mut())
-                            .and_broadcast(reduced_grad_val.slice(s![offset..offset + *len]))
-                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
-                        // Increases the offset.
-                        offset += len;
-                    });
-                },
-                (DataRepr::Matrix(_), DataRepr::Vector(grad_val), 0) => {
-                    // If the downstream gradient is a vector and the components
-                    // are matrices concatenated along the rows then it is simply
-                    // summed to each component's gradient with broadcasting.
-                    dest_grads.iter_mut().for_each(|op_grad| {
-                        Zip::from(op_grad.vector_mut())
-                            .and_broadcast(grad_val)
-                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
-                    });
-                },
-                (DataRepr::Matrix(_), DataRepr::Vector(grad_val), 1) => {
-                    // If the downstream gradient is a vector and the components
-                    // are matrices concatenated along the columns then operands's
-                    // data shapes are needed.
-                    let shapes: Vec<&[usize]> = ops_data.iter().map(|bor| bor.shape()).collect();
-                    let mut offset: usize = 0;
-
-                    // Sums with broadcasting to each row each operand's gradient
-                    // the corresponding subview of the incoming gradient.
-                    shapes.iter().zip(dest_grads).for_each(|(shape, op_grad)| {
-                        Zip::from(op_grad.matrix_mut())
-                            .and_broadcast(grad_val.slice(s![offset..offset + shape[1]]))
-                            .par_apply(|op_grad_el, grad_vec_el| *op_grad_el $op *grad_vec_el);
-                        // Increments the offset with the shape component
-                        // corresponding to the columns axis.
-                        offset += shape[1];
                     });
                 },
                 (DataRepr::Matrix(_), DataRepr::Matrix(grad_val), 0) => {
@@ -1853,6 +1657,106 @@ macro_rules! impl_multi_cat_acc_ops {
 impl_multi_cat_acc_ops!(multicat_backward_assign, =, assign);
 // Accumulation op for the increment action.
 impl_multi_cat_acc_ops!(multicat_backward_add_assign, +=, add_assign);
+
+// Softmax forward operation.
+pub(super) fn softmax_forward(dest: &mut DataRepr, src: &DataRepr, axis: usize) {
+    match (dest, axis) {
+        (DataRepr::Vector(dest_val), _) => {
+            let src_val = src.vector();
+            let max = src_val.fold(std::f32::MIN, |x, y| x.max(*y));
+            let num = src_val.map(|el| (el - max).exp());
+            let den = num.sum();
+            Zip::from(dest_val)
+                .and(&num)
+                .apply(|src_el, num_el| *src_el = num_el / den);
+        }
+        (DataRepr::Matrix(dest_val), 0) => {
+            let src_val = src.matrix();
+            Zip::from(src_val.gencolumns())
+                .and(dest_val.gencolumns_mut())
+                .apply(|col_src, mut col_dest| {
+                    let max = col_src.fold(std::f32::MIN, |x, y| x.max(*y));
+                    let num = &col_src.map(|el| (el - max).exp());
+                    let den = num.sum();
+                    col_dest.assign(&(num / den))
+                });
+        }
+        (DataRepr::Matrix(dest_val), 1) => {
+            let src_val = src.matrix();
+            Zip::from(src_val.genrows())
+                .and(dest_val.genrows_mut())
+                .apply(|row_src, mut row_dest| {
+                    let max = row_src.fold(std::f32::MIN, |x, y| x.max(*y));
+                    let num = &row_src.map(|el| (el - max).exp());
+                    let den = num.sum();
+                    row_dest.assign(&(num / den))
+                });
+        }
+        (_, _) => panic!("error: invalid arguments."),
+    }
+}
+
+pub(super) fn softmax_backward(
+    dest_grad: &mut DataRepr,
+    input_grad: &DataRepr,
+    data: &DataRepr,
+    jacobian: &mut Matrix,
+    action: f32,
+    axis: usize,
+) {
+    // Fills the Jacobian J of the softmax s such that
+    // J[i][k] = s[i] * (1- s[k]) if i == k.
+    // J[i][k] = - s[i] * s[k] if i != k.
+    // The Jacobian of the Softmax is symmetric.
+    fn fill_jacobian(jacobian: &mut Matrix, data: &ArrayView1<f32>) {
+        for (row_idx, (mut row, row_val)) in jacobian
+            .genrows_mut()
+            .into_iter()
+            .zip(data.iter())
+            .enumerate()
+        {
+            for (col_idx, (grad, col_val)) in row
+                .as_slice_mut()
+                .unwrap()
+                .iter_mut()
+                .zip(data.as_slice().unwrap())
+                .enumerate()
+            {
+                if row_idx == col_idx {
+                    *grad = row_val * (1.0 - col_val);
+                } else {
+                    *grad = -row_val * col_val;
+                }
+            }
+        }
+    };
+
+    match (dest_grad, input_grad, axis) {
+        (DataRepr::Vector(dest_grad_val), DataRepr::Vector(input_grad_val), _) => {
+            fill_jacobian(jacobian, &data.vector().view());
+            general_mat_vec_mul(1.0, &jacobian, &input_grad_val, action, dest_grad_val);
+        }
+        (DataRepr::Matrix(dest_grad_val), DataRepr::Matrix(input_grad_val), 0) => {
+            Zip::from(dest_grad_val.gencolumns_mut())
+                .and(data.matrix().gencolumns())
+                .and(input_grad_val.gencolumns())
+                .apply(|mut d_g_col, data_col, grad_col| {
+                    fill_jacobian(jacobian, &data_col);
+                    general_mat_vec_mul(1.0, &jacobian, &grad_col, action, &mut d_g_col);
+                })
+        }
+        (DataRepr::Matrix(dest_grad_val), DataRepr::Matrix(input_grad_val), 1) => {
+            Zip::from(dest_grad_val.genrows_mut())
+                .and(data.matrix().genrows())
+                .and(input_grad_val.genrows())
+                .apply(|mut d_g_row, data_row, grad_row| {
+                    fill_jacobian(jacobian, &data_row);
+                    general_mat_vec_mul(1.0, &jacobian, &grad_row, action, &mut d_g_row);
+                })
+        }
+        (_, _, _) => panic!("error: operands's type mismatch in softmax."),
+    }
+}
 
 #[cfg(test)]
 mod tests;

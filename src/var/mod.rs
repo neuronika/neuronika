@@ -6,7 +6,8 @@ use numeric::DataRepr;
 use reprs::{
     Borrow, InternalAdd, InternalBinConcat, InternalDiv, InternalDot, InternalExp, InternalLn,
     InternalMul, InternalMultiConcat, InternalNeg, InternalPow, InternalReLU, InternalRepr,
-    InternalSigmoid, InternalSub, InternalSum, InternalT, InternalVecDot, Parameter,
+    InternalSigmoid, InternalSoftmax, InternalSub, InternalSum, InternalT, InternalVecDot,
+    Parameter,
 };
 use std::cell::{Ref, RefCell};
 use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
@@ -159,6 +160,13 @@ where
     pub fn exp(&self) -> Var<InternalExp<T>> {
         Var::new(
             Rc::new(InternalExp::new(Rc::clone(&self.repr))),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn softmax(&self, axis: usize) -> Var<InternalSoftmax<T>> {
+        Var::new(
+            Rc::new(InternalSoftmax::new(Rc::clone(&self.repr), axis)),
             self.upstream.clone(),
         )
     }

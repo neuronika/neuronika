@@ -887,6 +887,6 @@ fn mat_vec_mul_test() {
     // 3-dim vector.
     let mut res = DataRepr::Vector(array![0.0, 0.0, 0.0]);
 
-    mat_vec_mul(&mut res, 1.0, &matrix_3x3, &vector, 0.0);
+    mat_vec_mul(&mut res, 1.0, &matrix_3x3, &vector, 0.0, false);
     assert_eq!(*res.vector(), array![6.0, 15.0, 24.0]);
 }
