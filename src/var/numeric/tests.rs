@@ -10,6 +10,7 @@ fn add_test() {
     let scalar = DataRepr::Scalar(1.0);
     let vector = DataRepr::Vector(array![1.0, 2.0, 3.0]);
     let matrix = DataRepr::Matrix(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]);
+    let singleton_matrix = DataRepr::Matrix(array![[1.0]]);
 
     // Scalar + Scalar.
     let scalar_res: f32 = (&scalar + &DataRepr::Scalar(9.0)).scalar();
@@ -82,6 +83,26 @@ fn add_test() {
     add(&mut forward_vec_res, &vector, &matrix);
     assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
 
+    // Vector + singleton Matrix.
+    let res = &vector + &singleton_matrix;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(*vector_s_matrix_res, array![[2.0, 3.0, 4.0]]);
+
+    // Vector + singleton Matrix forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    add(&mut forward_mat_res, &vector, &singleton_matrix);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
+    // Singleton Matrix + Vector.
+    let res = &singleton_matrix + &vector;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(*vector_s_matrix_res, array![[2.0, 3.0, 4.0]]);
+
+    // Singleton Matrix + Vector forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    add(&mut forward_mat_res, &singleton_matrix, &vector);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
     // Matrix + Scalar.
     let res = &matrix + &scalar;
     let matrix_scalar_res: &Matrix = res.matrix();
@@ -143,6 +164,20 @@ fn add_test() {
         &DataRepr::Matrix(array![[1.0, 2.0, 3.0]]),
     );
     assert_eq!(*forward_mat_res.matrix(), *matrix_matrix_b_res);
+
+    // Singleton Matrix + Matrix.
+    let res = &singleton_matrix + &matrix;
+    let matrix_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *matrix_s_matrix_res,
+        array![[2.0, 3.0, 4.0], [5.0, 6.0, 7.0], [8.0, 9.0, 10.0]]
+    );
+
+    // Singleton Matrix + Matrix forward.
+    let mut forward_mat_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    add(&mut forward_mat_res, &singleton_matrix, &matrix);
+    assert_eq!(*forward_mat_res.matrix(), *matrix_s_matrix_res);
 }
 
 #[test]
@@ -150,6 +185,7 @@ fn sub_test() {
     let scalar = DataRepr::Scalar(1.0);
     let vector = DataRepr::Vector(array![1.0, 2.0, 3.0]);
     let matrix = DataRepr::Matrix(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]);
+    let singleton_matrix = DataRepr::Matrix(array![[1.0]]);
 
     // Scalar - Scalar.
     let scalar_res: f32 = (&scalar - &DataRepr::Scalar(1.0)).scalar();
@@ -222,6 +258,26 @@ fn sub_test() {
     sub(&mut forward_vec_res, &vector, &matrix);
     assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
 
+    // Vector - singleton Matrix.
+    let res = &vector - &singleton_matrix;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(*vector_s_matrix_res, array![[0.0, 1.0, 2.0]]);
+
+    // Vector - singleton Matrix forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    sub(&mut forward_mat_res, &vector, &singleton_matrix);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
+    // Singleton Matrix - Vector.
+    let res = &singleton_matrix - &vector;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(*vector_s_matrix_res, array![[0.0, -1.0, -2.0]]);
+
+    // Singleton Matrix - Vector forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    sub(&mut forward_mat_res, &singleton_matrix, &vector);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
     // Matrix - Scalar.
     let res = &matrix - &scalar;
     let matrix_scalar_res: &Matrix = res.matrix();
@@ -283,6 +339,20 @@ fn sub_test() {
         &DataRepr::Matrix(array![[1.0, 2.0, 3.0]]),
     );
     assert_eq!(*forward_mat_res.matrix(), *matrix_matrix_b_res);
+
+    // Singleton Matrix - Matrix.
+    let res = &singleton_matrix - &matrix;
+    let matrix_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *matrix_s_matrix_res,
+        -array![[0.0, 1.0, 2.0], [3.0, 4.0, 5.0], [6.0, 7.0, 8.0]]
+    );
+
+    // Singleton Matrix - Matrix forward.
+    let mut forward_mat_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    sub(&mut forward_mat_res, &singleton_matrix, &matrix);
+    assert_eq!(*forward_mat_res.matrix(), *matrix_s_matrix_res);
 }
 
 #[test]
@@ -290,6 +360,7 @@ fn mul_test() {
     let scalar = DataRepr::Scalar(3.0);
     let vector = DataRepr::Vector(array![1.0, 2.0, 3.0]);
     let matrix = DataRepr::Matrix(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]);
+    let singleton_matrix = DataRepr::Matrix(array![[1.0]]);
 
     // Scalar * Scalar.
     let scalar_res: f32 = (&scalar * &DataRepr::Scalar(-3.0)).scalar();
@@ -362,6 +433,26 @@ fn mul_test() {
     mul(&mut forward_vec_res, &vector, &matrix);
     assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
 
+    // Vector * singleton Matrix.
+    let res = &vector * &singleton_matrix;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(*vector_s_matrix_res, array![[1.0, 2.0, 3.0]]);
+
+    // Vector * singleton Matrix forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    mul(&mut forward_mat_res, &vector, &singleton_matrix);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
+    // Singleton Matrix * Vector.
+    let res = &singleton_matrix * &vector;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(*vector_s_matrix_res, array![[1.0, 2.0, 3.0]]);
+
+    // Singleton Matrix * Vector forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    mul(&mut forward_mat_res, &singleton_matrix, &vector);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
     // Matrix * Scalar.
     let res = &matrix * &scalar;
     let matrix_scalar_res: &Matrix = res.matrix();
@@ -423,6 +514,20 @@ fn mul_test() {
         &DataRepr::Matrix(array![[1.0, 2.0, 3.0]]),
     );
     assert_eq!(*forward_mat_res.matrix(), *matrix_matrix_b_res);
+
+    // Singleton Matrix * Matrix.
+    let res = &singleton_matrix * &matrix;
+    let matrix_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *matrix_s_matrix_res,
+        array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]
+    );
+
+    // Singleton Matrix * Matrix forward.
+    let mut forward_mat_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    mul(&mut forward_mat_res, &singleton_matrix, &matrix);
+    assert_eq!(*forward_mat_res.matrix(), *matrix_s_matrix_res);
 }
 
 #[test]
@@ -430,6 +535,7 @@ fn div_test() {
     let scalar = DataRepr::Scalar(3.0);
     let vector = DataRepr::Vector(array![3.0, 3.0, 3.0]);
     let matrix = DataRepr::Matrix(array![[3.0, 3.0, 3.0], [3.0, 3.0, 3.0], [3.0, 3.0, 3.0]]);
+    let singleton_matrix = DataRepr::Matrix(array![[1.0]]);
 
     // Scalar / Scalar.
     let scalar_res: f32 = (&scalar / &DataRepr::Scalar(-3.0)).scalar();
@@ -502,6 +608,29 @@ fn div_test() {
     div(&mut forward_vec_res, &vector, &matrix);
     assert_eq!(*forward_vec_res.matrix(), *vector_matrix_res);
 
+    // Vector / singleton Matrix.
+    let res = &vector / &singleton_matrix;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(*vector_s_matrix_res, array![[3.0, 3.0, 3.0]]);
+
+    // Vector / singleton Matrix forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    div(&mut forward_mat_res, &vector, &singleton_matrix);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
+    // Singleton Matrix / Vector.
+    let res = &singleton_matrix / &vector;
+    let vector_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *vector_s_matrix_res,
+        array![[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]]
+    );
+
+    // Singleton Matrix / Vector forward.
+    let mut forward_mat_res = DataRepr::Matrix(array![[0.0, 0.0, 0.0]]);
+    div(&mut forward_mat_res, &singleton_matrix, &vector);
+    assert_eq!(*forward_mat_res.matrix(), *vector_s_matrix_res);
+
     // Matrix / Scalar.
     let res = &matrix / &scalar;
     let matrix_scalar_res: &Matrix = res.matrix();
@@ -563,6 +692,24 @@ fn div_test() {
         &DataRepr::Matrix(array![[3.0, 6.0, 3.0]]),
     );
     assert_eq!(*forward_mat_res.matrix(), *matrix_matrix_b_res);
+
+    // Singleton Matrix / Matrix.
+    let res = &singleton_matrix / &matrix;
+    let matrix_s_matrix_res: &Matrix = res.matrix();
+    assert_eq!(
+        *matrix_s_matrix_res,
+        array![
+            [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
+            [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
+            [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
+        ]
+    );
+
+    // Singleton Matrix / Matrix forward.
+    let mut forward_mat_res =
+        DataRepr::Matrix(array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]);
+    div(&mut forward_mat_res, &singleton_matrix, &matrix);
+    assert_eq!(*forward_mat_res.matrix(), *matrix_s_matrix_res);
 }
 
 #[test]

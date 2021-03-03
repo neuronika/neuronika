@@ -1,3 +1,4 @@
+mod nn;
 mod var;
 use var::multi_cat;
 use var::numeric::{DataRepr::Matrix, DataRepr::Scalar, DataRepr::Vector};

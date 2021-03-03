@@ -1,10 +1,10 @@
 use super::Borrow;
 use itertools::izip;
-use rand::thread_rng;
-use rand_distr::{Distribution ,Normal, Uniform};
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
-use ndarray::{concatenate, s, Array1, Array2, ArrayView1, ArrayView2, Axis, Zip, Ix};
+use ndarray::{concatenate, s, Array1, Array2, ArrayView1, ArrayView2, Axis, Ix, Zip};
 use num_traits::pow;
+use rand::thread_rng;
+use rand_distr::{Distribution, Normal, Uniform};
 use std::cell::{Cell, RefMut};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -21,12 +21,12 @@ pub enum DataRepr {
 
 impl DataRepr {
     // Creates a vector of val.
-    pub(super) fn constant_vec(shape: [usize; 1], val:f32) -> Self {
+    pub(super) fn constant_vec(shape: [usize; 1], val: f32) -> Self {
         Self::Vector(Vector::from_elem(shape, val))
     }
 
     // Creates a matrix of val.
-    pub(super) fn constant_mat(shape: [usize; 2], val:f32) -> Self {
+    pub(super) fn constant_mat(shape: [usize; 2], val: f32) -> Self {
         Self::Matrix(Matrix::from_elem(shape, val))
     }
 
@@ -37,30 +37,38 @@ impl DataRepr {
 
     // Creates a vector whose elements are drawn from
     // the uniform distribution U(low, high) -> [low, high).
-    pub(super) fn uniform_vec(shape: [usize; 1], low:f32, high:f32) -> Self {
+    pub(super) fn uniform_vec(shape: [usize; 1], low: f32, high: f32) -> Self {
         let unif_dstr = Uniform::new(low, high);
-        Self::Vector(Vector::from_shape_simple_fn(shape, || unif_dstr.sample(&mut thread_rng())))
+        Self::Vector(Vector::from_shape_simple_fn(shape, || {
+            unif_dstr.sample(&mut thread_rng())
+        }))
     }
 
     // Creates a matrix whose elements are drawn from
     // the uniform distribution U(low, high) -> [low, high).
-    pub(super) fn uniform_mat(shape: [usize; 2], low:f32, high:f32) -> Self {
+    pub(super) fn uniform_mat(shape: [usize; 2], low: f32, high: f32) -> Self {
         let unif_dstr = Uniform::new(low, high);
-        Self::Matrix(Matrix::from_shape_simple_fn(shape, || unif_dstr.sample(&mut thread_rng())))
+        Self::Matrix(Matrix::from_shape_simple_fn(shape, || {
+            unif_dstr.sample(&mut thread_rng())
+        }))
     }
 
     // Creates a vector whose elements are sampled from
     // the normal distribution N(mean, std^2).
-    pub(super) fn normal_vec(shape: [usize; 1], mean:f32, std:f32) -> Self {
+    pub(super) fn normal_vec(shape: [usize; 1], mean: f32, std: f32) -> Self {
         let norm_dstr = Normal::new(mean, std).unwrap();
-        Self::Vector(Vector::from_shape_simple_fn(shape, || norm_dstr.sample(&mut thread_rng())))
+        Self::Vector(Vector::from_shape_simple_fn(shape, || {
+            norm_dstr.sample(&mut thread_rng())
+        }))
     }
 
     // Creates a matrix whose elements are sampled from
     // the normal distribution N(mean, std^2).
-    pub(super) fn normal_mat(shape: [usize; 2], mean:f32, std:f32) -> Self {
+    pub(super) fn normal_mat(shape: [usize; 2], mean: f32, std: f32) -> Self {
         let norm_dstr = Normal::new(mean, std).unwrap();
-        Self::Matrix(Matrix::from_shape_simple_fn(shape, || norm_dstr.sample(&mut thread_rng())))
+        Self::Matrix(Matrix::from_shape_simple_fn(shape, || {
+            norm_dstr.sample(&mut thread_rng())
+        }))
     }
 
     // Used to extract a scalar from the DataRepr
@@ -78,7 +86,7 @@ impl DataRepr {
     // with certainty.
     fn vector(&self) -> &Vector {
         match self {
-            Self::Vector(val) => &val,
+            Self::Vector(val) => val,
             _ => panic!("error: not a vector."),
         }
     }
@@ -88,7 +96,7 @@ impl DataRepr {
     // with certainty.
     fn matrix(&self) -> &Matrix {
         match self {
-            Self::Matrix(val) => &val,
+            Self::Matrix(val) => val,
             _ => panic!("error: not a matrix."),
         }
     }
@@ -1719,7 +1727,7 @@ pub(super) fn softmax_backward(
                 .as_slice_mut()
                 .unwrap()
                 .iter_mut()
-                .zip(data.as_slice().unwrap())
+                .zip(data.iter())
                 .enumerate()
             {
                 if row_idx == col_idx {
