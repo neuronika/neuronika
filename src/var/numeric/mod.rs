@@ -209,9 +209,9 @@ impl DataRepr {
         F: Fn(f32) -> f32,
     {
         match self {
-            Self::Scalar(val) => DataRepr::Scalar(f(*val)),
-            Self::Vector(val) => DataRepr::Vector(val.map(|val| f(*val))),
-            Self::Matrix(val) => DataRepr::Matrix(val.map(|val| f(*val))),
+            Self::Scalar(val) => Self::Scalar(f(*val)),
+            Self::Vector(val) => Self::Vector(val.map(|val| f(*val))),
+            Self::Matrix(val) => Self::Matrix(val.map(|val| f(*val))),
         }
     }
 
@@ -230,25 +230,25 @@ impl DataRepr {
     }
 
     // Concatenates the DataReprs along the given axis.
-    pub(super) fn cat(slice: &[&DataRepr], axis: usize) -> Self {
+    pub(super) fn cat(slice: &[&Self], axis: usize) -> Self {
         // The underlying data must be of the same type.
         match slice[0] {
             // Scalars can only be concatenated with other scalars.
-            DataRepr::Scalar(_) => {
+            Self::Scalar(_) => {
                 let unboxed: Vec<f32> = slice.iter().map(|repr| repr.scalar()).collect();
-                DataRepr::Vector(Vector::from(unboxed))
+                Self::Vector(Vector::from(unboxed))
             }
             // Vectors can only be concatenated with other vectors.
-            DataRepr::Vector(_) => {
+            Self::Vector(_) => {
                 let unboxed: Vec<ArrayView1<f32>> =
                     slice.iter().map(|repr| repr.vector().view()).collect();
-                DataRepr::Vector(concatenate(Axis(axis), &unboxed).ok().unwrap())
+                Self::Vector(concatenate(Axis(axis), &unboxed).ok().unwrap())
             }
             // Matrixes can only be concatenated with other matrices.
-            DataRepr::Matrix(_) => {
+            Self::Matrix(_) => {
                 let unboxed: Vec<ArrayView2<f32>> =
                     slice.iter().map(|repr| repr.matrix().view()).collect();
-                DataRepr::Matrix(concatenate(Axis(axis), &unboxed).ok().unwrap())
+                Self::Matrix(concatenate(Axis(axis), &unboxed).ok().unwrap())
             }
         }
     }
@@ -256,13 +256,13 @@ impl DataRepr {
     // Computes the Softmax along an axis of self.
     pub(super) fn softmax(&self, axis: usize) -> Self {
         match (self, axis) {
-            (DataRepr::Vector(op_val), _) => {
+            (Self::Vector(op_val), _) => {
                 let max = op_val.fold(std::f32::MIN, |x, y| x.max(*y));
                 let num = op_val.map(|el| (el - max).exp());
                 let den = num.sum();
                 Self::Vector(num / den)
             }
-            (DataRepr::Matrix(op_val), 0) => {
+            (Self::Matrix(op_val), 0) => {
                 let mut new = Matrix::zeros(op_val.raw_dim());
                 Zip::from(op_val.gencolumns())
                     .and(new.gencolumns_mut())
@@ -274,7 +274,7 @@ impl DataRepr {
                     });
                 Self::Matrix(new)
             }
-            (DataRepr::Matrix(op_val), 1) => {
+            (Self::Matrix(op_val), 1) => {
                 let mut new = Matrix::zeros(op_val.raw_dim());
                 Zip::from(op_val.genrows())
                     .and(new.genrows_mut())
@@ -1217,6 +1217,68 @@ macro_rules! impl_exp_accumulation_ops {
 impl_exp_accumulation_ops!(exp_diff_assign, =);
 // Accumulation op for the increment action.
 impl_exp_accumulation_ops!(exp_diff_add_assign, +=);
+
+// Computes the Tanh of the incoming
+// data during the forward pass.
+pub(super) fn tanh_forward(data: &mut DataRepr, src: &DataRepr) {
+    match (data, src) {
+        (DataRepr::Scalar(data_val), DataRepr::Scalar(src_val)) => *data_val = src_val.tanh(),
+        (DataRepr::Vector(data_val), DataRepr::Vector(src_val)) => Zip::from(data_val)
+            .and(src_val)
+            .par_apply(|data_el, src_el| *data_el = src_el.tanh()),
+        (DataRepr::Matrix(data_val), DataRepr::Matrix(src_val)) => Zip::from(data_val)
+            .and(src_val)
+            .par_apply(|data_el, src_el| *data_el = src_el.tanh()),
+        _ => panic!("error: the two operands should have the same size."),
+    }
+}
+
+// Used in the accumulation of the
+// gradient of the Tanh op. Implements
+// the necessary accumulation operations.
+macro_rules! impl_tanh_accumulation_ops {
+    ($fun:ident, $op:tt) => {
+        pub(super) fn $fun(
+            grad: &mut DataRepr,
+            downstream_grad: &DataRepr,
+            data: &DataRepr,
+        ) {
+            match (grad, downstream_grad, data) {
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => *grad_val $op *down_grad_val * (1.0 - pow(*data_val, 2)),
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op *down_grad_val * (1.0 - pow(*data_val, 2))
+                    }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op *down_grad_val * (1.0 - pow(*data_val, 2))
+                    }),
+                _ => panic!("error: gradient and data should have the same size."),
+            }
+        }
+    };
+}
+
+// Accumulation op for the set action.
+impl_tanh_accumulation_ops!(tanh_diff_assign, =);
+// Accumulation op for the increment action.
+impl_tanh_accumulation_ops!(tanh_diff_add_assign, +=);
 
 // Implements scalar-scaled accumulation
 // operations.
