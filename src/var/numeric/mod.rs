@@ -19,6 +19,10 @@ pub enum DataRepr {
     Matrix(Matrix),
 }
 
+pub trait Tensor {
+    type Conte;
+}
+
 impl DataRepr {
     // Creates a vector of val.
     pub(super) fn constant_vec(shape: [usize; 1], val: f32) -> Self {
@@ -1068,6 +1072,87 @@ macro_rules! impl_relu_accumulation_ops {
 impl_relu_accumulation_ops!(relu_diff_assign, =);
 // Accumulation op for the increment action.
 impl_relu_accumulation_ops!(relu_diff_add_assign, +=);
+
+// Computes the LeakyReLU of the incoming
+// data during the forward pass.
+pub(super) fn leakyrelu_forward(data: &mut DataRepr, src: &DataRepr, slope: f32) {
+    match (data, src) {
+        (DataRepr::Scalar(data_val), DataRepr::Scalar(src_val)) => {
+            *data_val = if *src_val < 0.0 {
+                *src_val * slope
+            } else {
+                *src_val
+            }
+        }
+        (DataRepr::Vector(data_val), DataRepr::Vector(src_val)) => Zip::from(data_val)
+            .and(src_val)
+            .par_apply(|data_el, src_el| {
+                *data_el = if *src_el < 0.0 {
+                    *src_el * slope
+                } else {
+                    *src_el
+                }
+            }),
+        (DataRepr::Matrix(data_val), DataRepr::Matrix(src_val)) => Zip::from(data_val)
+            .and(src_val)
+            .par_apply(|data_el, src_el| {
+                *data_el = if *src_el < 0.0 {
+                    *src_el * slope
+                } else {
+                    *src_el
+                }
+            }),
+        _ => panic!("error: the two operands should have the same size."),
+    }
+}
+
+// Used in the accumulation of the gradient
+// of the LeakyReLU op. Implements the necessary
+// accumulation operations.
+macro_rules! impl_leakyrelu_accumulation_ops {
+    ($fun:ident, $op:tt) => {
+        pub(super) fn $fun(
+            grad: &mut DataRepr,
+            downstream_grad: &DataRepr,
+            data: &DataRepr,
+            slope:f32
+        ) {
+            match (grad, downstream_grad, data) {
+                (
+                    DataRepr::Scalar(grad_val),
+                    DataRepr::Scalar(down_grad_val),
+                    DataRepr::Scalar(data_val),
+                ) => *grad_val $op if *data_val > 0.0 { *down_grad_val } else { slope },
+                (
+                    DataRepr::Vector(grad_val),
+                    DataRepr::Vector(down_grad_val),
+                    DataRepr::Vector(data_val),
+                ) => Zip::from(grad_val)
+                        .and(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op if *data_val > 0.0 { *down_grad_val } else { slope }
+                    }),
+                (
+                    DataRepr::Matrix(grad_val),
+                    DataRepr::Matrix(down_grad_val),
+                    DataRepr::Matrix(data_val),
+                ) => Zip::from(grad_val)
+                        .and(down_grad_val)
+                        .and(data_val)
+                        .par_apply(|grad_val, down_grad_val, data_val| {
+                            *grad_val $op if *data_val > 0.0 { *down_grad_val } else { slope }
+                    }),
+                _ => panic!("error: gradient and data should have the same size."),
+            }
+        }
+    };
+}
+
+// Accumulation op for the set action.
+impl_leakyrelu_accumulation_ops!(leakyrelu_diff_assign, =);
+// Accumulation op for the increment action.
+impl_leakyrelu_accumulation_ops!(leakyrelu_diff_add_assign, +=);
 
 // Computes the Sigmoid of the incoming
 // data during the forward pass. The sigmoid

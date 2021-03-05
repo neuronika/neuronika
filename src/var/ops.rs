@@ -8,12 +8,13 @@ use std::rc::Rc;
 use super::numeric::{
     add, add_assign, add_assign_v, assign, assign_v, cat_backward_add_assign, cat_backward_assign,
     cat_forward, div, div_assign_pow, exp_diff_add_assign, exp_diff_assign, exp_forward,
-    mat_mat_mul, mat_vec_mul, mat_vec_mul_backward_lhs, mul, multicat_backward_add_assign,
-    multicat_backward_assign, multicat_forward, pow_diff_add_assign, pow_diff_assign, pow_forward,
-    relu_diff_add_assign, relu_diff_assign, relu_forward, scaled_add_assign, scaled_assign,
-    sigmoid_diff_add_assign, sigmoid_diff_assign, sigmoid_forward, softmax_backward,
-    softmax_forward, sub, sub_assign, tanh_diff_add_assign, tanh_diff_assign, tanh_forward,
-    BackwardAction, DataRepr, ForwardAction, Matrix, PassCounter,
+    leakyrelu_diff_add_assign, leakyrelu_diff_assign, leakyrelu_forward, mat_mat_mul, mat_vec_mul,
+    mat_vec_mul_backward_lhs, mul, multicat_backward_add_assign, multicat_backward_assign,
+    multicat_forward, pow_diff_add_assign, pow_diff_assign, pow_forward, relu_diff_add_assign,
+    relu_diff_assign, relu_forward, scaled_add_assign, scaled_assign, sigmoid_diff_add_assign,
+    sigmoid_diff_assign, sigmoid_forward, softmax_backward, softmax_forward, sub, sub_assign,
+    tanh_diff_add_assign, tanh_diff_assign, tanh_forward, BackwardAction, DataRepr, ForwardAction,
+    Matrix, PassCounter,
 };
 
 #[derive(Debug)]
@@ -32,7 +33,7 @@ impl<'data, T: 'data> Deref for Borrow<'data, T> {
     }
 }
 
-pub trait InternalRepr: Debug + 'static {
+pub trait Op: Debug + 'static {
     type Data;
     type Grad;
     fn forward(&self);
@@ -42,7 +43,7 @@ pub trait InternalRepr: Debug + 'static {
     fn clear(&self);
 }
 
-impl InternalRepr for Rc<dyn InternalRepr<Data = DataRepr, Grad = DataRepr>> {
+impl Op for Rc<dyn Op<Data = DataRepr, Grad = DataRepr>> {
     type Data = DataRepr;
     type Grad = DataRepr;
     fn forward(&self) {
@@ -63,15 +64,15 @@ impl InternalRepr for Rc<dyn InternalRepr<Data = DataRepr, Grad = DataRepr>> {
 }
 
 #[derive(Debug)]
-pub struct Parameter {
+pub struct Param {
     pub(crate) data: RefCell<DataRepr>,
     pub(crate) grad: RefCell<DataRepr>,
 }
 
-impl Parameter {
+impl Param {
     pub fn new(data: DataRepr) -> Var<Self> {
         let zeroed_data = data.zeros();
-        let node = Rc::new(Parameter {
+        let node = Rc::new(Param {
             data: RefCell::new(data),
             grad: RefCell::new(zeroed_data),
         });
@@ -89,7 +90,7 @@ impl Parameter {
     }
 }
 
-impl InternalRepr for Parameter {
+impl Op for Param {
     type Data = DataRepr;
     type Grad = DataRepr;
     fn forward(&self) {}
@@ -121,7 +122,7 @@ impl Input {
     }
 }
 
-impl InternalRepr for Input {
+impl Op for Input {
     type Data = DataRepr;
     type Grad = DataRepr;
     fn forward(&self) {}
@@ -136,7 +137,7 @@ impl InternalRepr for Input {
 }
 
 #[derive(Debug)]
-pub struct InternalNeg<OP> {
+pub struct NegOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -144,16 +145,16 @@ pub struct InternalNeg<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalNeg<OP>
+impl<OP> NegOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = -operand.data().deref();
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalNeg {
+        NegOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -163,9 +164,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalNeg<OP>
+impl<OP> Op for NegOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -212,7 +213,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalAdd<LHS, RHS> {
+pub struct AddOp<LHS, RHS> {
     data: RefCell<DataRepr>,
     lhs_grad: RefCell<DataRepr>,
     rhs_grad: RefCell<DataRepr>,
@@ -222,10 +223,10 @@ pub struct InternalAdd<LHS, RHS> {
     counter: PassCounter,
 }
 
-impl<LHS, RHS> InternalAdd<LHS, RHS>
+impl<LHS, RHS> AddOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr>,
+    LHS: Op<Data = DataRepr>,
+    RHS: Op<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -233,7 +234,7 @@ where
         let lhs_grad = lhs.data().zeros();
         let rhs_grad = rhs.data().zeros();
 
-        InternalAdd {
+        AddOp {
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
@@ -245,10 +246,10 @@ where
     }
 }
 
-impl<LHS, RHS> InternalRepr for InternalAdd<LHS, RHS>
+impl<LHS, RHS> Op for AddOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -303,7 +304,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalSub<LHS, RHS> {
+pub struct SubOp<LHS, RHS> {
     data: RefCell<DataRepr>,
     lhs_grad: RefCell<DataRepr>,
     rhs_grad: RefCell<DataRepr>,
@@ -313,10 +314,10 @@ pub struct InternalSub<LHS, RHS> {
     counter: PassCounter,
 }
 
-impl<LHS, RHS> InternalSub<LHS, RHS>
+impl<LHS, RHS> SubOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr>,
+    LHS: Op<Data = DataRepr>,
+    RHS: Op<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -324,7 +325,7 @@ where
         let lhs_grad = lhs.data().zeros();
         let rhs_grad = rhs.data().zeros();
 
-        InternalSub {
+        SubOp {
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
@@ -336,10 +337,10 @@ where
     }
 }
 
-impl<LHS, RHS> InternalRepr for InternalSub<LHS, RHS>
+impl<LHS, RHS> Op for SubOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -394,7 +395,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalMul<LHS, RHS> {
+pub struct MulOp<LHS, RHS> {
     data: RefCell<DataRepr>,
     lhs_grad: RefCell<DataRepr>,
     rhs_grad: RefCell<DataRepr>,
@@ -404,10 +405,10 @@ pub struct InternalMul<LHS, RHS> {
     counter: PassCounter,
 }
 
-impl<LHS, RHS> InternalMul<LHS, RHS>
+impl<LHS, RHS> MulOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr>,
+    LHS: Op<Data = DataRepr>,
+    RHS: Op<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -415,7 +416,7 @@ where
         let lhs_grad = lhs.data().zeros();
         let rhs_grad = rhs.data().zeros();
 
-        InternalMul {
+        MulOp {
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
@@ -427,10 +428,10 @@ where
     }
 }
 
-impl<LHS, RHS> InternalRepr for InternalMul<LHS, RHS>
+impl<LHS, RHS> Op for MulOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -497,7 +498,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalDiv<LHS, RHS> {
+pub struct DivOp<LHS, RHS> {
     data: RefCell<DataRepr>,
     lhs_grad: RefCell<DataRepr>,
     rhs_grad: RefCell<DataRepr>,
@@ -507,10 +508,10 @@ pub struct InternalDiv<LHS, RHS> {
     counter: PassCounter,
 }
 
-impl<LHS, RHS> InternalDiv<LHS, RHS>
+impl<LHS, RHS> DivOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr>,
+    LHS: Op<Data = DataRepr>,
+    RHS: Op<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -518,7 +519,7 @@ where
         let lhs_grad = lhs.data().zeros();
         let rhs_grad = rhs.data().zeros();
 
-        InternalDiv {
+        DivOp {
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
@@ -530,10 +531,10 @@ where
     }
 }
 
-impl<LHS, RHS> InternalRepr for InternalDiv<LHS, RHS>
+impl<LHS, RHS> Op for DivOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -599,7 +600,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalDot<LHS, RHS> {
+pub struct DotOp<LHS, RHS> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     lhs_grad: RefCell<DataRepr>,
@@ -610,10 +611,10 @@ pub struct InternalDot<LHS, RHS> {
     counter: PassCounter,
 }
 
-impl<LHS, RHS> InternalDot<LHS, RHS>
+impl<LHS, RHS> DotOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr>,
+    LHS: Op<Data = DataRepr>,
+    RHS: Op<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -632,7 +633,7 @@ where
         let lhs_grad = lhs.data().zeros();
         let rhs_grad = rhs.data().zeros();
 
-        InternalDot {
+        DotOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             lhs_grad: RefCell::new(lhs_grad),
@@ -645,10 +646,10 @@ where
     }
 }
 
-impl<LHS, RHS> InternalRepr for InternalDot<LHS, RHS>
+impl<LHS, RHS> Op for DotOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -764,7 +765,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalVecDot<LHS, RHS> {
+pub struct ScalProdOp<LHS, RHS> {
     data: RefCell<DataRepr>,
     lhs_grad: RefCell<DataRepr>,
     rhs_grad: RefCell<DataRepr>,
@@ -774,10 +775,10 @@ pub struct InternalVecDot<LHS, RHS> {
     counter: PassCounter,
 }
 
-impl<LHS, RHS> InternalVecDot<LHS, RHS>
+impl<LHS, RHS> ScalProdOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr>,
+    LHS: Op<Data = DataRepr>,
+    RHS: Op<Data = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -791,7 +792,7 @@ where
             _ => panic!("error: vector dot product is defined only between vectors."),
         };
 
-        InternalVecDot {
+        ScalProdOp {
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
@@ -803,10 +804,10 @@ where
     }
 }
 
-impl<LHS, RHS> InternalRepr for InternalVecDot<LHS, RHS>
+impl<LHS, RHS> Op for ScalProdOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -890,7 +891,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalPow<OP> {
+pub struct PowOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -899,16 +900,16 @@ pub struct InternalPow<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalPow<OP>
+impl<OP> PowOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>, exp: u16) -> Self {
         let data = operand.data().deref().map(|el| pow(el, exp as usize));
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalPow {
+        PowOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -919,9 +920,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalPow<OP>
+impl<OP> Op for PowOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -975,7 +976,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalSum<OP> {
+pub struct SumOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -983,16 +984,16 @@ pub struct InternalSum<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalSum<OP>
+impl<OP> SumOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().sum();
         let grad = operand.data().zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalSum {
+        SumOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -1002,9 +1003,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalSum<OP>
+impl<OP> Op for SumOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1047,7 +1048,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalLn<OP> {
+pub struct LnOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -1055,16 +1056,16 @@ pub struct InternalLn<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalLn<OP>
+impl<OP> LnOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().map(|el| el.ln());
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalLn {
+        LnOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -1074,9 +1075,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalLn<OP>
+impl<OP> Op for LnOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1125,7 +1126,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalReLU<OP> {
+pub struct ReLUOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -1133,19 +1134,19 @@ pub struct InternalReLU<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalReLU<OP>
+impl<OP> ReLUOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand
             .data()
             .deref()
-            .map(|el| if el > 0.0 { 0.0 } else { el });
+            .map(|el| if el < 0.0 { 0.0 } else { el });
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalReLU {
+        ReLUOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -1155,9 +1156,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalReLU<OP>
+impl<OP> Op for ReLUOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1203,7 +1204,94 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalSigmoid<OP> {
+pub struct LeakyReLUOp<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+    slope: f32,
+}
+
+impl<OP> LeakyReLUOp<OP>
+where
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(operand: Rc<OP>, slope: f32) -> Self {
+        let data = operand
+            .data()
+            .deref()
+            .map(|el| if el < 0.0 { el * slope } else { el });
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        LeakyReLUOp {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+            slope: slope,
+        }
+    }
+}
+
+impl<OP> Op for LeakyReLUOp<OP>
+where
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+        leakyrelu_forward(
+            &mut self.data.borrow_mut(),
+            &self.operand.data(),
+            self.slope,
+        );
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                leakyrelu_diff_assign(&mut self.grad.borrow_mut(), grad, &self.data(), self.slope)
+            }
+            BackwardAction::Increment => leakyrelu_diff_add_assign(
+                &mut self.grad.borrow_mut(),
+                grad,
+                &self.data(),
+                self.slope,
+            ),
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SigmoidOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -1211,9 +1299,9 @@ pub struct InternalSigmoid<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalSigmoid<OP>
+impl<OP> SigmoidOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().map(|el| {
@@ -1229,7 +1317,7 @@ where
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalSigmoid {
+        SigmoidOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -1239,9 +1327,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalSigmoid<OP>
+impl<OP> Op for SigmoidOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1287,7 +1375,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalTanh<OP> {
+pub struct TanhOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -1295,16 +1383,16 @@ pub struct InternalTanh<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalTanh<OP>
+impl<OP> TanhOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().map(|el| el.tanh());
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalTanh {
+        TanhOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -1314,9 +1402,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalTanh<OP>
+impl<OP> Op for TanhOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1362,7 +1450,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalExp<OP> {
+pub struct ExpOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -1370,16 +1458,16 @@ pub struct InternalExp<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalExp<OP>
+impl<OP> ExpOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().map(|el| el.exp());
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalExp {
+        ExpOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -1389,9 +1477,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalExp<OP>
+impl<OP> Op for ExpOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1435,7 +1523,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalSoftmax<OP> {
+pub struct SoftmaxOp<OP> {
     axis: usize,
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
@@ -1445,9 +1533,9 @@ pub struct InternalSoftmax<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalSoftmax<OP>
+impl<OP> SoftmaxOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>, axis: usize) -> Self {
         let (data, j_dim) = {
@@ -1462,7 +1550,7 @@ where
         let grad = data.zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalSoftmax {
+        SoftmaxOp {
             axis: axis,
             data: RefCell::new(data),
             grad: RefCell::new(grad),
@@ -1474,9 +1562,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalSoftmax<OP>
+impl<OP> Op for SoftmaxOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1527,7 +1615,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalT<OP> {
+pub struct TOp<OP> {
     data: RefCell<DataRepr>,
     grad: RefCell<DataRepr>,
     operand: Rc<OP>,
@@ -1535,16 +1623,16 @@ pub struct InternalT<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalT<OP>
+impl<OP> TOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().t();
         let grad = operand.data().zeros();
         let requires_grad = operand.requires_grad();
 
-        InternalT {
+        TOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             operand: operand,
@@ -1554,9 +1642,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalT<OP>
+impl<OP> Op for TOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1598,7 +1686,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalMultiConcat<OP> {
+pub struct MultiCatOp<OP> {
     axis: usize,
     data: RefCell<DataRepr>,
     operands: Vec<Rc<OP>>,
@@ -1607,9 +1695,9 @@ pub struct InternalMultiConcat<OP> {
     counter: PassCounter,
 }
 
-impl<OP> InternalMultiConcat<OP>
+impl<OP> MultiCatOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(operands: &[Rc<OP>], axis: usize) -> Self {
         let reprs: Vec<Borrow<DataRepr>> = operands.iter().map(|op| op.data()).collect();
@@ -1626,7 +1714,7 @@ where
             .map(|data| RefCell::new(data.zeros()))
             .collect();
 
-        InternalMultiConcat {
+        MultiCatOp {
             axis: axis,
             data: RefCell::new(data),
             operands: operands.to_vec(),
@@ -1637,9 +1725,9 @@ where
     }
 }
 
-impl<OP> InternalRepr for InternalMultiConcat<OP>
+impl<OP> Op for MultiCatOp<OP>
 where
-    OP: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
@@ -1707,7 +1795,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct InternalBinConcat<LHS, RHS> {
+pub struct BinCatOp<LHS, RHS> {
     axis: usize,
     data: RefCell<DataRepr>,
     lhs: Rc<LHS>,
@@ -1718,10 +1806,10 @@ pub struct InternalBinConcat<LHS, RHS> {
     counter: PassCounter,
 }
 
-impl<LHS, RHS> InternalBinConcat<LHS, RHS>
+impl<LHS, RHS> BinCatOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
         let data = DataRepr::cat(&[lhs.data().deref(), rhs.data().deref()], axis);
@@ -1731,7 +1819,7 @@ where
         let lhs_grad = lhs.data().zeros();
         let rhs_grad = rhs.data().zeros();
 
-        InternalBinConcat {
+        BinCatOp {
             axis: axis,
             data: RefCell::new(data),
             lhs: lhs,
@@ -1744,10 +1832,10 @@ where
     }
 }
 
-impl<LHS, RHS> InternalRepr for InternalBinConcat<LHS, RHS>
+impl<LHS, RHS> Op for BinCatOp<LHS, RHS>
 where
-    LHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
-    RHS: InternalRepr<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = DataRepr, Grad = DataRepr>,
+    RHS: Op<Data = DataRepr, Grad = DataRepr>,
 {
     type Data = DataRepr;
     type Grad = DataRepr;
