@@ -12,7 +12,8 @@ use super::numeric::{
     mat_vec_mul_backward_lhs, mul, multicat_backward_add_assign, multicat_backward_assign,
     multicat_forward, pow_diff_add_assign, pow_diff_assign, pow_forward, relu_diff_add_assign,
     relu_diff_assign, relu_forward, scaled_add_assign, scaled_assign, sigmoid_diff_add_assign,
-    sigmoid_diff_assign, sigmoid_forward, softmax_backward, softmax_forward, sub, sub_assign,
+    sigmoid_diff_assign, sigmoid_forward, softmax_backward, softmax_forward,
+    softplus_diff_add_assign, softplus_diff_assign, softplus_forward, sub, sub_assign,
     tanh_diff_add_assign, tanh_diff_assign, tanh_forward, BackwardAction, DataRepr, ForwardAction,
     Matrix, PassCounter,
 };
@@ -1096,12 +1097,14 @@ where
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         match self.counter.backward_action() {
-            BackwardAction::Set => {
-                assign_v(&mut self.grad.borrow_mut(), grad.deref() / &self.data())
-            }
-            BackwardAction::Increment => {
-                add_assign_v(&mut self.grad.borrow_mut(), grad.deref() / &self.data())
-            }
+            BackwardAction::Set => assign_v(
+                &mut self.grad.borrow_mut(),
+                grad.deref() / &self.operand.data(),
+            ),
+            BackwardAction::Increment => add_assign_v(
+                &mut self.grad.borrow_mut(),
+                grad.deref() / &self.operand.data(),
+            ),
         }
 
         if self.counter.recurse_backward() {
@@ -1267,6 +1270,89 @@ where
                 &self.data(),
                 self.slope,
             ),
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Borrow<Self::Data> {
+        Borrow::FromRefCell(self.data.borrow())
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SoftplusOp<OP> {
+    data: RefCell<DataRepr>,
+    grad: RefCell<DataRepr>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP> SoftplusOp<OP>
+where
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
+{
+    pub fn new(operand: Rc<OP>) -> Self {
+        let data = operand.data().deref().map(|el| {
+            if el < -15.0 {
+                0.0
+            } else if el > 15.0 {
+                el
+            } else {
+                (1.0 + el.exp()).ln()
+            }
+        });
+        let grad = data.zeros();
+        let requires_grad = operand.requires_grad();
+
+        SoftplusOp {
+            data: RefCell::new(data),
+            grad: RefCell::new(grad),
+            operand: operand,
+            requires_grad: requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP> Op for SoftplusOp<OP>
+where
+    OP: Op<Data = DataRepr, Grad = DataRepr>,
+{
+    type Data = DataRepr;
+    type Grad = DataRepr;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+        softplus_forward(&mut self.data.borrow_mut(), &self.operand.data());
+    }
+
+    fn backward(&self, grad: &Ref<Self::Grad>) {
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                softplus_diff_assign(&mut self.grad.borrow_mut(), grad, &self.operand.data())
+            }
+            BackwardAction::Increment => {
+                softplus_diff_add_assign(&mut self.grad.borrow_mut(), grad, &self.operand.data())
+            }
         }
 
         if self.counter.recurse_backward() {

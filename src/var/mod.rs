@@ -5,7 +5,7 @@ use itertools::Itertools;
 use numeric::DataRepr;
 use ops::{
     AddOp, BinCatOp, Borrow, DivOp, DotOp, ExpOp, LeakyReLUOp, LnOp, MulOp, MultiCatOp, NegOp, Op,
-    Param, PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SubOp, SumOp, TOp, TanhOp,
+    Param, PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp, TOp, TanhOp,
 };
 use std::cell::{Ref, RefCell};
 use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
@@ -141,6 +141,13 @@ where
     pub fn leaky_relu(&self, slope: f32) -> Var<LeakyReLUOp<T>> {
         Var::new(
             Rc::new(LeakyReLUOp::new(Rc::clone(&self.repr), slope)),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn softplus(&self) -> Var<SoftplusOp<T>> {
+        Var::new(
+            Rc::new(SoftplusOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }

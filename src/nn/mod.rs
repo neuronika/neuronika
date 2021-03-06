@@ -1,9 +1,4 @@
-use super::var::ops::Param;
-use super::var::Var;
-
 pub mod init {
-    use super::Param;
-    use super::Var;
 
     // Returns the recommended gain value for the given nonlinearity function.
     pub fn calculate_gain(non_linearity: &str, param: Option<f32>) -> f32 {
