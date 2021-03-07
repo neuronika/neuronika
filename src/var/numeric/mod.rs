@@ -771,9 +771,46 @@ macro_rules! impl_accumulation_ops {
                         .apply(|trgt_val, src_val| *trgt_val $op *src_val)
                 },
                 (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
-                    Zip::from(trgt_val)
-                        .and_broadcast(src_val)
-                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val)
+                    let trgt_dim = trgt_val.raw_dim();
+                    let src_dim = src_val.raw_dim();
+
+                    // If the two matrix disagree on the column number,
+                    // i.e. the target has shape [x, 1] and the src [x, y],
+                    // zips the rows and performs a sum with reduction.
+                    if trgt_dim[1] < src_dim[1] {
+                        if trgt_dim[0] == src_dim[0] {
+                            trgt_val.genrows_mut()
+                                .into_iter()
+                                .zip(src_val.genrows())
+                                .for_each(|(trgt_row, src_row)| {
+                                    let src_row_sum = src_row.sum();
+                                    Zip::from(trgt_row)
+                                        .apply(|trgt_row_el| *trgt_row_el $op src_row_sum)
+                                })
+                        } else if trgt_dim[0] < src_dim[0] {
+                            // If the target has shape [1, 1] and the src [x, y]
+                            // reduces src to a scalar then sums it to trgt.
+                            let reduced_src = src_val.sum();
+                            Zip::from(trgt_val).apply(|trgt_el| *trgt_el $op reduced_src)
+                        }
+                    } else if trgt_dim[0] < src_dim[0] && trgt_dim[1] == src_dim[1] {
+                        // If target has shape [1, y] and source [x, y]
+                        // zips the columns and performs the assignment / addition
+                        // with reduction.
+                        trgt_val.gencolumns_mut()
+                                .into_iter()
+                                .zip(src_val.gencolumns())
+                                .for_each(|(trgt_col, src_col)| {
+                                    let src_col_sum = src_col.sum();
+                                    Zip::from(trgt_col)
+                                        .apply(|trgt_col_el| *trgt_col_el $op src_col_sum)
+                                })
+                    } else {
+                        // ndarray broadcasting rules.
+                        Zip::from(trgt_val)
+                            .and_broadcast(src_val)
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val)
+                    }
                 },
             }
         }
@@ -858,9 +895,47 @@ macro_rules! impl_accumulation_ops_v {
                         .apply(|trgt_val, src_val| *trgt_val $op *src_val)
                 },
                 (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
-                    Zip::from(trgt_val)
-                        .and_broadcast(&src_val)
-                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val)
+                    let trgt_dim = trgt_val.raw_dim();
+                    let src_dim = src_val.raw_dim();
+
+                    // If the two matrix disagree on the column number,
+                    // i.e. the target has shape [x, 1] and the src [x, y],
+                    // zips the rows and performs a sum with reduction.
+                    if trgt_dim[1] < src_dim[1] {
+                        if trgt_dim[0] == src_dim[0] {
+                            trgt_val.genrows_mut()
+                                .into_iter()
+                                .zip(src_val.genrows())
+                                .for_each(|(trgt_row, src_row)| {
+                                    let src_row_sum = src_row.sum();
+                                    Zip::from(trgt_row)
+                                        .apply(|trgt_row_el| *trgt_row_el $op src_row_sum)
+                                })
+                        } else if trgt_dim[0] < src_dim[0] {
+                            // If the target has shape [1, 1] and the src [x, y]
+                            // reduces src to a scalar then sums it to trgt.
+                            let reduced_src = src_val.sum();
+                            Zip::from(trgt_val).apply(|trgt_el| *trgt_el $op reduced_src)
+                        }
+                    } else if trgt_dim[0] < src_dim[0] && trgt_dim[1] == src_dim[1] {
+                        // If target has shape [1, y] and source [x, y]
+                        // zips the columns and performs the assignment / addition
+                        // with reduction.
+                        trgt_val.gencolumns_mut()
+                                .into_iter()
+                                .zip(src_val.gencolumns())
+                                .for_each(|(trgt_col, src_col)| {
+                                    let src_col_sum = src_col.sum();
+                                    Zip::from(trgt_col)
+                                        .apply(|trgt_col_el| *trgt_col_el $op src_col_sum)
+                                })
+                    }
+                    else {
+                        // ndarray broadcasting rules.
+                        Zip::from(trgt_val)
+                            .and_broadcast(&src_val)
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val)
+                    }
                 }
             }
         }
@@ -928,9 +1003,48 @@ macro_rules! impl_scaled_accumulation_ops {
                         .apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar)
                 },
                 (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
-                    Zip::from(trgt_val)
-                        .and_broadcast(src_val)
-                        .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar)
+                    let trgt_dim = trgt_val.raw_dim();
+                    let src_dim = src_val.raw_dim();
+
+                    // If the two matrix disagree on the column number,
+                    // i.e. the target has shape [x, 1] and the src [x, y],
+                    // zips the rows and performs a sum with reduction.
+                    if trgt_dim[1] < src_dim[1] {
+                        if trgt_dim[0] == src_dim[0] {
+                            trgt_val.genrows_mut()
+                                .into_iter()
+                                .zip(src_val.genrows())
+                                .for_each(|(trgt_row, src_row)| {
+                                    let src_row_sum = src_row.sum();
+                                    Zip::from(trgt_row)
+                                        .par_apply(|trgt_row_el| *trgt_row_el $op src_row_sum * scalar)
+                                })
+                        } else if trgt_dim[0] < src_dim[0] {
+                            // If the target has shape [1, 1] and the src [x, y]
+                            // reduces src to a scalar then sums it to trgt.
+                            let reduced_src = src_val.sum();
+                            Zip::from(trgt_val)
+                                .apply(|trgt_el| *trgt_el $op reduced_src * scalar)
+                        }
+                    } else if trgt_dim[0] < src_dim[0] && trgt_dim[1] == src_dim[1] {
+                        // If target has shape [1, y] and source [x, y]
+                        // zips the columns and performs the assignment / addition
+                        // with reduction.
+                        trgt_val.gencolumns_mut()
+                                .into_iter()
+                                .zip(src_val.gencolumns())
+                                .for_each(|(trgt_col, src_col)| {
+                                    let src_col_sum = src_col.sum();
+                                    Zip::from(trgt_col)
+                                        .apply(|trgt_col_el| *trgt_col_el $op src_col_sum * scalar)
+                                })
+                    }
+                    else {
+                        // ndarray broadcasting rules.
+                        Zip::from(trgt_val)
+                            .and_broadcast(src_val)
+                            .par_apply(|trgt_val, src_val| *trgt_val $op *src_val * scalar)
+                    }
                 }
             }
         }
@@ -1001,9 +1115,49 @@ pub(super) fn div_assign_pow(trgt: &mut DataRepr, src: &DataRepr, exp: u16) {
         (DataRepr::Matrix(trgt_val), DataRepr::Vector(src_val)) => Zip::from(trgt_val)
             .and_broadcast(src_val)
             .apply(|trgt_val, src_val| *trgt_val /= src_val.powi(exp as i32)),
-        (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => Zip::from(trgt_val)
-            .and_broadcast(src_val)
-            .par_apply(|trgt_val, src_val| *trgt_val /= src_val.powi(exp as i32)),
+        (DataRepr::Matrix(trgt_val), DataRepr::Matrix(src_val)) => {
+            let trgt_dim = trgt_val.raw_dim();
+            let src_dim = src_val.raw_dim();
+
+            // If the two matrix disagree on the column number,
+            // i.e. the target has shape [x, 1] and the src [x, y],
+            // zips the rows and performs the op with reduction.
+            if trgt_dim[1] < src_dim[1] {
+                let mapped_src = src_val.mapv(|x| x.powi(exp as i32));
+                if trgt_dim[0] == src_dim[0] {
+                    trgt_val
+                        .genrows_mut()
+                        .into_iter()
+                        .zip(mapped_src.genrows())
+                        .for_each(|(trgt_row, src_row)| {
+                            let src_row_sum = src_row.sum();
+                            Zip::from(trgt_row).par_apply(|trgt_row_el| *trgt_row_el /= src_row_sum)
+                        })
+                } else if trgt_dim[0] < src_dim[0] {
+                    // If the target has shape [1, 1] and the src [x, y]
+                    // reduces src to a scalar then sums it to trgt.
+                    let reduced_src = mapped_src.sum();
+                    Zip::from(trgt_val).apply(|trgt_el| *trgt_el /= reduced_src)
+                } else if trgt_dim[0] < src_dim[0] && trgt_dim[1] == src_dim[1] {
+                    let mapped_src = src_val.mapv(|x| x.powi(exp as i32));
+                    // If target has shape [1, y] and source [x, y]
+                    // zips the columns and performs the op with reduction.
+                    trgt_val
+                        .gencolumns_mut()
+                        .into_iter()
+                        .zip(mapped_src.gencolumns())
+                        .for_each(|(trgt_col, src_col)| {
+                            let src_col_sum = src_col.sum();
+                            Zip::from(trgt_col).apply(|trgt_col_el| *trgt_col_el /= src_col_sum)
+                        })
+                }
+            } else {
+                // ndarray broadcasting rules.
+                Zip::from(trgt_val)
+                    .and_broadcast(src_val)
+                    .par_apply(|trgt_val, src_val| *trgt_val /= src_val.powi(exp as i32))
+            }
+        }
     }
 }
 
