@@ -13,23 +13,23 @@ use std::ops;
 /// among [tensor]s.
 ///
 /// [tensor]: prova::Tensor
-pub trait Max<R>
+pub trait Res<R>
 where
     Self: Dimension,
     R: Dimension,
 {
     type Output: Dimension;
 
-    fn max(self, rhs: R) -> Maximum<Self, R>;
+    fn max(self, rhs: R) -> Result<Self, R>;
 }
 
-/// The [Max] of two [Dimension] items.
+/// The [Res] of two [Dimension] items.
 ///
-/// [Max]: crate::Max
+/// [Res]: crate::Res
 /// [Dimension]: ndarray::Dimension
-pub type Maximum<L, R> = <L as Max<R>>::Output;
+pub type Result<L, R> = <L as Res<R>>::Output;
 
-impl Max<IxDyn> for IxDyn {
+impl Res<IxDyn> for IxDyn {
     type Output = IxDyn;
 
     fn max(self, rhs: IxDyn) -> IxDyn {
@@ -41,13 +41,13 @@ impl Max<IxDyn> for IxDyn {
     }
 }
 
-/// Automatically implements all the trivial cases for the [Max] relation.
+/// Automatically implements all the trivial cases for the [Res] relation.
 ///
-/// [Max]: Prova::Max
-macro_rules! unary_maximum_impls {
-    ($($dim: ty,)*) => {
+/// [Res]: Prova::Res
+macro_rules! impl_unary_res {
+    ($($dim: ty),+ $(,)?) => {
         $(
-            impl Max<IxDyn> for $dim {
+            impl Res<IxDyn> for $dim {
                 type Output = IxDyn;
 
                 fn max(self, rhs: IxDyn) -> IxDyn {
@@ -59,7 +59,7 @@ macro_rules! unary_maximum_impls {
                 }
             }
 
-            impl Max<$dim> for IxDyn {
+            impl Res<$dim> for IxDyn {
                 type Output = IxDyn;
 
                 fn max(self, rhs: $dim) -> IxDyn {
@@ -71,7 +71,7 @@ macro_rules! unary_maximum_impls {
                 }
             }
 
-            impl Max<$dim> for $dim {
+            impl Res<$dim> for $dim {
                 type Output = $dim;
 
                 fn max(self, _: $dim) -> $dim {
@@ -82,39 +82,54 @@ macro_rules! unary_maximum_impls {
     };
 }
 
-/// Automatically implements all the cases for the [Max] relation accordingly.
+/// Automatically implements all the cases for the [Res] relation accordingly.
 ///
-/// [Max]: Prova::Max
-macro_rules! binary_maximum_impls {
+/// [Res]: Prova::Res
+macro_rules! impl_binary_res {
     ($small: ty, $big: ty) => {
-        impl Max<$small> for $big {
+        impl Res<$small> for $big {
             type Output = $big;
 
             fn max(self, _: $small) -> $big { self }
         }
 
-        impl Max<$big> for $small {
+        impl Res<$big> for $small {
             type Output = $big;
 
             fn max(self, rhs: $big) -> $big { rhs }
         }
     };
 
-    ($(($small: ty, $big: ty),)*) => {
-        $(binary_maximum_impls!{$small, $big })*
+    ($(($small: ty, $big: ty)),+ $(,)?) => {
+        $(impl_binary_res!{$small, $big })*
     };
 }
 
-unary_maximum_impls! {Ix0, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6,}
+impl_unary_res!(Ix0, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6);
 
-binary_maximum_impls! {
-    (Ix0, Ix6), (Ix0, Ix5), (Ix0, Ix4), (Ix0, Ix3), (Ix0, Ix2), (Ix0, Ix1),
-    (Ix1, Ix6), (Ix1, Ix5), (Ix1, Ix4), (Ix1, Ix3), (Ix1, Ix2),
-    (Ix2, Ix6), (Ix2, Ix5), (Ix2, Ix4), (Ix2, Ix3),
-    (Ix3, Ix6), (Ix3, Ix5), (Ix3, Ix4),
-    (Ix4, Ix6), (Ix4, Ix5),
-    (Ix5, Ix6),
-}
+impl_binary_res!(
+    (Ix0, Ix6),
+    (Ix0, Ix5),
+    (Ix0, Ix4),
+    (Ix0, Ix3),
+    (Ix0, Ix2),
+    (Ix0, Ix1),
+    (Ix1, Ix6),
+    (Ix1, Ix5),
+    (Ix1, Ix4),
+    (Ix1, Ix3),
+    (Ix1, Ix2),
+    (Ix2, Ix6),
+    (Ix2, Ix5),
+    (Ix2, Ix4),
+    (Ix2, Ix3),
+    (Ix3, Ix6),
+    (Ix3, Ix5),
+    (Ix3, Ix4),
+    (Ix4, Ix6),
+    (Ix4, Ix5),
+    (Ix5, Ix6)
+);
 
 // =========================================== Operators Overload ===========================================
 
@@ -122,23 +137,23 @@ binary_maximum_impls! {
 /// [tensor]s.
 ///
 /// [tensor]: crate::Tensor
-macro_rules! operators_overload {
-    ($(($op: ident, $fun: ident, $sym: tt),)+) => {
+macro_rules! impl_arithmetic_ops {
+    ($(($trait: ident, $fun: ident, $op: tt)),+ $(,)?) => {
         $(
-            impl<L, R> ops::$op<&Tensor<R>> for &Tensor<L>
+            impl<L, R> ops::$trait<&Tensor<R>> for &Tensor<L>
             where
-                L: Dimension + Max<R>,
+                L: Dimension + Res<R>,
                 R: Dimension,
             {
-                type Output = Tensor<Maximum<L, R>>;
+                type Output = Tensor<Result<L, R>>;
 
                 fn $fun(self, rhs: &Tensor<R>) -> Self::Output {
                     let shape = self.data.raw_dim().max(rhs.data.raw_dim());
-                    let mut data = Array::<f32, Maximum<L, R>>::zeros(shape);
+                    let mut data = Array::<f32, Result<L, R>>::zeros(shape);
                     Zip::from(&mut data)
                         .and_broadcast(&self.data)
                         .and_broadcast(&rhs.data)
-                        .par_apply(|res, l, r| *res = l $sym r);
+                        .par_apply(|res, l, r| *res = l $op r);
 
                     Self::Output { data }
                 }
@@ -147,7 +162,7 @@ macro_rules! operators_overload {
     };
 }
 
-operators_overload! {(Add, add, +), (Sub, sub, -), (Mul, mul, *), (Div, div, /), }
+impl_arithmetic_ops!((Add, add, +), (Sub, sub, -), (Mul, mul, *), (Div, div, /));
 
 impl<D> ops::Neg for &Tensor<D>
 where
@@ -156,9 +171,7 @@ where
     type Output = Tensor<D>;
 
     fn neg(self) -> Self::Output {
-        Self::Output {
-            data: self.data.map(ops::Neg::neg),
-        }
+        Self::Output { data: -self.data }
     }
 }
 
