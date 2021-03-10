@@ -4,6 +4,7 @@ use ndarray::{
     Ix4, Ix5, RemoveAxis, Zip,
 };
 use std::cell::{Cell, RefMut};
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -294,185 +295,6 @@ macro_rules! impl_bkwrd_un_ops_param {
     };
 }
 
-// ============================================ Accumulation Utilities ============================================
-
-macro_rules! impl_acc_utils {
-    ($singleton:ident, $geq:ident, $op:tt) => {
-        // Questa funzione si occupa del caso in cui dest
-        // sia un singoletto, ovvero : [el], [[el]], [[[el]]] ecc...
-        //
-        // Restituisce true nel caso in cui lo sia in modo tale da segnalare
-        // che l'operazione si è conlcusa con successo.
-        pub fn $singleton<T: Dimension, D: Dimension>(
-            dest: &mut Array<f32, T>,
-            src: &Array<f32, D>,
-            a: f32
-        ) -> bool {
-            // Se dentro dest c'è solo un elemento...
-            if dest.len() == 1 {
-                let reduced_src = src.sum();
-                Zip::from(dest).apply(|dest_el| *dest_el $op reduced_src * a);
-                true
-            } else {
-                false
-            }
-        }
-
-        // Il risultato ha sempre la forma di `dest`.
-        // Se hanno la dimensione diversa, comanda sempre `dest`.
-        // Se la dimensione e` uguale, ma la shape cambia,
-        // ed  la lunghezza di una di queste sia `
-
-        // Questa funzione di occupa del caso in cui la dimensione di dest
-        // sia maggiore o uguale della dimensione di src, anche lei restituisce
-        // un booleano per la stessa ragione di prima.
-        pub fn $geq<T: Dimension, D: Dimension>(
-            dest: &mut Array<f32, T>,
-            src: ArrayView<f32, D>,
-            a: f32
-        ) -> bool {
-            // Nel caso in cui la dimensione di dest e di src coincidano...
-            if dest.ndim() == src.ndim() {
-                let mut axis_of_len_one = false;
-                // Questo codice gestisce i casi in cui una o più delle assi di
-                // dest abbia lunghezza 1, in tal caso bisogna sommare gli elementi
-                // della corrispondente asse di src dentro l'unico presente
-                // nell'asse di dest
-                for i in 0..dest.ndim() {
-                    let size = dest.len_of(Axis(i));
-                    if size == 1_usize {
-                        axis_of_len_one = true;
-                        dest.lanes_mut(Axis(i))
-                            .into_iter()
-                            .zip(src.lanes(Axis(i)))
-                            .for_each(|(dest_lane, src_lane)| {
-                                Zip::from(dest_lane).apply(|dest_view_el| *dest_view_el $op src_lane.sum() * a);
-                            });
-                    }
-                }
-                // Se nessuna delle assi aveva lunghezza uno...
-                if !axis_of_len_one {
-                    Zip::from(dest)
-                        .and_broadcast(src)
-                        .apply(|dest_el, src_el| *dest_el $op *src_el * a);
-                }
-                true
-            } else if dest.ndim() > src.ndim() {
-                // Se la dimensione di dest è maggiore di quella di src ndarray se la cava da solo.
-                Zip::from(dest)
-                    .and_broadcast(src)
-                    .apply(|dest_el, src_el| *dest_el $op *src_el * a);
-                true
-            } else {
-                false
-            }
-        }
-    };
-}
-
-pub fn singleton_div_assign_square<T: Dimension, D: Dimension>(
-    dest: &mut Array<f32, T>,
-    src: &Array<f32, D>,
-) -> bool {
-    // Se dentro dest c'è solo un elemento...
-    if dest.len() == 1 {
-        let reduced_src = src.map(|el| el.powi(2)).sum();
-        Zip::from(dest).apply(|dest_el| *dest_el /= reduced_src);
-        true
-    } else {
-        false
-    }
-}
-
-pub fn geq_div_assign_square<T: Dimension, D: Dimension>(
-    dest: &mut Array<f32, T>,
-    src: ArrayView<f32, D>,
-) -> bool {
-    // Nel caso in cui la dimensione di dest e di src coincidano...
-    if dest.ndim() == src.ndim() {
-        let mut axis_of_len_one = false;
-        // Questo codice gestisce i casi in cui una o più delle assi di
-        // dest abbia lunghezza 1, in tal caso bisogna sommare gli elementi
-        // della corrispondente asse di src dentro l'unico presente
-        // nell'asse di dest
-        for i in 0..dest.ndim() {
-            let size = dest.len_of(Axis(i));
-            if size == 1_usize {
-                axis_of_len_one = true;
-                dest.lanes_mut(Axis(i))
-                    .into_iter()
-                    .zip(src.lanes(Axis(i)))
-                    .for_each(|(dest_lane, src_lane)| {
-                        Zip::from(dest_lane).apply(|dest_view_el| {
-                            *dest_view_el /= src_lane.map(|el| el.powi(2)).sum()
-                        });
-                    });
-            }
-        }
-        // Se nessuna delle assi aveva lunghezza uno...
-        if !axis_of_len_one {
-            Zip::from(dest)
-                .and_broadcast(src)
-                .apply(|dest_el, src_el| *dest_el /= src_el.powi(2));
-        }
-        true
-    } else if dest.ndim() > src.ndim() {
-        // Se la dimensione di dest è maggiore di quella di src ndarray se la cava da solo.
-        Zip::from(dest)
-            .and_broadcast(src)
-            .apply(|dest_el, src_el| *dest_el /= src_el.powi(2));
-        true
-    } else {
-        false
-    }
-}
-
-impl_acc_utils!(singleton_assign, geq_assign, =);
-impl_acc_utils!(singleton_add_assign, geq_add_assign, +=);
-impl_acc_utils!(singleton_sub_assign, geq_sub_assign, -=);
-
-macro_rules! impl_tensor_one_assig {
-    ($fun:ident, $singleton:ident, $geq:ident) => {
-        fn $fun<D: Dimension + RemoveAxis>(&mut self, src: &Tensor<D>, a: f32) {
-            // Se dest non è un singoletto controllo le dimensioni di dest e src
-            if !$singleton(&mut self.data, &src.data, a) {
-                // Se la dimensione di dest non è maggiore o uguale...
-                if !$geq(&mut self.data, src.data.view(), a) {
-                    //... effettuo un'opportuna riduzione
-                    for lane in src.data.lanes(Axis(0)) {
-                        $geq(&mut self.data, lane, a);
-                    }
-                }
-            }
-        }
-    };
-}
-
-macro_rules! impl_tensor_two_assign {
-    ($fun:ident, $singleton:ident, $geq:ident) => {
-        fn $fun<D: Dimension + RemoveAxis>(&mut self, src: &Tensor<D>, a: f32) {
-            if !$singleton(&mut self.data, &src.data, a) {
-                if !$geq(&mut self.data, src.data.view(), a) {
-                    for view in src.data.axis_iter(Axis(0)) {
-                        // Questa è l'opportuna riduzione
-                        $geq(&mut self.data, view, a);
-                    }
-                }
-            }
-        }
-    };
-}
-
-macro_rules! impl_tensor_three_assign {
-    ($fun:ident, $singleton:ident, $geq:ident) => {
-        fn $fun<D: Dimension + RemoveAxis>(&mut self, src: &Tensor<D>, a: f32) {
-            if !$singleton(&mut self.data, &src.data, a) {
-                $geq(&mut self.data, src.data.view(), a);
-            }
-        }
-    };
-}
-
 // =============================================== Tensor Type ===============================================
 
 /// A *n*-dimensional [tensor] of *real* values that support efficient [broadcasting].
@@ -500,43 +322,10 @@ where
     }
 }
 
-// Methods specific to the one dimensional Tensor.
-impl Tensor<Ix1> {
-    impl_tensor_one_assig!(assign, singleton_assign, geq_assign);
-    impl_tensor_one_assig!(add_assign, singleton_add_assign, geq_add_assign);
-    impl_tensor_one_assig!(sub_assign, singleton_sub_assign, geq_sub_assign);
-    fn div_assign_square<D: Dimension + RemoveAxis>(&mut self, src: &Tensor<D>) {
-        // Se dest non è un singoletto controllo le dimensioni di dest e src
-        if !singleton_div_assign_square(&mut self.data, &src.data) {
-            // Se la dimensione di dest non è maggiore o uguale...
-            if !geq_div_assign_square(&mut self.data, src.data.view()) {
-                //... effettuo un'opportuna riduzione
-                for lane in src.data.lanes(Axis(0)) {
-                    geq_div_assign_square(&mut self.data, lane);
-                }
-            }
-        }
-    }
-}
+// ============================================ Impl for Tensor Type ============================================
 
 // Methods specific to the two dimensional Tensor.
 impl Tensor<Ix2> {
-    impl_tensor_two_assign!(assign, singleton_assign, geq_assign);
-    impl_tensor_two_assign!(add_assign, singleton_add_assign, geq_add_assign);
-    impl_tensor_two_assign!(sub_assign, singleton_sub_assign, geq_sub_assign);
-    fn div_assign_square<D: Dimension + RemoveAxis>(&mut self, src: &Tensor<D>) {
-        // Se dest non è un singoletto controllo le dimensioni di dest e src
-        if !singleton_div_assign_square(&mut self.data, &src.data) {
-            // Se la dimensione di dest non è maggiore o uguale...
-            if !geq_div_assign_square(&mut self.data, src.data.view()) {
-                //... effettuo un'opportuna riduzione
-                for view in src.data.axis_iter(Axis(0)) {
-                    geq_div_assign_square(&mut self.data, view);
-                }
-            }
-        }
-    }
-
     fn mat_mul(
         &self,
         rhs: &Self,
@@ -571,21 +360,6 @@ impl Tensor<Ix2> {
         match t {
             true => general_mat_vec_mul(alpha, &self.data.t(), &rhs.data, beta, &mut target.data),
             false => general_mat_vec_mul(alpha, &self.data, &rhs.data, beta, &mut target.data),
-        }
-    }
-}
-
-// Methods specific to the three dimensional Tensor.
-impl Tensor<Ix3> {
-    // Per Tensor 3d abbiamo solo il caso in cui dest dim >= src dim
-    // perchè di più di tre dimensioni non ce ne facciamo di nulla.
-    impl_tensor_three_assign!(assign, singleton_assign, geq_assign);
-    impl_tensor_three_assign!(add_assign, singleton_add_assign, geq_add_assign);
-    impl_tensor_three_assign!(sub_assign, singleton_sub_assign, geq_sub_assign);
-    fn div_assign_square<D: Dimension + RemoveAxis>(&mut self, src: &Tensor<D>) {
-        // Se dest non è un singoletto controllo le dimensioni di dest e src
-        if !singleton_div_assign_square(&mut self.data, &src.data) {
-            geq_div_assign_square(&mut self.data, src.data.view());
         }
     }
 }
@@ -636,6 +410,120 @@ where
         let data: Vec<ArrayView<f32, D>> = tensors.iter().map(|t| t.data.view()).collect();
         Self {
             data: concatenate(Axis(axis), &data).ok().unwrap(),
+        }
+    }
+
+    fn accumulate<E>(&mut self, other: &Tensor<E>, scale: f32, action: BackwardAction)
+    where
+        E: Dimension + RemoveAxis,
+    {
+        let (trgt_data, other_data) = { (&mut self.data, &other.data) };
+
+        match trgt_data.ndim().cmp(&other_data.ndim()) {
+            Ordering::Less => {
+                let mut dyn_other = other_data.sum_axis(Axis(0)).into_dyn();
+                while trgt_data.ndim() < dyn_other.ndim() {
+                    dyn_other = dyn_other.sum_axis(Axis(0));
+                }
+                let static_other = dyn_other.into_dimensionality::<D>().unwrap();
+                let mut axis_of_len_one = false;
+                for i in 0..trgt_data.ndim() {
+                    let size = trgt_data.len_of(Axis(i));
+                    if size == 1_usize {
+                        axis_of_len_one = true;
+                        match action {
+                            BackwardAction::Set => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(static_other.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el = src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                            BackwardAction::Increment => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(static_other.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el += src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                        }
+                    }
+                }
+                if !axis_of_len_one {
+                    match action {
+                        BackwardAction::Set => {
+                            Zip::from(trgt_data)
+                                .and(&static_other)
+                                .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
+                        }
+                        BackwardAction::Increment => {
+                            Zip::from(trgt_data)
+                                .and(&static_other)
+                                .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
+                        }
+                    }
+                }
+            }
+            Ordering::Equal => {
+                let other_same_dim = other_data.view().into_dimensionality::<D>().unwrap();
+                let mut axis_of_len_one = false;
+                for i in 0..trgt_data.ndim() {
+                    let size = trgt_data.len_of(Axis(i));
+                    if size == 1_usize {
+                        axis_of_len_one = true;
+                        match action {
+                            BackwardAction::Set => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(other_same_dim.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el = src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                            BackwardAction::Increment => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(other_same_dim.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el += src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                        }
+                    }
+                }
+                if !axis_of_len_one {
+                    match action {
+                        BackwardAction::Set => {
+                            Zip::from(trgt_data)
+                                .and(&other_same_dim)
+                                .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
+                        }
+                        BackwardAction::Increment => {
+                            Zip::from(trgt_data)
+                                .and(&other_same_dim)
+                                .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
+                        }
+                    }
+                }
+            }
+            Ordering::Greater => match action {
+                BackwardAction::Set => {
+                    Zip::from(trgt_data)
+                        .and_broadcast(other_data)
+                        .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
+                }
+                BackwardAction::Increment => {
+                    Zip::from(trgt_data)
+                        .and_broadcast(other_data)
+                        .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
+                }
+            },
         }
     }
 
