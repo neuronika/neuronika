@@ -1,7 +1,7 @@
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
 use ndarray::{
-    arr1, concatenate, Array, Array2, ArrayView, ArrayView1, Axis, Dimension, Ix0, Ix1, Ix2, Ix3,
-    Ix4, Ix5, RemoveAxis, Zip,
+    arr1, concatenate, stack, Array, Array2, ArrayView, ArrayView1, Axis, Dimension, Ix0, Ix1, Ix2,
+    Ix3, Ix4, Ix5, RemoveAxis, Zip,
 };
 use std::cell::{Cell, RefMut};
 use std::cmp::Ordering;
@@ -100,7 +100,7 @@ where
     Self: Dimension,
     R: Dimension,
 {
-    type Output: Dimension;
+    type Output: Dimension + RemoveAxis + Max<R> + Max<Self>;
 
     fn max(self, rhs: R) -> Maximum<Self, R>;
 }
@@ -162,6 +162,105 @@ impl_binary_max!(
     (Ix2, Ix3)
 );
 
+pub trait VStack<R>
+where
+    Self: Dimension,
+    R: Dimension,
+{
+    type Output: Dimension + RemoveAxis;
+
+    fn vstack(self, rhs: R) -> VStacked<Self, R>;
+}
+
+pub type VStacked<L, R> = <L as VStack<R>>::Output;
+
+impl VStack<Ix1> for Ix1 {
+    type Output = Ix2;
+    fn vstack(self, rhs: Ix1) -> Ix2 {
+        Ix2(2, rhs.size())
+    }
+}
+
+impl VStack<Ix2> for Ix2 {
+    type Output = Ix2;
+    fn vstack(self, rhs: Ix2) -> Ix2 {
+        Ix2(
+            self.into_pattern().0 + rhs.into_pattern().0,
+            rhs.into_pattern().1,
+        )
+    }
+}
+
+impl VStack<Ix3> for Ix3 {
+    type Output = Ix3;
+    fn vstack(self, rhs: Ix3) -> Ix3 {
+        Ix3(
+            self.into_pattern().0 + rhs.into_pattern().0,
+            rhs.into_pattern().1,
+            rhs.into_pattern().2,
+        )
+    }
+}
+
+pub trait HStack<R>
+where
+    Self: Dimension,
+    R: Dimension,
+{
+    type Output: Dimension + RemoveAxis;
+
+    fn hstack(self, rhs: R) -> HStacked<Self, R>;
+}
+
+pub type HStacked<L, R> = <L as HStack<R>>::Output;
+
+impl HStack<Ix1> for Ix1 {
+    type Output = Ix1;
+    fn hstack(self, rhs: Ix1) -> Ix1 {
+        Ix1(self.size() + rhs.size())
+    }
+}
+
+impl HStack<Ix2> for Ix2 {
+    type Output = Ix2;
+    fn hstack(self, rhs: Ix2) -> Ix2 {
+        Ix2(
+            self.into_pattern().0,
+            self.into_pattern().1 + rhs.into_pattern().1,
+        )
+    }
+}
+
+impl HStack<Ix3> for Ix3 {
+    type Output = Ix3;
+    fn hstack(self, rhs: Ix3) -> Ix3 {
+        Ix3(
+            self.into_pattern().0,
+            self.into_pattern().1 + rhs.into_pattern().1,
+            rhs.into_pattern().2,
+        )
+    }
+}
+
+pub trait DStack<R>
+where
+    Self: Dimension,
+    R: Dimension,
+{
+    type Output: Dimension + RemoveAxis;
+
+    fn dstack(self, rhs: R) -> DStacked<Self, R>;
+}
+
+pub type DStacked<L, R> = <L as DStack<R>>::Output;
+
+impl DStack<Ix2> for Ix2 {
+    type Output = Ix3;
+    fn dstack(self, rhs: Ix2) -> Ix3 {
+        Ix3(self.into_pattern().0, self.into_pattern().1, 2)
+    }
+}
+
 // =========================================== Operators Overload ===========================================
 
 /// Automatically implements the overload of the `+`, `-`, `*` and `/` binary algebraic operators for
@@ -189,6 +288,7 @@ macro_rules! impl_arithmetic_ops {
                     Self::Output { data }
                 }
             }
+
         )*
     };
 }
@@ -305,12 +405,12 @@ macro_rules! impl_bkwrd_un_ops_param {
 /// [tensor]: https://en.wikipedia.org/wiki/Tensor
 /// [broadcasting]: https://numpy.org/devdocs/user/theory.broadcasting.html
 #[derive(Debug, PartialEq)]
-struct Tensor<D>
+pub struct Tensor<D>
 where
     D: Dimension,
 {
     /// Content of the tensor
-    data: Array<f32, D>,
+    pub data: Array<f32, D>,
 }
 
 impl<D> Display for Tensor<D>
@@ -351,7 +451,7 @@ impl Tensor<Ix2> {
 
     fn mat_vec_mul(
         &self,
-        rhs: Tensor<Ix1>,
+        rhs: &Tensor<Ix1>,
         target: &mut Tensor<Ix1>,
         alpha: f32,
         beta: f32,
@@ -390,6 +490,10 @@ where
         }
     }
 
+    pub fn set_zero(&mut self) {
+        self.data.map_inplace(|el| *el = 0.0);
+    }
+
     // Creates another Tensor with transposed data.
     pub fn t(&self) -> Self {
         Self {
@@ -405,15 +509,7 @@ where
         }
     }
 
-    // Concatenates Tensors of the same dimensionality.
-    pub fn cat(tensors: &[&Self], axis: usize) -> Self {
-        let data: Vec<ArrayView<f32, D>> = tensors.iter().map(|t| t.data.view()).collect();
-        Self {
-            data: concatenate(Axis(axis), &data).ok().unwrap(),
-        }
-    }
-
-    fn accumulate<E>(&mut self, other: &Tensor<E>, scale: f32, action: BackwardAction)
+    pub(super) fn accumulate<E>(&mut self, other: &Tensor<E>, scale: f32, action: BackwardAction)
     where
         E: Dimension + RemoveAxis,
     {
@@ -670,6 +766,19 @@ where
         new
     }
 
+    pub fn softmax_fwd(&mut self, t: &Self, axis: usize) {
+        Zip::from(t.data.lanes(Axis(axis)))
+            .and(self.data.lanes_mut(Axis(axis)))
+            .apply(|lane_self, mut lane_new| {
+                let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
+                let num = &lane_self.map(|el| (el - max).exp());
+                let den = num.sum();
+                Zip::from(lane_new)
+                    .and(num)
+                    .apply(|lane_new_el, num_el| *lane_new_el = *num_el / den);
+            });
+    }
+
     pub fn softmax_bkwrd(
         &mut self,
         input_grad: &Self,
@@ -712,4 +821,152 @@ where
                 general_mat_vec_mul(1.0, &jacobian, &grad_col, beta, &mut d_g_col);
             });
     }
+
+    fn vstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<VStacked<D, E>>
+    where
+        D: VStack<E>,
+    {
+        let (self_data, other_data) = { (&self.data, &other.data) };
+
+        let mut new = Tensor {
+            data: Array::<f32, VStacked<D, E>>::zeros(
+                self_data.raw_dim().vstack(other_data.raw_dim()),
+            ),
+        };
+
+        new.stack_fwd(self, other);
+        new
+    }
+
+    fn hstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<HStacked<D, E>>
+    where
+        D: HStack<E>,
+    {
+        let (self_data, other_data) = { (&self.data, &other.data) };
+
+        let mut new = Tensor {
+            data: Array::<f32, HStacked<D, E>>::zeros(
+                self_data.raw_dim().hstack(other_data.raw_dim()),
+            ),
+        };
+
+        new.stack_fwd(self, other);
+        new
+    }
+
+    fn stack_fwd<E: Dimension, F: Dimension>(&mut self, lhs: &Tensor<E>, rhs: &Tensor<F>) {
+        let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
+        let split = if lhs_data.ndim() == 1 && rhs_data.ndim() == 1 {
+            lhs_data.len()
+        } else {
+            lhs_data.len_of(Axis(1))
+        };
+
+        let (self_dest, other_dest) = self.data.view_mut().split_at(Axis(1), split);
+        Zip::from(self_dest)
+            .and_broadcast(lhs_data)
+            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+        Zip::from(other_dest)
+            .and_broadcast(rhs_data)
+            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    }
+
+    fn stack_bkwrd<E: Dimension, F: Dimension>(
+        &self,
+        lhs_grad: &mut Tensor<E>,
+        rhs_grad: &mut Tensor<F>,
+        action: BackwardAction,
+    ) {
+        let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
+
+        let split = if lhs_grad_data.ndim() == 1 && rhs_grad_data.ndim() == 1 {
+            lhs_grad_data.len()
+        } else {
+            lhs_grad_data.len_of(Axis(1))
+        };
+
+        let (lhs_dest, rhs_dest) = self.data.view().split_at(Axis(1), split);
+        match action {
+            BackwardAction::Set => {
+                Zip::from(lhs_grad_data)
+                    .and_broadcast(lhs_dest)
+                    .apply(|dest_el, src_el| *dest_el = *src_el);
+                Zip::from(rhs_grad_data)
+                    .and_broadcast(rhs_dest)
+                    .apply(|dest_el, src_el| *dest_el = *src_el);
+            }
+            BackwardAction::Increment => {
+                Zip::from(lhs_grad_data)
+                    .and_broadcast(lhs_dest)
+                    .apply(|dest_el, src_el| *dest_el += *src_el);
+                Zip::from(rhs_grad_data)
+                    .and_broadcast(rhs_dest)
+                    .apply(|dest_el, src_el| *dest_el += *src_el);
+            }
+        }
+    }
+
+    fn dstack(&self, other: &Self) -> Tensor<DStacked<D, D>>
+    where
+        D: DStack<D>,
+    {
+        let (self_data, other_data) = { (&self.data, &other.data) };
+
+        let mut new = Tensor {
+            data: Array::<f32, DStacked<D, D>>::zeros(
+                self_data.raw_dim().dstack(other_data.raw_dim()),
+            ),
+        };
+
+        new.dstack_fwd(self, other);
+        new
+    }
+
+    fn dstack_fwd<E: Dimension>(&mut self, lhs: &Tensor<E>, rhs: &Tensor<E>) {
+        let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
+        let (lhs_dest, rhs_dest) = {
+            let (one, the_other) = self.data.view_mut().split_at(Axis(2), 1);
+            (one.remove_axis(Axis(2)), the_other.remove_axis(Axis(2)))
+        };
+        Zip::from(lhs_dest)
+            .and_broadcast(lhs_data)
+            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+        Zip::from(rhs_dest)
+            .and_broadcast(rhs_data)
+            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    }
+
+    fn dstack_bkwrd<E: Dimension>(
+        &self,
+        lhs_grad: &mut Tensor<E>,
+        rhs_grad: &mut Tensor<E>,
+        action: BackwardAction,
+    ) {
+        let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
+        let (lhs_grad_src, rhs_grad_src) = {
+            let (one, the_other) = self.data.view().split_at(Axis(2), 1);
+            (one.remove_axis(Axis(2)), the_other.remove_axis(Axis(2)))
+        };
+        match action {
+            Set => {
+                Zip::from(lhs_grad_data)
+                    .and_broadcast(lhs_grad_src)
+                    .apply(|lhs_dest_el, src_data_el| *lhs_dest_el = *src_data_el);
+                Zip::from(rhs_grad_data)
+                    .and_broadcast(rhs_grad_src)
+                    .apply(|rhs_dest_el, src_data_el| *rhs_dest_el = *src_data_el);
+            }
+            Increment => {
+                Zip::from(lhs_grad_data)
+                    .and_broadcast(lhs_grad_src)
+                    .apply(|lhs_dest_el, src_data_el| *lhs_dest_el += *src_data_el);
+                Zip::from(rhs_grad_data)
+                    .and_broadcast(rhs_grad_src)
+                    .apply(|rhs_dest_el, src_data_el| *rhs_dest_el += *src_data_el);
+            }
+        }
+    }
 }
+
+#[cfg(test)]
+mod tests;

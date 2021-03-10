@@ -5,18 +5,8 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use super::numeric::{
-    add, add_assign, add_assign_v, assign, assign_v, cat_backward_add_assign, cat_backward_assign,
-    cat_forward, div, div_assign_pow, exp_diff_add_assign, exp_diff_assign, exp_forward,
-    leakyrelu_diff_add_assign, leakyrelu_diff_assign, leakyrelu_forward, mat_mat_mul, mat_vec_mul,
-    mat_vec_mul_backward_lhs, mul, multicat_backward_add_assign, multicat_backward_assign,
-    multicat_forward, pow_diff_add_assign, pow_diff_assign, pow_forward, relu_diff_add_assign,
-    relu_diff_assign, relu_forward, scaled_add_assign, scaled_assign, sigmoid_diff_add_assign,
-    sigmoid_diff_assign, sigmoid_forward, softmax_backward, softmax_forward,
-    softplus_diff_add_assign, softplus_diff_assign, softplus_forward, sub, sub_assign,
-    tanh_diff_add_assign, tanh_diff_assign, tanh_forward, BackwardAction, DataRepr, ForwardAction,
-    Matrix, PassCounter,
-};
+use super::numeric::{BackwardAction, ForwardAction, Max, Maximum, PassCounter, Tensor};
+use ndarray::{Dimension, RemoveAxis};
 
 #[derive(Debug)]
 pub enum Borrow<'data, A: 'data> {
@@ -44,9 +34,12 @@ pub trait Op: Debug + 'static {
     fn clear(&self);
 }
 
-impl Op for Rc<dyn Op<Data = DataRepr, Grad = DataRepr>> {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+impl<D> Op for Rc<dyn Op<Data = Tensor<D>, Grad = Tensor<D>>>
+where
+    D: 'static + Dimension + RemoveAxis,
+{
+    type Data = Tensor<D>;
+    type Grad = Tensor<D>;
     fn forward(&self) {
         self.deref().forward()
     }
@@ -65,13 +58,19 @@ impl Op for Rc<dyn Op<Data = DataRepr, Grad = DataRepr>> {
 }
 
 #[derive(Debug)]
-pub struct Param {
-    pub(crate) data: RefCell<DataRepr>,
-    pub(crate) grad: RefCell<DataRepr>,
+pub struct Param<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) data: RefCell<Tensor<D>>,
+    pub(crate) grad: RefCell<Tensor<D>>,
 }
 
-impl Param {
-    pub fn new(data: DataRepr) -> Var<Self> {
+impl<D> Param<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(data: Tensor<D>) -> Var<Self> {
         let zeroed_data = data.zeros();
         let node = Rc::new(Param {
             data: RefCell::new(data),
@@ -82,7 +81,7 @@ impl Param {
         Var::new(node, upstream)
     }
 
-    pub fn grad(&self) -> Borrow<DataRepr> {
+    pub fn grad(&self) -> Borrow<Tensor<D>> {
         Borrow::FromRefCell(self.grad.borrow())
     }
 
@@ -91,12 +90,17 @@ impl Param {
     }
 }
 
-impl Op for Param {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+impl<D> Op for Param<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    type Data = Tensor<D>;
+    type Grad = Tensor<D>;
     fn forward(&self) {}
     fn backward(&self, gradient: &Ref<Self::Grad>) {
-        add_assign(&mut self.grad.borrow_mut(), gradient);
+        self.grad
+            .borrow_mut()
+            .accumulate(gradient, 1.0, BackwardAction::Increment);
     }
     fn data(&self) -> Borrow<Self::Data> {
         Borrow::FromRefCell(self.data.borrow())
@@ -108,12 +112,18 @@ impl Op for Param {
 }
 
 #[derive(Debug)]
-pub struct Input {
-    pub(crate) data: RefCell<DataRepr>,
+pub struct Input<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) data: RefCell<Tensor<D>>,
 }
 
-impl Input {
-    pub fn new(data: DataRepr) -> Var<Self> {
+impl<D> Input<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(data: Tensor<D>) -> Var<Self> {
         Var::new(
             Rc::new(Input {
                 data: RefCell::new(data),
@@ -123,9 +133,12 @@ impl Input {
     }
 }
 
-impl Op for Input {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+impl<D> Op for Input<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    type Data = Tensor<D>;
+    type Grad = Tensor<D>;
     fn forward(&self) {}
     fn backward(&self, _: &Ref<Self::Grad>) {}
     fn data(&self) -> Borrow<Self::Data> {
@@ -138,17 +151,21 @@ impl Op for Input {
 }
 
 #[derive(Debug)]
-pub struct NegOp<OP> {
-    data: RefCell<DataRepr>,
-    grad: RefCell<DataRepr>,
+pub struct NegOp<OP, D>
+where
+    D: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<D>>,
+    grad: RefCell<Tensor<D>>,
     operand: Rc<OP>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP> NegOp<OP>
+impl<OP, D> NegOp<OP, D>
 where
-    OP: Op<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = -operand.data().deref();
@@ -165,12 +182,13 @@ where
     }
 }
 
-impl<OP> Op for NegOp<OP>
+impl<OP, D> Op for NegOp<OP, D>
 where
-    OP: Op<Data = DataRepr, Grad = DataRepr>,
+    OP: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    D: Dimension + RemoveAxis,
 {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+    type Data = Tensor<D>;
+    type Grad = Tensor<D>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -179,18 +197,15 @@ where
 
         self.operand.forward();
 
-        scaled_assign(
-            &mut self.data.borrow_mut(),
-            self.operand.data().deref(),
-            -1.0,
-        );
+        self.data
+            .borrow_mut()
+            .accumulate(self.operand.data().deref(), -1.0, BackwardAction::Set);
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        match self.counter.backward_action() {
-            BackwardAction::Set => scaled_assign(&mut self.grad.borrow_mut(), grad, -1.0),
-            BackwardAction::Increment => scaled_add_assign(&mut self.grad.borrow_mut(), grad, -1.0),
-        }
+        self.grad
+            .borrow_mut()
+            .accumulate(grad, -1.0, self.counter.backward_action());
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
@@ -214,20 +229,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct AddOp<LHS, RHS> {
-    data: RefCell<DataRepr>,
-    lhs_grad: RefCell<DataRepr>,
-    rhs_grad: RefCell<DataRepr>,
+pub struct AddOp<LHS, RHS, D, E>
+where
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<Maximum<D, E>>>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS> AddOp<LHS, RHS>
+impl<LHS, RHS, D, E> AddOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr>,
-    RHS: Op<Data = DataRepr>,
+    LHS: Op<Data = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -247,13 +268,15 @@ where
     }
 }
 
-impl<LHS, RHS> Op for AddOp<LHS, RHS>
+impl<LHS, RHS, D, E> Op for AddOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr, Grad = DataRepr>,
-    RHS: Op<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+    type Data = Tensor<Maximum<D, E>>;
+    type Grad = Tensor<Maximum<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -266,20 +289,18 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        add(&mut self.data.borrow_mut(), &lhs_data, &rhs_data);
+        self.data.borrow_mut().add_fwd(&lhs_data, &rhs_data);
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                assign(&mut self.lhs_grad.borrow_mut(), grad.deref());
-                assign(&mut self.rhs_grad.borrow_mut(), grad.deref());
-            }
-            BackwardAction::Increment => {
-                add_assign(&mut self.lhs_grad.borrow_mut(), grad.deref());
-                add_assign(&mut self.rhs_grad.borrow_mut(), grad.deref());
-            }
-        }
+        let action = self.counter.backward_action();
+
+        self.lhs_grad
+            .borrow_mut()
+            .accumulate(grad.deref(), 1.0, action);
+        self.rhs_grad
+            .borrow_mut()
+            .accumulate(grad.deref(), 1.0, action);
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -305,20 +326,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct SubOp<LHS, RHS> {
-    data: RefCell<DataRepr>,
-    lhs_grad: RefCell<DataRepr>,
-    rhs_grad: RefCell<DataRepr>,
+pub struct SubOp<LHS, RHS, D, E>
+where
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<Maximum<D, E>>>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS> SubOp<LHS, RHS>
+impl<LHS, RHS, D, E> SubOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr>,
-    RHS: Op<Data = DataRepr>,
+    LHS: Op<Data = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -338,13 +365,15 @@ where
     }
 }
 
-impl<LHS, RHS> Op for SubOp<LHS, RHS>
+impl<LHS, RHS, D, E> Op for SubOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr, Grad = DataRepr>,
-    RHS: Op<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+    type Data = Tensor<Maximum<D, E>>;
+    type Grad = Tensor<Maximum<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -357,20 +386,18 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        sub(&mut self.data.borrow_mut(), &lhs_data, &rhs_data);
+        self.data.borrow_mut().sub_fwd(&lhs_data, &rhs_data);
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                assign(&mut self.lhs_grad.borrow_mut(), grad.deref());
-                scaled_assign(&mut self.rhs_grad.borrow_mut(), grad.deref(), -1.0);
-            }
-            BackwardAction::Increment => {
-                add_assign(&mut self.lhs_grad.borrow_mut(), grad.deref());
-                sub_assign(&mut self.rhs_grad.borrow_mut(), grad.deref());
-            }
-        }
+        let action = self.counter.backward_action();
+
+        self.lhs_grad
+            .borrow_mut()
+            .accumulate(grad.deref(), 1.0, action);
+        self.rhs_grad
+            .borrow_mut()
+            .accumulate(grad.deref(), -1.0, action);
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -396,20 +423,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct MulOp<LHS, RHS> {
-    data: RefCell<DataRepr>,
-    lhs_grad: RefCell<DataRepr>,
-    rhs_grad: RefCell<DataRepr>,
+pub struct MulOp<LHS, RHS, D, E>
+where
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<Maximum<D, E>>>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS> MulOp<LHS, RHS>
+impl<LHS, RHS, D, E> MulOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr>,
-    RHS: Op<Data = DataRepr>,
+    LHS: Op<Data = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -429,13 +462,15 @@ where
     }
 }
 
-impl<LHS, RHS> Op for MulOp<LHS, RHS>
+impl<LHS, RHS, D, E> Op for MulOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr, Grad = DataRepr>,
-    RHS: Op<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+    type Data = Tensor<Maximum<D, E>>;
+    type Grad = Tensor<Maximum<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -448,32 +483,17 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        mul(&mut self.data.borrow_mut(), &lhs_data, &rhs_data);
+        self.data.borrow_mut().mul_fwd(&lhs_data, &rhs_data);
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                assign_v(
-                    &mut self.lhs_grad.borrow_mut(),
-                    grad.deref() * &self.rhs.data(),
-                );
-                assign_v(
-                    &mut self.rhs_grad.borrow_mut(),
-                    grad.deref() * &self.lhs.data(),
-                );
-            }
-            BackwardAction::Increment => {
-                add_assign_v(
-                    &mut self.lhs_grad.borrow_mut(),
-                    grad.deref() * &self.rhs.data(),
-                );
-                add_assign_v(
-                    &mut self.rhs_grad.borrow_mut(),
-                    grad.deref() * &self.lhs.data(),
-                );
-            }
-        }
+        let action = self.counter.backward_action();
+        self.lhs_grad
+            .borrow_mut()
+            .accumulate(&(grad.deref() * &self.rhs.data()), 1.0, action);
+        self.rhs_grad
+            .borrow_mut()
+            .accumulate(&(grad.deref() * &self.lhs.data()), 1.0, action);
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -499,20 +519,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct DivOp<LHS, RHS> {
-    data: RefCell<DataRepr>,
-    lhs_grad: RefCell<DataRepr>,
-    rhs_grad: RefCell<DataRepr>,
+pub struct DivOp<LHS, RHS, D, E>
+where
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<Maximum<D, E>>>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
     rhs: Rc<RHS>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS> DivOp<LHS, RHS>
+impl<LHS, RHS, D, E> DivOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr>,
-    RHS: Op<Data = DataRepr>,
+    LHS: Op<Data = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -532,13 +558,15 @@ where
     }
 }
 
-impl<LHS, RHS> Op for DivOp<LHS, RHS>
+impl<LHS, RHS, D, E> Op for DivOp<LHS, RHS, D, E>
 where
-    LHS: Op<Data = DataRepr, Grad = DataRepr>,
-    RHS: Op<Data = DataRepr, Grad = DataRepr>,
+    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+    D: Dimension + RemoveAxis + Max<E>,
+    E: Dimension + RemoveAxis,
 {
-    type Data = DataRepr;
-    type Grad = DataRepr;
+    type Data = Tensor<Maximum<D, E>>;
+    type Grad = Tensor<Maximum<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -551,7 +579,7 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        div(&mut self.data.borrow_mut(), &lhs_data, &rhs_data);
+        self.data.borrow_mut().div_fwd(&lhs_data, &rhs_data);
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
