@@ -2,28 +2,71 @@ pub(super) mod numeric;
 pub(crate) mod ops;
 
 use itertools::Itertools;
-use numeric::DataRepr;
+use ndarray::{Dimension, Ix1, Ix2, RemoveAxis};
+use numeric::{DStack, DStacked, HStack, HStacked, Max, Maximum, Tensor, VStack, VStacked};
 use ops::{
-    AddOp, BinCatOp, Borrow, DivOp, DotOp, ExpOp, LeakyReLUOp, LnOp, MulOp, MultiCatOp, NegOp, Op,
-    Param, PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp, TOp, TanhOp,
+    AddOp, Borrow, DStackOp, DivOp, DotOp, DotVecOp, ExpOp, HStackOp, LeakyReLUOp, LnOp, MulOp,
+    NegOp, Op, Param, PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp,
+    TOp, TanhOp, VStackOp,
 };
 use std::cell::{Ref, RefCell};
+use std::fmt::Debug;
 use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
-// A pointer to a node in the computational graph.
-pub struct Var<T>
-where
-    T: Op,
-{
-    repr: Rc<T>,
-    grad: Option<RefCell<DataRepr>>,
-    upstream: Vec<Var<Param>>,
+pub trait TrackableClone {
+    fn clone_box(&self) -> Box<dyn Trackable>;
 }
 
-impl<T> Clone for Var<T>
+pub trait Trackable: Debug + TrackableClone {
+    fn zero_grad(&mut self);
+    fn as_trackable(self) -> Box<dyn Trackable>;
+}
+
+impl<D> TrackableClone for Var<Param<D>, D>
+where
+    D: Dimension + RemoveAxis + 'static,
+{
+    fn clone_box(&self) -> Box<dyn Trackable> {
+        Box::new(self.clone())
+    }
+}
+
+impl<D> Trackable for Var<Param<D>, D>
+where
+    D: Dimension + RemoveAxis + 'static,
+{
+    fn zero_grad(&mut self) {
+        self.repr.zero_grad()
+    }
+
+    fn as_trackable(self) -> Box<dyn Trackable> {
+        Box::new(self)
+    }
+}
+
+impl Clone for Box<dyn Trackable> {
+    fn clone(&self) -> Box<dyn Trackable> {
+        self.clone_box()
+    }
+}
+
+// A pointer to a node in the computational graph.
+#[derive(Debug)]
+pub struct Var<T, D>
 where
     T: Op,
+    D: Dimension + RemoveAxis,
+{
+    repr: Rc<T>,
+    grad: Option<RefCell<Tensor<D>>>,
+    upstream: Vec<Box<dyn Trackable>>,
+}
+
+impl<T, D> Clone for Var<T, D>
+where
+    T: Op,
+    D: Dimension + RemoveAxis,
 {
     fn clone(&self) -> Self {
         Var {
@@ -34,28 +77,78 @@ where
     }
 }
 
-impl Var<Param> {
-    fn as_ptr(&self) -> *const Param {
-        self.repr.deref() as *const Param
-    }
-
-    pub fn grad(&self) -> Ref<DataRepr> {
+impl<D> Var<Param<D>, D>
+where
+    D: Dimension + RemoveAxis + 'static,
+{
+    pub fn grad(&self) -> Ref<Tensor<D>> {
         self.repr.deref().grad.borrow()
     }
 }
 
-impl<T> Var<T>
+impl<T> Var<T, Ix1>
 where
-    T: Op<Data = DataRepr, Grad = DataRepr>,
+    T: Op<Data = Tensor<Ix1>, Grad = Tensor<Ix1>>,
 {
-    pub(super) fn new(repr: Rc<T>, upstream: Vec<Var<Param>>) -> Self {
+    pub fn dot<U>(&self, other: &Var<U, Ix1>) -> Var<ScalProdOp<T, U>, Ix1>
+    where
+        U: Op<Data = Tensor<Ix1>, Grad = Tensor<Ix1>>,
+    {
+        Var::new(
+            Rc::new(ScalProdOp::new(
+                Rc::clone(&self.repr),
+                Rc::clone(&other.repr),
+            )),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+}
+
+impl<T> Var<T, Ix2>
+where
+    T: Op<Data = Tensor<Ix2>, Grad = Tensor<Ix2>>,
+{
+    pub fn mm<U>(&self, other: &Var<U, Ix2>) -> Var<DotOp<T, U>, Ix2>
+    where
+        U: Op<Data = Tensor<Ix2>, Grad = Tensor<Ix2>>,
+    {
+        Var::new(
+            Rc::new(DotOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+
+    pub fn mv_mul<U>(&self, other: &Var<U, Ix1>) -> Var<DotVecOp<T, U>, Ix1>
+    where
+        U: Op<Data = Tensor<Ix1>, Grad = Tensor<Ix1>>,
+    {
+        Var::new(
+            Rc::new(DotVecOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+}
+
+impl<T, D, E> Var<T, E>
+where
+    T: Op<Data = Tensor<D>, Grad = Tensor<E>>,
+    D: Dimension + RemoveAxis + 'static,
+    E: Dimension + RemoveAxis + 'static,
+{
+    pub(super) fn new(repr: Rc<T>, upstream: Vec<Box<dyn Trackable>>) -> Self {
         Var {
             repr: repr,
             grad: None,
             upstream: upstream,
         }
     }
+}
 
+impl<T, D> Var<T, D>
+where
+    T: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    D: Dimension + RemoveAxis + 'static,
+{
     pub fn data(&self) -> Borrow<T::Data> {
         self.repr.data()
     }
@@ -68,164 +161,162 @@ where
         self.repr.clear();
     }
 
-    pub fn upstream(&self) -> &[Var<Param>] {
+    pub fn upstream(&self) -> &[Box<dyn Trackable>] {
         &self.upstream[..]
     }
 
-    pub fn zero_gradient(&self) {
-        for param in self.upstream() {
-            param.repr.zero_grad();
+    pub fn zero_gradient(&mut self) {
+        for param in self.upstream_mut() {
+            param.zero_grad();
         }
     }
 
-    pub fn upstream_mut(&mut self) -> &mut [Var<Param>] {
+    pub fn upstream_mut(&mut self) -> &mut [Box<dyn Trackable>] {
         &mut self.upstream[..]
     }
 
     pub fn backward(&mut self, seed: f32) {
-        let data_ref: &DataRepr = &self.repr.data();
+        let data_ref: &Tensor<D> = &self.repr.data();
         self.grad
-            .get_or_insert_with(|| RefCell::new(data_ref.map(|_| seed)))
+            .get_or_insert_with(|| {
+                RefCell::new(Tensor {
+                    data: data_ref.data.map(|_| seed),
+                })
+            })
             .borrow_mut()
-            .map_inplace(|_| seed);
+            .data
+            .map_inplace(|el| *el = seed);
 
         if let Some(ref grad) = self.grad {
             self.repr.backward(&grad.borrow());
         }
     }
 
-    pub fn dot<U>(&self, other: &Var<U>) -> Var<ScalProdOp<T, U>>
-    where
-        U: Op<Data = DataRepr, Grad = DataRepr>,
-    {
-        Var::new(
-            Rc::new(ScalProdOp::new(
-                Rc::clone(&self.repr),
-                Rc::clone(&other.repr),
-            )),
-            track_upstream(&self.upstream, &other.upstream),
-        )
-    }
-
-    pub fn mm<U>(&self, other: &Var<U>) -> Var<DotOp<T, U>>
-    where
-        U: Op<Data = DataRepr, Grad = DataRepr>,
-    {
-        Var::new(
-            Rc::new(DotOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
-            track_upstream(&self.upstream, &other.upstream),
-        )
-    }
-
-    pub fn pow(&self, exp: u16) -> Var<PowOp<T>> {
-        Var::new(
-            Rc::new(PowOp::new(Rc::clone(&self.repr), exp)),
-            self.upstream.clone(),
-        )
-    }
-
-    pub fn sum(&self) -> Var<SumOp<T>> {
+    pub fn sum(&self) -> Var<SumOp<T, D>, D> {
         Var::new(
             Rc::new(SumOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn relu(&self) -> Var<ReLUOp<T>> {
+    pub fn pow(&self, exp: i32) -> Var<PowOp<T, D>, D> {
+        Var {
+            repr: Rc::new(PowOp::new(Rc::clone(&self.repr), exp)),
+            grad: None,
+            upstream: self.upstream.clone(),
+        }
+    }
+
+    pub fn relu(&self) -> Var<ReLUOp<T, D>, D> {
         Var::new(
             Rc::new(ReLUOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn leaky_relu(&self, slope: f32) -> Var<LeakyReLUOp<T>> {
+    pub fn leaky_relu(&self) -> Var<LeakyReLUOp<T, D>, D> {
         Var::new(
-            Rc::new(LeakyReLUOp::new(Rc::clone(&self.repr), slope)),
+            Rc::new(LeakyReLUOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softplus(&self) -> Var<SoftplusOp<T>> {
+    pub fn softplus(&self) -> Var<SoftplusOp<T, D>, D> {
         Var::new(
             Rc::new(SoftplusOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn sigmoid(&self) -> Var<SigmoidOp<T>> {
+    pub fn sigmoid(&self) -> Var<SigmoidOp<T, D>, D> {
         Var::new(
             Rc::new(SigmoidOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn tanh(&self) -> Var<TanhOp<T>> {
+    pub fn tanh(&self) -> Var<TanhOp<T, D>, D> {
         Var::new(
             Rc::new(TanhOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn ln(&self) -> Var<LnOp<T>> {
+    pub fn ln(&self) -> Var<LnOp<T, D>, D>
+    where
+        D: Max<D>,
+    {
         Var::new(
             Rc::new(LnOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn exp(&self) -> Var<ExpOp<T>> {
+    pub fn exp(&self) -> Var<ExpOp<T, D>, D> {
         Var::new(
             Rc::new(ExpOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softmax(&self, axis: usize) -> Var<SoftmaxOp<T>> {
+    pub fn softmax(&self, axis: usize) -> Var<SoftmaxOp<T, D>, D> {
         Var::new(
             Rc::new(SoftmaxOp::new(Rc::clone(&self.repr), axis)),
             self.upstream.clone(),
         )
     }
 
-    pub fn t(&self) -> Var<TOp<T>> {
+    pub fn t(&self) -> Var<TOp<T, D>, D> {
         Var::new(
             Rc::new(TOp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn cat<U>(&self, other: &Var<U>, axis: usize) -> Var<BinCatOp<T, U>>
+    pub fn hstack<U, E>(&self, other: &Var<U, E>) -> Var<HStackOp<T, U, D, E>, HStacked<D, E>>
     where
-        U: Op<Data = DataRepr, Grad = DataRepr>,
+        U: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+        D: HStack<E>,
+        E: Dimension + RemoveAxis + 'static,
     {
         Var::new(
-            Rc::new(BinCatOp::new(
-                Rc::clone(&self.repr),
-                Rc::clone(&other.repr),
-                axis,
-            )),
-            track_upstream(&self.upstream, &other.upstream),
+            Rc::new(HStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn vstack<U, E>(&self, other: &Var<U, E>) -> Var<VStackOp<T, U, D, E>, VStacked<D, E>>
+    where
+        U: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+        D: VStack<E>,
+        E: Dimension + RemoveAxis + 'static,
+    {
+        Var::new(
+            Rc::new(VStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn dstack<U, E>(&self, other: &Var<U, D>) -> Var<DStackOp<T, U, D>, DStacked<D, D>>
+    where
+        U: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+        D: DStack<D>,
+    {
+        Var::new(
+            Rc::new(DStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            self.upstream.clone(),
         )
     }
 }
 
-pub fn multi_cat<T>(vars: &[&Var<T>], axis: usize) -> Var<MultiCatOp<T>>
-where
-    T: Op<Data = DataRepr, Grad = DataRepr>,
-{
-    let clones: Vec<Rc<T>> = vars.iter().map(|v| Rc::clone(&v.repr)).collect();
-    let upstreams: Vec<&[Var<Param>]> = vars.iter().map(|var| var.upstream()).collect();
-
-    let upstream = track_multi_upstream(upstreams);
-
-    Var::new(Rc::new(MultiCatOp::new(&clones[..], axis)), upstream)
-}
-
-fn track_upstream(lhs_up: &[Var<Param>], rhs_up: &[Var<Param>]) -> Vec<Var<Param>> {
+pub fn track_upstream(
+    lhs_up: &[Box<dyn Trackable>],
+    rhs_up: &[Box<dyn Trackable>],
+) -> Vec<Box<dyn Trackable>> {
     lhs_up
         .iter()
         .merge_join_by(rhs_up.iter(), |lhs_par, rhs_par| {
-            lhs_par.as_ptr().cmp(&rhs_par.as_ptr())
+            (&(&(***lhs_par) as *const dyn Trackable)).cmp(&(&(***rhs_par) as *const dyn Trackable))
         })
         .map(|choice| match choice {
             itertools::EitherOrBoth::Left(lhs_par) => lhs_par,
@@ -236,34 +327,18 @@ fn track_upstream(lhs_up: &[Var<Param>], rhs_up: &[Var<Param>]) -> Vec<Var<Param
         .collect()
 }
 
-fn track_multi_upstream(upstreams: Vec<&[Var<Param>]>) -> Vec<Var<Param>> {
-    upstreams
-        .iter()
-        .fold(Vec::<Var<Param>>::new(), |mut acc, other| {
-            let mut addings = Vec::<Var<Param>>::new();
-            acc.iter()
-                .merge_join_by(other.iter(), |acc_el, other_el| {
-                    acc_el.as_ptr().cmp(&other_el.as_ptr())
-                })
-                .for_each(|choice| match choice {
-                    itertools::EitherOrBoth::Left(_) => (),
-                    itertools::EitherOrBoth::Right(rhs) => addings.push(rhs.clone()),
-                    itertools::EitherOrBoth::Both(_, _) => (),
-                });
-            acc.extend(addings);
-            acc
-        })
-}
-
 macro_rules! impl_node_arithmetic_ops {
     ($trait:ident, $fun:ident, $repr:ident) => {
-        impl<LHS, RHS> $trait<Var<RHS>> for Var<LHS>
+        impl<LHS, RHS, D, E> $trait<Var<RHS, E>> for Var<LHS, D>
         where
-            RHS: Op<Data = DataRepr, Grad = DataRepr>,
-            LHS: Op<Data = DataRepr, Grad = DataRepr>,
+            LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+            RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+            D: Dimension + RemoveAxis + Max<E> + 'static,
+            E: Dimension + RemoveAxis + 'static,
         {
-            type Output = Var<$repr<LHS, RHS>>;
-            fn $fun(self, other: Var<RHS>) -> Self::Output {
+            type Output = Var<$repr<LHS, RHS, D, E>, Maximum<D, E>>;
+
+            fn $fun(self, other: Var<RHS, E>) -> Self::Output {
                 Var::new(
                     Rc::new($repr::new(self.repr, other.repr)),
                     track_upstream(&self.upstream, &other.upstream),
@@ -278,11 +353,12 @@ impl_node_arithmetic_ops!(Sub, sub, SubOp);
 impl_node_arithmetic_ops!(Mul, mul, MulOp);
 impl_node_arithmetic_ops!(Div, div, DivOp);
 
-impl<T> Neg for Var<T>
+impl<T, D> Neg for Var<T, D>
 where
-    T: Op<Data = DataRepr, Grad = DataRepr>,
+    T: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    D: Dimension + RemoveAxis + 'static,
 {
-    type Output = Var<NegOp<T>>;
+    type Output = Var<NegOp<T, D>, D>;
     fn neg(self) -> Self::Output {
         Var::new(Rc::new(NegOp::new(self.repr)), self.upstream.clone())
     }

@@ -17,12 +17,12 @@ fn add_test() {
 
     // Scalar + Scalar.
     let scalar_res: &Array1<f32> = &(&scalar + &Tensor { data: array![9.0] }).data;
-    assert_eq!(scalar_res, 10.0);
+    assert_eq!(scalar_res[0], 10.0);
 
     // Scalar + Scalar forward.
     let mut forward_scalar_res = Tensor { data: array![0.0] };
     forward_scalar_res.add_fwd(&scalar, &Tensor { data: array![9.0] });
-    assert_eq!(forward_scalar_res.data, scalar_res);
+    assert_eq!(forward_scalar_res.data, *scalar_res);
 
     // Scalar + Vector.
     let res = &scalar + &vector;
@@ -69,6 +69,7 @@ fn add_test() {
             data: array![3.0, 2.0, 1.0],
         };
     let vector_vector_res: &Array1<f32> = &res.data;
+    //println!("{:?}", vector_vector_res);
     assert_eq!(*vector_vector_res, array![4.0, 4.0, 4.0]);
 
     // Vector + Vector forward.
@@ -226,7 +227,7 @@ fn sub_test() {
 
     // Scalar - Scalar.
     let scalar_res: Array1<f32> = (&scalar - &Tensor { data: array![1.0] }).data;
-    assert_eq!(scalar_res, 0.0);
+    assert_eq!(scalar_res[0], 0.0);
 
     // Scalar - Scalar forward.
     let mut forward_scalar_res = Tensor { data: array![0.0] };
@@ -334,7 +335,7 @@ fn sub_test() {
     // Matrix - Scalar.
     let res = &matrix - &scalar;
     let matrix_scalar_res: &Array2<f32> = &res.data;
-    assert_eq!(matrix_scalar_res, -scalar_matrix_res);
+    assert_eq!(*matrix_scalar_res, -scalar_matrix_res);
 
     // Matrix - Scalar forward.
     let mut forward_mat_res = Tensor {
@@ -435,7 +436,7 @@ fn mul_test() {
 
     // Scalar * Scalar.
     let scalar_res: Array1<f32> = (&scalar * &Tensor { data: array![-3.] }).data;
-    assert_eq!(scalar_res, -9.0);
+    assert_eq!(scalar_res[0], -9.0);
 
     // Scalar * Scalar forward.
     let mut forward_scalar_res = Tensor { data: array![0.0] };
@@ -644,7 +645,7 @@ fn div_test() {
 
     // Scalar / Scalar.
     let scalar_res: Array1<f32> = (&scalar / &Tensor { data: array![-3.] }).data;
-    assert_eq!(scalar_res, -1.0);
+    assert_eq!(scalar_res[0], -1.0);
 
     // Scalar / Scalar forward.
     let mut forward_scalar_res = Tensor { data: array![0.0] };
@@ -864,45 +865,45 @@ fn assign_test() {
     };
 
     // Scalar scalar assignment.
-    scalar_trgt.accumulate(&scalar, 1.0, BackwardAction::Set);
-    assert_eq!(scalar_trgt.data, scalar.data);
+    scalar_trgt.accumulate(&scalar, 1.0, &BackwardAction::Set);
+    assert_eq!(scalar_trgt.data[0], scalar.data[0]);
 
     // Scalar scalar vector.
-    scalar_trgt.accumulate(&vector, 1.0, BackwardAction::Set);
-    assert_eq!(scalar_trgt.data, 3.0);
+    scalar_trgt.accumulate(&vector, 1.0, &BackwardAction::Set);
+    assert_eq!(scalar_trgt.data[0], 3.0);
 
     // Scalar scalar matrix.
-    scalar_trgt.accumulate(&matrix, 1.0, BackwardAction::Set);
-    assert_eq!(scalar_trgt.data, 9.0);
+    scalar_trgt.accumulate(&matrix, 1.0, &BackwardAction::Set);
+    assert_eq!(scalar_trgt.data[0], 9.0);
 
     // Vector scalar assignment.
-    vector_trgt.accumulate(&scalar, 1.0, BackwardAction::Set);
+    vector_trgt.accumulate(&scalar, 1.0, &BackwardAction::Set);
     assert_eq!(vector_trgt.data, array![1.0, 1.0, 1.0]);
 
     // Vector vector assignment.
-    vector_trgt.accumulate(&vector, 1.0, BackwardAction::Set);
+    vector_trgt.accumulate(&vector, 1.0, &BackwardAction::Set);
     assert_eq!(vector_trgt.data, array![1.0, 1.0, 1.0]);
 
     // Vector matrix assignment.
-    vector_trgt.accumulate(&matrix, 1.0, BackwardAction::Set);
+    vector_trgt.accumulate(&matrix, 1.0, &BackwardAction::Set);
     assert_eq!(vector_trgt.data, array![3.0, 3.0, 3.0]);
 
     // Matrix scalar assignment.
-    matrix_trgt.accumulate(&scalar, 1.0, BackwardAction::Set);
+    matrix_trgt.accumulate(&scalar, 1.0, &BackwardAction::Set);
     assert_eq!(
         matrix_trgt.data,
         array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
     );
 
     // Matrix vector assignment.
-    matrix_trgt.accumulate(&vector, 1.0, BackwardAction::Set);
+    matrix_trgt.accumulate(&vector, 1.0, &BackwardAction::Set);
     assert_eq!(
         matrix_trgt.data,
         array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
     );
 
     // Matrix matrix assignment.
-    matrix_trgt.accumulate(&matrix, 1.0, BackwardAction::Set);
+    matrix_trgt.accumulate(&matrix, 1.0, &BackwardAction::Set);
     assert_eq!(
         matrix_trgt.data,
         array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
@@ -928,45 +929,45 @@ fn scaled_assign_test() {
     };
 
     // Scalar scalar assignment.
-    scalar_trgt.accumulate(&scalar, -1.0, BackwardAction::Set);
-    assert_eq!(scalar_trgt.data, -scalar.data);
+    scalar_trgt.accumulate(&scalar, -1.0, &BackwardAction::Set);
+    assert_eq!(scalar_trgt.data[0], -scalar.data[0]);
 
     // Scalar scalar vector.
-    scalar_trgt.accumulate(&vector, -1.0, BackwardAction::Set);
-    assert_eq!(scalar_trgt.data, -3.0);
+    scalar_trgt.accumulate(&vector, -1.0, &BackwardAction::Set);
+    assert_eq!(scalar_trgt.data[0], -3.0);
 
     // Scalar scalar matrix.
-    scalar_trgt.accumulate(&matrix, -1.0, BackwardAction::Set);
-    assert_eq!(scalar_trgt.data, -9.0);
+    scalar_trgt.accumulate(&matrix, -1.0, &BackwardAction::Set);
+    assert_eq!(scalar_trgt.data[0], -9.0);
 
     // Vector scalar assignment.
-    vector_trgt.accumulate(&scalar, -1.0, BackwardAction::Set);
+    vector_trgt.accumulate(&scalar, -1.0, &BackwardAction::Set);
     assert_eq!(vector_trgt.data, -array![1.0, 1.0, 1.0]);
 
     // Vector vector assignment.
-    vector_trgt.accumulate(&vector, -1.0, BackwardAction::Set);
+    vector_trgt.accumulate(&vector, -1.0, &BackwardAction::Set);
     assert_eq!(vector_trgt.data, -array![1.0, 1.0, 1.0]);
 
     // Vector matrix assignment.
-    vector_trgt.accumulate(&matrix, -1.0, BackwardAction::Set);
+    vector_trgt.accumulate(&matrix, -1.0, &BackwardAction::Set);
     assert_eq!(vector_trgt.data, -array![3.0, 3.0, 3.0]);
 
     // Matrix scalar assignment.
-    matrix_trgt.accumulate(&scalar, -1.0, BackwardAction::Set);
+    matrix_trgt.accumulate(&scalar, -1.0, &BackwardAction::Set);
     assert_eq!(
         matrix_trgt.data,
         -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
     );
 
     // Matrix vector assignment.
-    matrix_trgt.accumulate(&vector, -1.0, BackwardAction::Set);
+    matrix_trgt.accumulate(&vector, -1.0, &BackwardAction::Set);
     assert_eq!(
         matrix_trgt.data,
         -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
     );
 
     // Matrix matrix assignment.
-    matrix_trgt.accumulate(&matrix, -1.0, BackwardAction::Set);
+    matrix_trgt.accumulate(&matrix, -1.0, &BackwardAction::Set);
     assert_eq!(
         matrix_trgt.data,
         -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
@@ -992,45 +993,45 @@ fn add_assign_test() {
     };
 
     // Scalar scalar assignment.
-    scalar_trgt.accumulate(&scalar, 1.0, BackwardAction::Increment);
-    assert_eq!(scalar_trgt.data, 10.0);
+    scalar_trgt.accumulate(&scalar, 1.0, &BackwardAction::Increment);
+    assert_eq!(scalar_trgt.data[0], 10.0);
 
     // Scalar scalar vector.
-    scalar_trgt.accumulate(&vector, 1.0, BackwardAction::Increment);
-    assert_eq!(scalar_trgt.data, 25.0);
+    scalar_trgt.accumulate(&vector, 1.0, &BackwardAction::Increment);
+    assert_eq!(scalar_trgt.data[0], 25.0);
 
     // Scalar scalar matrix.
-    scalar_trgt.accumulate(&matrix, 1.0, BackwardAction::Increment);
-    assert_eq!(scalar_trgt.data, 70.0);
+    scalar_trgt.accumulate(&matrix, 1.0, &BackwardAction::Increment);
+    assert_eq!(scalar_trgt.data[0], 70.0);
 
     // Vector scalar assignment.
-    vector_trgt.accumulate(&scalar, 1.0, BackwardAction::Increment);
+    vector_trgt.accumulate(&scalar, 1.0, &BackwardAction::Increment);
     assert_eq!(vector_trgt.data, array![10.0, 10.0, 10.0]);
 
     // Vector vector assignment.
-    vector_trgt.accumulate(&vector, 1.0, BackwardAction::Increment);
+    vector_trgt.accumulate(&vector, 1.0, &BackwardAction::Increment);
     assert_eq!(vector_trgt.data, array![15.0, 15.0, 15.0]);
 
     // Vector matrix assignment.
-    vector_trgt.accumulate(&matrix, 1.0, BackwardAction::Increment);
+    vector_trgt.accumulate(&matrix, 1.0, &BackwardAction::Increment);
     assert_eq!(vector_trgt.data, array![30.0, 30.0, 30.0]);
 
     // Matrix scalar assignment.
-    matrix_trgt.accumulate(&scalar, 1.0, BackwardAction::Increment);
+    matrix_trgt.accumulate(&scalar, 1.0, &BackwardAction::Increment);
     assert_eq!(
         matrix_trgt.data,
         array![[10.0, 10.0, 10.0], [10.0, 10.0, 10.0], [10.0, 10.0, 10.0]]
     );
 
     // Matrix vector assignment.
-    matrix_trgt.accumulate(&vector, 1.0, BackwardAction::Increment);
+    matrix_trgt.accumulate(&vector, 1.0, &BackwardAction::Increment);
     assert_eq!(
         matrix_trgt.data,
         array![[15.0, 15.0, 15.0], [15.0, 15.0, 15.0], [15.0, 15.0, 15.0]]
     );
 
     // Matrix matrix assignment.
-    matrix_trgt.accumulate(&matrix, 1.0, BackwardAction::Increment);
+    matrix_trgt.accumulate(&matrix, 1.0, &BackwardAction::Increment);
     assert_eq!(
         matrix_trgt.data,
         array![[20.0, 20.0, 20.0], [20.0, 20.0, 20.0], [20.0, 20.0, 20.0]]
@@ -1056,37 +1057,37 @@ fn scaled_add_assign_test() {
     };
 
     // Scalar scalar assignment.
-    &mut scalar_trgt.accumulate(&scalar, -1.0, BackwardAction::Increment);
-    assert_eq!(scalar_trgt.data, 0.0);
+    &mut scalar_trgt.accumulate(&scalar, -1.0, &BackwardAction::Increment);
+    assert_eq!(scalar_trgt.data[0], 0.0);
     scalar_trgt.set_zero();
 
     // Scalar scalar vector.
-    &mut scalar_trgt.accumulate(&vector, -1.0, BackwardAction::Increment);
-    assert_eq!(scalar_trgt.data, -15.0);
+    &mut scalar_trgt.accumulate(&vector, -1.0, &BackwardAction::Increment);
+    assert_eq!(scalar_trgt.data[0], -15.0);
     scalar_trgt.set_zero();
 
     // Scalar scalar matrix.
-    &mut scalar_trgt.accumulate(&matrix, -1.0, BackwardAction::Increment);
-    assert_eq!(scalar_trgt.data, -45.0);
+    &mut scalar_trgt.accumulate(&matrix, -1.0, &BackwardAction::Increment);
+    assert_eq!(scalar_trgt.data[0], -45.0);
     scalar_trgt.set_zero();
 
     // Vector scalar assignment.
-    &mut vector_trgt.accumulate(&scalar, -1.0, BackwardAction::Increment);
+    &mut vector_trgt.accumulate(&scalar, -1.0, &BackwardAction::Increment);
     assert_eq!(vector_trgt.data, array![0.0, 0.0, 0.0]);
     vector_trgt.set_zero();
 
     // Vector vector assignment.
-    &mut vector_trgt.accumulate(&vector, -1.0, BackwardAction::Increment);
+    &mut vector_trgt.accumulate(&vector, -1.0, &BackwardAction::Increment);
     assert_eq!(vector_trgt.data, array![-5.0, -5.0, -5.0]);
     vector_trgt.set_zero();
 
     // Vector matrix assignment.
-    &mut vector_trgt.accumulate(&matrix, -1.0, BackwardAction::Increment);
+    &mut vector_trgt.accumulate(&matrix, -1.0, &BackwardAction::Increment);
     assert_eq!(vector_trgt.data, array![-15.0, -15.0, -15.0]);
     vector_trgt.set_zero();
 
     // Matrix scalar assignment.
-    &mut matrix_trgt.accumulate(&scalar, -1.0, BackwardAction::Increment);
+    &mut matrix_trgt.accumulate(&scalar, -1.0, &BackwardAction::Increment);
     assert_eq!(
         matrix_trgt.data,
         array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
@@ -1094,7 +1095,7 @@ fn scaled_add_assign_test() {
     matrix_trgt.set_zero();
 
     // Matrix vector assignment.
-    &mut matrix_trgt.accumulate(&vector, -1.0, BackwardAction::Increment);
+    &mut matrix_trgt.accumulate(&vector, -1.0, &BackwardAction::Increment);
     assert_eq!(
         matrix_trgt.data,
         array![[-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0]]
@@ -1102,7 +1103,7 @@ fn scaled_add_assign_test() {
     matrix_trgt.set_zero();
 
     // Matrix matrix assignment.
-    &mut matrix_trgt.accumulate(&matrix, -1.0, BackwardAction::Increment);
+    &mut matrix_trgt.accumulate(&matrix, -1.0, &BackwardAction::Increment);
     assert_eq!(
         matrix_trgt.data,
         array![[-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0]]

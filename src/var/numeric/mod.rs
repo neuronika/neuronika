@@ -1,9 +1,6 @@
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
-use ndarray::{
-    arr1, concatenate, stack, Array, Array2, ArrayView, ArrayView1, Axis, Dimension, Ix0, Ix1, Ix2,
-    Ix3, Ix4, Ix5, RemoveAxis, Zip,
-};
-use std::cell::{Cell, RefMut};
+use ndarray::{arr1, Array, Array2, ArrayView1, Axis, Dimension, Ix1, Ix2, Ix3, RemoveAxis, Zip};
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -111,56 +108,175 @@ where
 /// [Dimension]: ndarray::Dimension
 pub type Maximum<L, R> = <L as Max<R>>::Output;
 
-/// Automatically implements all the trivial cases for the [Max] relation.
-///
-/// [Max]: Prova::Max
-macro_rules! impl_unary_max {
-    ($($dim: ty),+ $(,)?) => {
-        $(
-            impl Max<$dim> for $dim {
-                type Output = $dim;
+impl Max<Ix1> for Ix1 {
+    type Output = Ix1;
 
-                fn max(self, _: $dim) -> $dim {
-                    self
-                }
-            }
-        )*
-    };
+    fn max(self, rhs: Ix1) -> Ix1 {
+        let self_els = self.into_pattern();
+        let rhs_els = rhs.into_pattern();
+        if self_els > rhs_els {
+            self
+        } else {
+            rhs
+        }
+    }
 }
 
-/// Automatically implements all the cases for the [Max] relation accordingly.
-///
-/// [Max]: Prova::Max
-macro_rules! impl_binary_max {
-    ($small: ty, $big: ty) => {
-        impl Max<$small> for $big {
-            type Output = $big;
+impl Max<Ix2> for Ix2 {
+    type Output = Ix2;
 
-            fn max(self, _: $small) -> $big { self }
-        }
+    fn max(self, rhs: Ix2) -> Ix2 {
+        let dim0 = if self.into_pattern().0 == 1 {
+            rhs.into_pattern().1
+        } else {
+            self.into_pattern().0
+        };
+        let dim1 = if self.into_pattern().1 == 1 {
+            rhs.into_pattern().1
+        } else {
+            self.into_pattern().1
+        };
+        Ix2(dim0, dim1)
+    }
+}
+impl Max<Ix3> for Ix3 {
+    type Output = Ix3;
 
-        impl Max<$big> for $small {
-            type Output = $big;
-
-            fn max(self, rhs: $big) -> $big { rhs }
-        }
-    };
-
-    ($(($small: ty, $big: ty)),+ $(,)?) => {
-        $(impl_binary_max!{$small, $big })*
-    };
+    fn max(self, rhs: Ix3) -> Ix3 {
+        let dim0 = if self.into_pattern().0 == 1 {
+            rhs.into_pattern().1
+        } else {
+            self.into_pattern().0
+        };
+        let dim1 = if self.into_pattern().1 == 1 {
+            rhs.into_pattern().1
+        } else {
+            self.into_pattern().1
+        };
+        let dim2 = if self.into_pattern().2 == 1 {
+            rhs.into_pattern().2
+        } else {
+            self.into_pattern().2
+        };
+        Ix3(dim0, dim1, dim2)
+    }
 }
 
-impl_unary_max!(Ix0, Ix1, Ix2, Ix3, Ix4, Ix5);
+impl Max<Ix1> for Ix2 {
+    type Output = Ix2;
 
-impl_binary_max!(
-    (Ix0, Ix3),
-    (Ix0, Ix2),
-    (Ix0, Ix1),
-    (Ix1, Ix3),
-    (Ix1, Ix2),
-    (Ix2, Ix3)
-);
+    fn max(self, rhs: Ix1) -> Ix2 {
+        let self_pattern = self.into_pattern();
+        let right_pattern = rhs.into_pattern();
+
+        let broadcasted = if self_pattern.1 == 1 {
+            right_pattern
+        } else {
+            self_pattern.1
+        };
+
+        Ix2(self_pattern.0, broadcasted)
+    }
+}
+
+impl Max<Ix2> for Ix1 {
+    type Output = Ix2;
+
+    fn max(self, rhs: Ix2) -> Ix2 {
+        let self_pattern = self.into_pattern();
+        let right_pattern = rhs.into_pattern();
+
+        let broadcasted = if right_pattern.1 == 1 {
+            self_pattern
+        } else {
+            right_pattern.1
+        };
+
+        Ix2(right_pattern.0, broadcasted)
+    }
+}
+
+impl Max<Ix1> for Ix3 {
+    type Output = Ix3;
+
+    fn max(self, rhs: Ix1) -> Ix3 {
+        let self_pattern = self.into_pattern();
+        let right_pattern = rhs.into_pattern();
+
+        let broadcasted = if self_pattern.2 == 1 {
+            right_pattern
+        } else {
+            self_pattern.2
+        };
+
+        Ix3(self_pattern.0, self_pattern.1, broadcasted)
+    }
+}
+
+impl Max<Ix3> for Ix1 {
+    type Output = Ix3;
+
+    fn max(self, rhs: Ix3) -> Ix3 {
+        let self_pattern = self.into_pattern();
+        let right_pattern = rhs.into_pattern();
+
+        let broadcasted = if right_pattern.2 == 1 {
+            self_pattern
+        } else {
+            right_pattern.2
+        };
+
+        Ix3(right_pattern.0, right_pattern.1, broadcasted)
+    }
+}
+
+impl Max<Ix2> for Ix3 {
+    type Output = Ix3;
+
+    fn max(self, rhs: Ix2) -> Ix3 {
+        let self_pattern = self.into_pattern();
+        let right_pattern = rhs.into_pattern();
+
+        let broadcasted = (
+            if self_pattern.1 == 1 {
+                right_pattern.0
+            } else {
+                self_pattern.1
+            },
+            if self_pattern.2 == 1 {
+                right_pattern.1
+            } else {
+                self_pattern.2
+            },
+        );
+
+        Ix3(self_pattern.0, broadcasted.0, broadcasted.1)
+    }
+}
+
+impl Max<Ix3> for Ix2 {
+    type Output = Ix3;
+
+    fn max(self, rhs: Ix3) -> Ix3 {
+        let self_pattern = self.into_pattern();
+        let right_pattern = rhs.into_pattern();
+
+        let broadcasted = (
+            if right_pattern.1 == 1 {
+                self_pattern.0
+            } else {
+                right_pattern.1
+            },
+            if right_pattern.2 == 1 {
+                self_pattern.1
+            } else {
+                right_pattern.2
+            },
+        );
+
+        Ix3(self_pattern.0, broadcasted.0, broadcasted.1)
+    }
+}
 
 pub trait VStack<R>
 where
@@ -256,7 +372,7 @@ pub type DStacked<L, R> = <L as DStack<R>>::Output;
 
 impl DStack<Ix2> for Ix2 {
     type Output = Ix3;
-    fn dstack(self, rhs: Ix2) -> Ix3 {
+    fn dstack(self, _: Ix2) -> Ix3 {
         Ix3(self.into_pattern().0, self.into_pattern().1, 2)
     }
 }
@@ -303,7 +419,7 @@ where
     type Output = Tensor<D>;
 
     fn neg(self) -> Self::Output {
-        Self::Output { data: -self.data }
+        Self::Output { data: -&self.data }
     }
 }
 
@@ -348,15 +464,15 @@ macro_rules! impl_fwd_un_ops_param {
 // Implements backward pass funcs for unary non-parametrized ops.
 macro_rules! impl_bkwrd_un_ops {
     ($fun:ident, $closure_set:expr, $closure_incr:expr) => {
-        pub(super) fn $fun(&mut self, down_grad: &Self, t: &Self, action: BackwardAction) {
+        pub(super) fn $fun(&mut self, down_grad: &Self, t: &Self, action: &BackwardAction) {
             match action {
-                Set => {
+                BackwardAction::Set => {
                     Zip::from(&mut self.data)
                         .and(&down_grad.data)
                         .and(&t.data)
                         .apply($closure_set);
                 }
-                Increment => {
+                BackwardAction::Increment => {
                     Zip::from(&mut self.data)
                         .and(&down_grad.data)
                         .and(&t.data)
@@ -374,17 +490,17 @@ macro_rules! impl_bkwrd_un_ops_param {
             &mut self,
             down_grad: &Self,
             t: &Self,
-            action: BackwardAction,
+            action: &BackwardAction,
             $param: $param_t,
         ) {
             match action {
-                Set => {
+                BackwardAction::Set => {
                     Zip::from(&mut self.data)
                         .and(&down_grad.data)
                         .and(&t.data)
                         .apply($closure_set);
                 }
-                Increment => {
+                BackwardAction::Increment => {
                     Zip::from(&mut self.data)
                         .and(&down_grad.data)
                         .and(&t.data)
@@ -426,7 +542,7 @@ where
 
 // Methods specific to the two dimensional Tensor.
 impl Tensor<Ix2> {
-    fn mat_mul(
+    pub(super) fn mat_mul(
         &self,
         rhs: &Self,
         target: &mut Self,
@@ -449,7 +565,7 @@ impl Tensor<Ix2> {
         }
     }
 
-    fn mat_vec_mul(
+    pub(super) fn mat_vec_mul(
         &self,
         rhs: &Tensor<Ix1>,
         target: &mut Tensor<Ix1>,
@@ -509,117 +625,128 @@ where
         }
     }
 
-    pub(super) fn accumulate<E>(&mut self, other: &Tensor<E>, scale: f32, action: BackwardAction)
+    pub(super) fn accumulate<E>(&mut self, other: &Tensor<E>, scale: f32, action: &BackwardAction)
     where
         E: Dimension + RemoveAxis,
     {
         let (trgt_data, other_data) = { (&mut self.data, &other.data) };
 
-        match trgt_data.ndim().cmp(&other_data.ndim()) {
-            Ordering::Less => {
-                let mut dyn_other = other_data.sum_axis(Axis(0)).into_dyn();
-                while trgt_data.ndim() < dyn_other.ndim() {
-                    dyn_other = dyn_other.sum_axis(Axis(0));
-                }
-                let static_other = dyn_other.into_dimensionality::<D>().unwrap();
-                let mut axis_of_len_one = false;
-                for i in 0..trgt_data.ndim() {
-                    let size = trgt_data.len_of(Axis(i));
-                    if size == 1_usize {
-                        axis_of_len_one = true;
-                        match action {
-                            BackwardAction::Set => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(static_other.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el = src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                            BackwardAction::Increment => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(static_other.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el += src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                        }
-                    }
-                }
-                if !axis_of_len_one {
-                    match action {
-                        BackwardAction::Set => {
-                            Zip::from(trgt_data)
-                                .and(&static_other)
-                                .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
-                        }
-                        BackwardAction::Increment => {
-                            Zip::from(trgt_data)
-                                .and(&static_other)
-                                .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
-                        }
-                    }
-                }
-            }
-            Ordering::Equal => {
-                let other_same_dim = other_data.view().into_dimensionality::<D>().unwrap();
-                let mut axis_of_len_one = false;
-                for i in 0..trgt_data.ndim() {
-                    let size = trgt_data.len_of(Axis(i));
-                    if size == 1_usize {
-                        axis_of_len_one = true;
-                        match action {
-                            BackwardAction::Set => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(other_same_dim.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el = src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                            BackwardAction::Increment => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(other_same_dim.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el += src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                        }
-                    }
-                }
-                if !axis_of_len_one {
-                    match action {
-                        BackwardAction::Set => {
-                            Zip::from(trgt_data)
-                                .and(&other_same_dim)
-                                .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
-                        }
-                        BackwardAction::Increment => {
-                            Zip::from(trgt_data)
-                                .and(&other_same_dim)
-                                .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
-                        }
-                    }
-                }
-            }
-            Ordering::Greater => match action {
+        if trgt_data.len() == 1 {
+            match action {
                 BackwardAction::Set => {
-                    Zip::from(trgt_data)
-                        .and_broadcast(other_data)
-                        .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
+                    Zip::from(trgt_data).apply(|el| *el = other_data.sum() * scale)
                 }
                 BackwardAction::Increment => {
-                    Zip::from(trgt_data)
-                        .and_broadcast(other_data)
-                        .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
+                    Zip::from(trgt_data).apply(|el| *el += other_data.sum() * scale)
                 }
-            },
+            }
+        } else {
+            match trgt_data.ndim().cmp(&other_data.ndim()) {
+                Ordering::Less => {
+                    let mut dyn_other = other_data.sum_axis(Axis(0)).into_dyn();
+                    while trgt_data.ndim() < dyn_other.ndim() {
+                        dyn_other = dyn_other.sum_axis(Axis(0));
+                    }
+                    let static_other = dyn_other.into_dimensionality::<D>().unwrap();
+                    let mut axis_of_len_one = false;
+                    for i in 0..trgt_data.ndim() {
+                        let size = trgt_data.len_of(Axis(i));
+                        if size == 1_usize {
+                            axis_of_len_one = true;
+                            match action {
+                                BackwardAction::Set => {
+                                    Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                        .and(static_other.lanes(Axis(i)))
+                                        .apply(|dest_lane, src_lane| {
+                                            Zip::from(dest_lane).apply(|dest_view_el| {
+                                                *dest_view_el = src_lane.sum() * scale
+                                            });
+                                        });
+                                }
+                                BackwardAction::Increment => {
+                                    Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                        .and(static_other.lanes(Axis(i)))
+                                        .apply(|dest_lane, src_lane| {
+                                            Zip::from(dest_lane).apply(|dest_view_el| {
+                                                *dest_view_el += src_lane.sum() * scale
+                                            });
+                                        });
+                                }
+                            }
+                        }
+                    }
+                    if !axis_of_len_one {
+                        match action {
+                            BackwardAction::Set => {
+                                Zip::from(trgt_data)
+                                    .and(&static_other)
+                                    .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
+                            }
+                            BackwardAction::Increment => {
+                                Zip::from(trgt_data)
+                                    .and(&static_other)
+                                    .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
+                            }
+                        }
+                    }
+                }
+                Ordering::Equal => {
+                    let other_same_dim = other_data.view().into_dimensionality::<D>().unwrap();
+                    let mut axis_of_len_one = false;
+                    for i in 0..trgt_data.ndim() {
+                        let size = trgt_data.len_of(Axis(i));
+                        if size == 1_usize {
+                            axis_of_len_one = true;
+                            match action {
+                                BackwardAction::Set => {
+                                    Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                        .and(other_same_dim.lanes(Axis(i)))
+                                        .apply(|dest_lane, src_lane| {
+                                            Zip::from(dest_lane).apply(|dest_view_el| {
+                                                *dest_view_el = src_lane.sum() * scale
+                                            });
+                                        });
+                                }
+                                BackwardAction::Increment => {
+                                    Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                        .and(other_same_dim.lanes(Axis(i)))
+                                        .apply(|dest_lane, src_lane| {
+                                            Zip::from(dest_lane).apply(|dest_view_el| {
+                                                *dest_view_el += src_lane.sum() * scale
+                                            });
+                                        });
+                                }
+                            }
+                        }
+                    }
+                    if !axis_of_len_one {
+                        match action {
+                            BackwardAction::Set => {
+                                Zip::from(trgt_data)
+                                    .and_broadcast(&other_same_dim)
+                                    .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
+                            }
+                            BackwardAction::Increment => {
+                                Zip::from(trgt_data)
+                                    .and_broadcast(&other_same_dim)
+                                    .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
+                            }
+                        }
+                    }
+                }
+                Ordering::Greater => match action {
+                    BackwardAction::Set => {
+                        Zip::from(trgt_data)
+                            .and_broadcast(other_data)
+                            .apply(|el_trgt, el_other| *el_trgt = *el_other * scale);
+                    }
+                    BackwardAction::Increment => {
+                        Zip::from(trgt_data)
+                            .and_broadcast(other_data)
+                            .apply(|el_trgt, el_other| *el_trgt += *el_other * scale);
+                    }
+                },
+            }
         }
     }
 
@@ -752,10 +879,10 @@ where
     );
 
     pub fn softmax(&self, axis: usize) -> Self {
-        let new = self.zeros();
+        let mut new = self.zeros();
         Zip::from(self.data.lanes(Axis(axis)))
             .and(new.data.lanes_mut(Axis(axis)))
-            .apply(|lane_self, mut lane_new| {
+            .apply(|lane_self, lane_new| {
                 let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
                 let num = &lane_self.map(|el| (el - max).exp());
                 let den = num.sum();
@@ -769,7 +896,7 @@ where
     pub fn softmax_fwd(&mut self, t: &Self, axis: usize) {
         Zip::from(t.data.lanes(Axis(axis)))
             .and(self.data.lanes_mut(Axis(axis)))
-            .apply(|lane_self, mut lane_new| {
+            .apply(|lane_self, lane_new| {
                 let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
                 let num = &lane_self.map(|el| (el - max).exp());
                 let den = num.sum();
@@ -784,7 +911,7 @@ where
         input_grad: &Self,
         data: &Self,
         jacobian: &mut Array2<f32>,
-        action: BackwardAction,
+        action: &BackwardAction,
         axis: usize,
     ) {
         fn fill_jacobian(jacobian: &mut Array2<f32>, data: &ArrayView1<f32>) {
@@ -810,8 +937,8 @@ where
             }
         };
         let beta = match action {
-            Set => 0.0,
-            Increment => 1.0,
+            BackwardAction::Set => 0.0,
+            BackwardAction::Increment => 1.0,
         };
         Zip::from(self.data.lanes_mut(Axis(axis)))
             .and(data.data.lanes(Axis(axis)))
@@ -822,7 +949,7 @@ where
             });
     }
 
-    fn vstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<VStacked<D, E>>
+    pub(super) fn vstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<VStacked<D, E>>
     where
         D: VStack<E>,
     {
@@ -834,11 +961,11 @@ where
             ),
         };
 
-        new.stack_fwd(self, other);
+        new.vstack_fwd(self, other);
         new
     }
 
-    fn hstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<HStacked<D, E>>
+    pub(super) fn hstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<HStacked<D, E>>
     where
         D: HStack<E>,
     {
@@ -850,11 +977,15 @@ where
             ),
         };
 
-        new.stack_fwd(self, other);
+        new.hstack_fwd(self, other);
         new
     }
 
-    fn stack_fwd<E: Dimension, F: Dimension>(&mut self, lhs: &Tensor<E>, rhs: &Tensor<F>) {
+    pub(super) fn vstack_fwd<E: Dimension, F: Dimension>(
+        &mut self,
+        lhs: &Tensor<E>,
+        rhs: &Tensor<F>,
+    ) {
         let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
         let split = if lhs_data.ndim() == 1 && rhs_data.ndim() == 1 {
             lhs_data.len()
@@ -871,11 +1002,32 @@ where
             .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
     }
 
-    fn stack_bkwrd<E: Dimension, F: Dimension>(
+    pub(super) fn hstack_fwd<E: Dimension, F: Dimension>(
+        &mut self,
+        lhs: &Tensor<E>,
+        rhs: &Tensor<F>,
+    ) {
+        let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
+        let split = if lhs_data.ndim() == 1 && rhs_data.ndim() == 1 {
+            lhs_data.len()
+        } else {
+            lhs_data.len_of(Axis(0))
+        };
+
+        let (self_dest, other_dest) = self.data.view_mut().split_at(Axis(0), split);
+        Zip::from(self_dest)
+            .and_broadcast(lhs_data)
+            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+        Zip::from(other_dest)
+            .and_broadcast(rhs_data)
+            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    }
+
+    pub(super) fn vstack_bkwrd<E: Dimension, F: Dimension>(
         &self,
         lhs_grad: &mut Tensor<E>,
         rhs_grad: &mut Tensor<F>,
-        action: BackwardAction,
+        action: &BackwardAction,
     ) {
         let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
 
@@ -906,7 +1058,42 @@ where
         }
     }
 
-    fn dstack(&self, other: &Self) -> Tensor<DStacked<D, D>>
+    pub(super) fn hstack_bkwrd<E: Dimension, F: Dimension>(
+        &self,
+        lhs_grad: &mut Tensor<E>,
+        rhs_grad: &mut Tensor<F>,
+        action: &BackwardAction,
+    ) {
+        let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
+
+        let split = if lhs_grad_data.ndim() == 1 && rhs_grad_data.ndim() == 1 {
+            lhs_grad_data.len()
+        } else {
+            lhs_grad_data.len_of(Axis(0))
+        };
+
+        let (lhs_dest, rhs_dest) = self.data.view().split_at(Axis(0), split);
+        match action {
+            BackwardAction::Set => {
+                Zip::from(lhs_grad_data)
+                    .and_broadcast(lhs_dest)
+                    .apply(|dest_el, src_el| *dest_el = *src_el);
+                Zip::from(rhs_grad_data)
+                    .and_broadcast(rhs_dest)
+                    .apply(|dest_el, src_el| *dest_el = *src_el);
+            }
+            BackwardAction::Increment => {
+                Zip::from(lhs_grad_data)
+                    .and_broadcast(lhs_dest)
+                    .apply(|dest_el, src_el| *dest_el += *src_el);
+                Zip::from(rhs_grad_data)
+                    .and_broadcast(rhs_dest)
+                    .apply(|dest_el, src_el| *dest_el += *src_el);
+            }
+        }
+    }
+
+    pub(super) fn dstack(&self, other: &Self) -> Tensor<DStacked<D, D>>
     where
         D: DStack<D>,
     {
@@ -922,7 +1109,7 @@ where
         new
     }
 
-    fn dstack_fwd<E: Dimension>(&mut self, lhs: &Tensor<E>, rhs: &Tensor<E>) {
+    pub(super) fn dstack_fwd<E: Dimension>(&mut self, lhs: &Tensor<E>, rhs: &Tensor<E>) {
         let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
         let (lhs_dest, rhs_dest) = {
             let (one, the_other) = self.data.view_mut().split_at(Axis(2), 1);
@@ -936,11 +1123,11 @@ where
             .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
     }
 
-    fn dstack_bkwrd<E: Dimension>(
+    pub(super) fn dstack_bkwrd<E: Dimension>(
         &self,
         lhs_grad: &mut Tensor<E>,
         rhs_grad: &mut Tensor<E>,
-        action: BackwardAction,
+        action: &BackwardAction,
     ) {
         let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
         let (lhs_grad_src, rhs_grad_src) = {
@@ -948,7 +1135,7 @@ where
             (one.remove_axis(Axis(2)), the_other.remove_axis(Axis(2)))
         };
         match action {
-            Set => {
+            BackwardAction::Set => {
                 Zip::from(lhs_grad_data)
                     .and_broadcast(lhs_grad_src)
                     .apply(|lhs_dest_el, src_data_el| *lhs_dest_el = *src_data_el);
@@ -956,7 +1143,7 @@ where
                     .and_broadcast(rhs_grad_src)
                     .apply(|rhs_dest_el, src_data_el| *rhs_dest_el = *src_data_el);
             }
-            Increment => {
+            BackwardAction::Increment => {
                 Zip::from(lhs_grad_data)
                     .and_broadcast(lhs_grad_src)
                     .apply(|lhs_dest_el, src_data_el| *lhs_dest_el += *src_data_el);
