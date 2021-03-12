@@ -1292,3 +1292,20 @@ fn matrix_div() {
         }
     );
 }
+
+#[test]
+fn upstream_test() {
+    let x = Param::new(Tensor {
+        data: Array::from_elem([2, 2], 5.0),
+    });
+    let y = Param::new(Tensor {
+        data: Array::from_elem([2, 2], 5.0),
+    });
+    let z = Param::new(Tensor {
+        data: Array::from_elem([1, 1], 1.0),
+    });
+
+    let w = x.clone() + y.clone() + z.clone() + x.clone();
+
+    assert_eq!(w.upstream().len(), 3);
+}

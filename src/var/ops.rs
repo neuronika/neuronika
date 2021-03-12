@@ -3,6 +3,9 @@ use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static PARAM_ID: AtomicUsize = AtomicUsize::new(0);
 
 use super::numeric::{
     BackwardAction, DStack, DStacked, ForwardAction, HStack, HStacked, Max, Maximum, PassCounter,
@@ -64,6 +67,7 @@ pub struct Param<D>
 where
     D: Dimension + RemoveAxis,
 {
+    pub(crate) id: usize,
     pub(crate) data: RefCell<Tensor<D>>,
     pub(crate) grad: RefCell<Tensor<D>>,
 }
@@ -75,6 +79,7 @@ where
     pub fn new(data: Tensor<D>) -> Var<Self, D> {
         let zeroed_data = data.zeros();
         let node = Rc::new(Param {
+            id: PARAM_ID.fetch_add(1, Ordering::SeqCst),
             data: RefCell::new(data),
             grad: RefCell::new(zeroed_data),
         });

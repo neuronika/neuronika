@@ -21,6 +21,7 @@ pub trait TrackableClone {
 pub trait Trackable: Debug + TrackableClone {
     fn zero_grad(&mut self);
     fn as_trackable(self) -> Box<dyn Trackable>;
+    fn get_id(&self) -> usize;
 }
 
 impl<D> TrackableClone for Var<Param<D>, D>
@@ -42,6 +43,10 @@ where
 
     fn as_trackable(self) -> Box<dyn Trackable> {
         Box::new(self)
+    }
+
+    fn get_id(&self) -> usize {
+        self.repr.id
     }
 }
 
@@ -316,7 +321,7 @@ pub fn track_upstream(
     lhs_up
         .iter()
         .merge_join_by(rhs_up.iter(), |lhs_par, rhs_par| {
-            (&(&(***lhs_par) as *const dyn Trackable)).cmp(&(&(***rhs_par) as *const dyn Trackable))
+            (lhs_par.get_id()).cmp(&rhs_par.get_id())
         })
         .map(|choice| match choice {
             itertools::EitherOrBoth::Left(lhs_par) => lhs_par,
