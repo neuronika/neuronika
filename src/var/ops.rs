@@ -7,10 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static PARAM_ID: AtomicUsize = AtomicUsize::new(0);
 
-use super::numeric::{
-    BackwardAction, DStack, DStacked, ForwardAction, HStack, HStacked, Max, Maximum, PassCounter,
-    Tensor, VStack, VStacked,
-};
+use super::numeric::{BackwardAction, Broadcast, Broadcasted, ForwardAction, PassCounter, Tensor};
 use ndarray::{arr1, Array2, Dimension, Ix1, Ix2, RemoveAxis, Zip};
 
 #[derive(Debug)]
@@ -77,7 +74,7 @@ where
     D: Dimension + RemoveAxis + 'static,
 {
     pub fn new(data: Tensor<D>) -> Var<Self, D> {
-        let zeroed_data = data.zeros();
+        let zeroed_data = data.zeros_from();
         let node = Rc::new(Param {
             id: PARAM_ID.fetch_add(1, Ordering::SeqCst),
             data: RefCell::new(data),
@@ -176,7 +173,7 @@ where
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = -operand.data().deref();
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         NegOp {
@@ -239,10 +236,10 @@ where
 #[derive(Debug)]
 pub struct AddOp<LHS, RHS, D, E>
 where
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
-    data: RefCell<Tensor<Maximum<D, E>>>,
+    data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
     rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
@@ -255,14 +252,14 @@ impl<LHS, RHS, D, E> AddOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>>,
     RHS: Op<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() + rhs.data().deref();
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
 
         AddOp {
             data: RefCell::new(data),
@@ -280,11 +277,11 @@ impl<LHS, RHS, D, E> Op for AddOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E> + 'static,
+    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
     E: Dimension + RemoveAxis + 'static,
 {
-    type Data = Tensor<Maximum<D, E>>;
-    type Grad = Tensor<Maximum<D, E>>;
+    type Data = Tensor<Broadcasted<D, E>>;
+    type Grad = Tensor<Broadcasted<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -336,10 +333,10 @@ where
 #[derive(Debug)]
 pub struct SubOp<LHS, RHS, D, E>
 where
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
-    data: RefCell<Tensor<Maximum<D, E>>>,
+    data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
     rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
@@ -352,14 +349,14 @@ impl<LHS, RHS, D, E> SubOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>>,
     RHS: Op<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() - rhs.data().deref();
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
 
         SubOp {
             data: RefCell::new(data),
@@ -377,11 +374,11 @@ impl<LHS, RHS, D, E> Op for SubOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E> + 'static,
+    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
     E: Dimension + RemoveAxis + 'static,
 {
-    type Data = Tensor<Maximum<D, E>>;
-    type Grad = Tensor<Maximum<D, E>>;
+    type Data = Tensor<Broadcasted<D, E>>;
+    type Grad = Tensor<Broadcasted<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -433,10 +430,10 @@ where
 #[derive(Debug)]
 pub struct MulOp<LHS, RHS, D, E>
 where
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
-    data: RefCell<Tensor<Maximum<D, E>>>,
+    data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
     rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
@@ -449,14 +446,14 @@ impl<LHS, RHS, D, E> MulOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>>,
     RHS: Op<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() * rhs.data().deref();
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
 
         MulOp {
             data: RefCell::new(data),
@@ -474,11 +471,11 @@ impl<LHS, RHS, D, E> Op for MulOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E> + 'static,
+    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
     E: Dimension + RemoveAxis + 'static,
 {
-    type Data = Tensor<Maximum<D, E>>;
-    type Grad = Tensor<Maximum<D, E>>;
+    type Data = Tensor<Broadcasted<D, E>>;
+    type Grad = Tensor<Broadcasted<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -529,10 +526,10 @@ where
 #[derive(Debug)]
 pub struct DivOp<LHS, RHS, D, E>
 where
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
-    data: RefCell<Tensor<Maximum<D, E>>>,
+    data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
     rhs_grad: RefCell<Tensor<E>>,
     lhs: Rc<LHS>,
@@ -545,14 +542,14 @@ impl<LHS, RHS, D, E> DivOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>>,
     RHS: Op<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E>,
+    D: Dimension + RemoveAxis + Broadcast<E>,
     E: Dimension + RemoveAxis,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() / rhs.data().deref();
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
 
         DivOp {
             data: RefCell::new(data),
@@ -570,11 +567,11 @@ impl<LHS, RHS, D, E> Op for DivOp<LHS, RHS, D, E>
 where
     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + Max<E> + 'static,
+    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
     E: Dimension + RemoveAxis + 'static,
 {
-    type Data = Tensor<Maximum<D, E>>;
-    type Grad = Tensor<Maximum<D, E>>;
+    type Data = Tensor<Broadcasted<D, E>>;
+    type Grad = Tensor<Broadcasted<D, E>>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -651,9 +648,9 @@ where
             data: lhs.data().data.dot(&rhs.data().data),
         };
 
-        let grad = data.zeros();
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+        let grad = data.zeros_from();
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
 
         DotOp {
             data: RefCell::new(data),
@@ -768,9 +765,9 @@ where
             data: lhs.data().data.dot(&rhs.data().data),
         };
 
-        let grad = data.zeros();
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+        let grad = data.zeros_from();
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
 
         DotVecOp {
             data: RefCell::new(data),
@@ -875,8 +872,8 @@ where
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
 
         let data = Tensor {
             data: arr1(&[lhs.data().data.dot(&rhs.data().data)]),
@@ -971,7 +968,7 @@ where
         let data = Tensor {
             data: operand.data().deref().data.map(|el| el.powi(exp)),
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         PowOp {
@@ -1051,7 +1048,7 @@ where
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().deref().sum();
-        let grad = operand.data().zeros();
+        let grad = operand.data().zeros_from();
         let requires_grad = operand.requires_grad();
 
         SumOp {
@@ -1129,7 +1126,7 @@ where
         let data = Tensor {
             data: operand.data().deref().data.map(|el| el.ln()),
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         LnOp {
@@ -1145,7 +1142,7 @@ where
 impl<OP, D> Op for LnOp<OP, D>
 where
     OP: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static + Max<D>,
+    D: Dimension + RemoveAxis + 'static + Broadcast<D>,
 {
     type Data = Tensor<D>;
     type Grad = Tensor<D>;
@@ -1214,7 +1211,7 @@ where
                 .data
                 .map(|el| if *el < 0.0 { 0.0 } else { *el }),
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         ReLUOp {
@@ -1297,7 +1294,7 @@ where
                 .data
                 .map(|el| if *el < 0.0 { 0.01 } else { *el }),
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         LeakyReLUOp {
@@ -1384,7 +1381,7 @@ where
                 }
             }),
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         SoftplusOp {
@@ -1471,7 +1468,7 @@ where
             }),
         };
 
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         SigmoidOp {
@@ -1549,7 +1546,7 @@ where
         let data = Tensor {
             data: operand.data().deref().data.map(|el| el.tanh()),
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         TanhOp {
@@ -1627,7 +1624,7 @@ where
         let data = Tensor {
             data: operand.data().deref().data.map(|el| el.exp()),
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         ExpOp {
@@ -1708,7 +1705,7 @@ where
             let op_data = operand.data();
             (op_data.softmax(axis), op_data.shape()[axis])
         };
-        let grad = data.zeros();
+        let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         SoftmaxOp {
@@ -1793,7 +1790,7 @@ where
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = operand.data().t();
-        let grad = operand.data().zeros();
+        let grad = operand.data().zeros_from();
         let requires_grad = operand.requires_grad();
 
         TOp {
@@ -1852,290 +1849,290 @@ where
     }
 }
 
-#[derive(Debug)]
-pub struct VStackOp<LHS, RHS, D, E>
-where
-    D: Dimension + RemoveAxis + VStack<E>,
-    E: Dimension + RemoveAxis,
-{
-    data: RefCell<Tensor<VStacked<D, E>>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<E>>,
-    requires_grad: bool,
-    counter: PassCounter,
-}
+// #[derive(Debug)]
+// pub struct VStackOp<LHS, RHS, D, E>
+// where
+//     D: Dimension + RemoveAxis + VStack<E>,
+//     E: Dimension + RemoveAxis,
+// {
+//     data: RefCell<Tensor<VStacked<D, E>>>,
+//     lhs: Rc<LHS>,
+//     rhs: Rc<RHS>,
+//     lhs_grad: RefCell<Tensor<D>>,
+//     rhs_grad: RefCell<Tensor<E>>,
+//     requires_grad: bool,
+//     counter: PassCounter,
+// }
 
-impl<LHS, RHS, D, E> VStackOp<LHS, RHS, D, E>
-where
-    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + VStack<E>,
-    E: Dimension + RemoveAxis,
-{
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
-        let data = lhs.data().vstack(rhs.data().deref());
+// impl<LHS, RHS, D, E> VStackOp<LHS, RHS, D, E>
+// where
+//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+//     D: Dimension + RemoveAxis + VStack<E>,
+//     E: Dimension + RemoveAxis,
+// {
+//     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+//         let data = lhs.data().vstack(rhs.data().deref());
 
-        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+//         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+//         let lhs_grad = lhs.data().zeros_from();
+//         let rhs_grad = rhs.data().zeros_from();
 
-        VStackOp {
-            data: RefCell::new(data),
-            lhs: lhs,
-            rhs: rhs,
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
-            requires_grad: requires_grad,
-            counter: PassCounter::default(),
-        }
-    }
-}
+//         VStackOp {
+//             data: RefCell::new(data),
+//             lhs: lhs,
+//             rhs: rhs,
+//             lhs_grad: RefCell::new(lhs_grad),
+//             rhs_grad: RefCell::new(rhs_grad),
+//             requires_grad: requires_grad,
+//             counter: PassCounter::default(),
+//         }
+//     }
+// }
 
-impl<LHS, RHS, D, E> Op for VStackOp<LHS, RHS, D, E>
-where
-    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + VStack<E> + 'static,
-    E: Dimension + RemoveAxis + 'static,
-{
-    type Data = Tensor<VStacked<D, E>>;
-    type Grad = Tensor<VStacked<D, E>>;
+// impl<LHS, RHS, D, E> Op for VStackOp<LHS, RHS, D, E>
+// where
+//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+//     D: Dimension + RemoveAxis + VStack<E> + 'static,
+//     E: Dimension + RemoveAxis + 'static,
+// {
+//     type Data = Tensor<VStacked<D, E>>;
+//     type Grad = Tensor<VStacked<D, E>>;
 
-    fn forward(&self) {
-        if self.counter.forward_action() == ForwardAction::Cached {
-            return;
-        }
+//     fn forward(&self) {
+//         if self.counter.forward_action() == ForwardAction::Cached {
+//             return;
+//         }
 
-        self.lhs.forward();
-        self.rhs.forward();
+//         self.lhs.forward();
+//         self.rhs.forward();
 
-        self.data
-            .borrow_mut()
-            .vstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
-    }
+//         self.data
+//             .borrow_mut()
+//             .vstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
+//     }
 
-    fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
+//     fn backward(&self, grad: &Ref<Self::Grad>) {
+//         let action = self.counter.backward_action();
 
-        grad.deref().vstack_bkwrd(
-            &mut self.lhs_grad.borrow_mut(),
-            &mut self.rhs_grad.borrow_mut(),
-            &action,
-        );
+//         grad.deref().vstack_bkwrd(
+//             &mut self.lhs_grad.borrow_mut(),
+//             &mut self.rhs_grad.borrow_mut(),
+//             &action,
+//         );
 
-        if self.counter.recurse_backward() {
-            self.lhs.backward(&self.lhs_grad.borrow());
-            self.rhs.backward(&self.rhs_grad.borrow());
-        }
-    }
+//         if self.counter.recurse_backward() {
+//             self.lhs.backward(&self.lhs_grad.borrow());
+//             self.rhs.backward(&self.rhs_grad.borrow());
+//         }
+//     }
 
-    fn clear(&self) {
-        if !self.counter.is_zero() {
-            self.lhs.clear();
-            self.rhs.clear();
-            self.counter.clear();
-        }
-    }
+//     fn clear(&self) {
+//         if !self.counter.is_zero() {
+//             self.lhs.clear();
+//             self.rhs.clear();
+//             self.counter.clear();
+//         }
+//     }
 
-    fn data(&self) -> Borrow<'_, Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
-    }
+//     fn data(&self) -> Borrow<'_, Self::Data> {
+//         Borrow::FromRefCell(self.data.borrow())
+//     }
 
-    fn requires_grad(&self) -> bool {
-        self.requires_grad
-    }
-}
+//     fn requires_grad(&self) -> bool {
+//         self.requires_grad
+//     }
+// }
 
-#[derive(Debug)]
-pub struct HStackOp<LHS, RHS, D, E>
-where
-    D: Dimension + RemoveAxis + HStack<E>,
-    E: Dimension + RemoveAxis,
-{
-    data: RefCell<Tensor<HStacked<D, E>>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<E>>,
-    requires_grad: bool,
-    counter: PassCounter,
-}
+// #[derive(Debug)]
+// pub struct HStackOp<LHS, RHS, D, E>
+// where
+//     D: Dimension + RemoveAxis + HStack<E>,
+//     E: Dimension + RemoveAxis,
+// {
+//     data: RefCell<Tensor<HStacked<D, E>>>,
+//     lhs: Rc<LHS>,
+//     rhs: Rc<RHS>,
+//     lhs_grad: RefCell<Tensor<D>>,
+//     rhs_grad: RefCell<Tensor<E>>,
+//     requires_grad: bool,
+//     counter: PassCounter,
+// }
 
-impl<LHS, RHS, D, E> HStackOp<LHS, RHS, D, E>
-where
-    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + HStack<E>,
-    E: Dimension + RemoveAxis,
-{
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
-        let data = lhs.data().hstack(rhs.data().deref());
+// impl<LHS, RHS, D, E> HStackOp<LHS, RHS, D, E>
+// where
+//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+//     D: Dimension + RemoveAxis + HStack<E>,
+//     E: Dimension + RemoveAxis,
+// {
+//     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+//         let data = lhs.data().hstack(rhs.data().deref());
 
-        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+//         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+//         let lhs_grad = lhs.data().zeros_from();
+//         let rhs_grad = rhs.data().zeros_from();
 
-        HStackOp {
-            data: RefCell::new(data),
-            lhs: lhs,
-            rhs: rhs,
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
-            requires_grad: requires_grad,
-            counter: PassCounter::default(),
-        }
-    }
-}
+//         HStackOp {
+//             data: RefCell::new(data),
+//             lhs: lhs,
+//             rhs: rhs,
+//             lhs_grad: RefCell::new(lhs_grad),
+//             rhs_grad: RefCell::new(rhs_grad),
+//             requires_grad: requires_grad,
+//             counter: PassCounter::default(),
+//         }
+//     }
+// }
 
-impl<LHS, RHS, D, E> Op for HStackOp<LHS, RHS, D, E>
-where
-    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-    D: Dimension + RemoveAxis + HStack<E> + 'static,
-    E: Dimension + RemoveAxis + 'static,
-{
-    type Data = Tensor<HStacked<D, E>>;
-    type Grad = Tensor<HStacked<D, E>>;
+// impl<LHS, RHS, D, E> Op for HStackOp<LHS, RHS, D, E>
+// where
+//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+//     D: Dimension + RemoveAxis + HStack<E> + 'static,
+//     E: Dimension + RemoveAxis + 'static,
+// {
+//     type Data = Tensor<HStacked<D, E>>;
+//     type Grad = Tensor<HStacked<D, E>>;
 
-    fn forward(&self) {
-        if self.counter.forward_action() == ForwardAction::Cached {
-            return;
-        }
+//     fn forward(&self) {
+//         if self.counter.forward_action() == ForwardAction::Cached {
+//             return;
+//         }
 
-        self.lhs.forward();
-        self.rhs.forward();
+//         self.lhs.forward();
+//         self.rhs.forward();
 
-        self.data
-            .borrow_mut()
-            .hstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
-    }
+//         self.data
+//             .borrow_mut()
+//             .hstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
+//     }
 
-    fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
+//     fn backward(&self, grad: &Ref<Self::Grad>) {
+//         let action = self.counter.backward_action();
 
-        grad.hstack_bkwrd(
-            &mut self.lhs_grad.borrow_mut(),
-            &mut self.rhs_grad.borrow_mut(),
-            &action,
-        );
+//         grad.hstack_bkwrd(
+//             &mut self.lhs_grad.borrow_mut(),
+//             &mut self.rhs_grad.borrow_mut(),
+//             &action,
+//         );
 
-        if self.counter.recurse_backward() {
-            self.lhs.backward(&self.lhs_grad.borrow());
-            self.rhs.backward(&self.rhs_grad.borrow());
-        }
-    }
+//         if self.counter.recurse_backward() {
+//             self.lhs.backward(&self.lhs_grad.borrow());
+//             self.rhs.backward(&self.rhs_grad.borrow());
+//         }
+//     }
 
-    fn clear(&self) {
-        if !self.counter.is_zero() {
-            self.lhs.clear();
-            self.rhs.clear();
-            self.counter.clear();
-        }
-    }
+//     fn clear(&self) {
+//         if !self.counter.is_zero() {
+//             self.lhs.clear();
+//             self.rhs.clear();
+//             self.counter.clear();
+//         }
+//     }
 
-    fn data(&self) -> Borrow<'_, Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
-    }
+//     fn data(&self) -> Borrow<'_, Self::Data> {
+//         Borrow::FromRefCell(self.data.borrow())
+//     }
 
-    fn requires_grad(&self) -> bool {
-        self.requires_grad
-    }
-}
+//     fn requires_grad(&self) -> bool {
+//         self.requires_grad
+//     }
+// }
 
-#[derive(Debug)]
-pub struct DStackOp<LHS, RHS, D>
-where
-    D: Dimension + RemoveAxis + DStack<D>,
-{
-    data: RefCell<Tensor<DStacked<D, D>>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<D>>,
-    requires_grad: bool,
-    counter: PassCounter,
-}
+// #[derive(Debug)]
+// pub struct DStackOp<LHS, RHS, D>
+// where
+//     D: Dimension + RemoveAxis + DStack<D>,
+// {
+//     data: RefCell<Tensor<DStacked<D, D>>>,
+//     lhs: Rc<LHS>,
+//     rhs: Rc<RHS>,
+//     lhs_grad: RefCell<Tensor<D>>,
+//     rhs_grad: RefCell<Tensor<D>>,
+//     requires_grad: bool,
+//     counter: PassCounter,
+// }
 
-impl<LHS, RHS, D> DStackOp<LHS, RHS, D>
-where
-    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    RHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    D: Dimension + RemoveAxis + DStack<D>,
-{
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
-        let data = lhs.data().dstack(rhs.data().deref());
+// impl<LHS, RHS, D> DStackOp<LHS, RHS, D>
+// where
+//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     RHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     D: Dimension + RemoveAxis + DStack<D>,
+// {
+//     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+//         let data = lhs.data().dstack(rhs.data().deref());
 
-        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+//         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let lhs_grad = lhs.data().zeros();
-        let rhs_grad = rhs.data().zeros();
+//         let lhs_grad = lhs.data().zeros_from();
+//         let rhs_grad = rhs.data().zeros_from();
 
-        DStackOp {
-            data: RefCell::new(data),
-            lhs: lhs,
-            rhs: rhs,
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
-            requires_grad: requires_grad,
-            counter: PassCounter::default(),
-        }
-    }
-}
+//         DStackOp {
+//             data: RefCell::new(data),
+//             lhs: lhs,
+//             rhs: rhs,
+//             lhs_grad: RefCell::new(lhs_grad),
+//             rhs_grad: RefCell::new(rhs_grad),
+//             requires_grad: requires_grad,
+//             counter: PassCounter::default(),
+//         }
+//     }
+// }
 
-impl<LHS, RHS, D> Op for DStackOp<LHS, RHS, D>
-where
-    LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    RHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-    D: Dimension + RemoveAxis + DStack<D> + 'static,
-{
-    type Data = Tensor<DStacked<D, D>>;
-    type Grad = Tensor<DStacked<D, D>>;
+// impl<LHS, RHS, D> Op for DStackOp<LHS, RHS, D>
+// where
+//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     RHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+//     D: Dimension + RemoveAxis + DStack<D> + 'static,
+// {
+//     type Data = Tensor<DStacked<D, D>>;
+//     type Grad = Tensor<DStacked<D, D>>;
 
-    fn forward(&self) {
-        if self.counter.forward_action() == ForwardAction::Cached {
-            return;
-        }
+//     fn forward(&self) {
+//         if self.counter.forward_action() == ForwardAction::Cached {
+//             return;
+//         }
 
-        self.lhs.forward();
-        self.rhs.forward();
+//         self.lhs.forward();
+//         self.rhs.forward();
 
-        self.data
-            .borrow_mut()
-            .dstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
-    }
+//         self.data
+//             .borrow_mut()
+//             .dstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
+//     }
 
-    fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
+//     fn backward(&self, grad: &Ref<Self::Grad>) {
+//         let action = self.counter.backward_action();
 
-        grad.dstack_bkwrd(
-            &mut self.lhs_grad.borrow_mut(),
-            &mut self.rhs_grad.borrow_mut(),
-            &action,
-        );
+//         grad.dstack_bkwrd(
+//             &mut self.lhs_grad.borrow_mut(),
+//             &mut self.rhs_grad.borrow_mut(),
+//             &action,
+//         );
 
-        if self.counter.recurse_backward() {
-            self.lhs.backward(&self.lhs_grad.borrow());
-            self.rhs.backward(&self.rhs_grad.borrow());
-        }
-    }
+//         if self.counter.recurse_backward() {
+//             self.lhs.backward(&self.lhs_grad.borrow());
+//             self.rhs.backward(&self.rhs_grad.borrow());
+//         }
+//     }
 
-    fn clear(&self) {
-        if !self.counter.is_zero() {
-            self.lhs.clear();
-            self.rhs.clear();
-            self.counter.clear();
-        }
-    }
+//     fn clear(&self) {
+//         if !self.counter.is_zero() {
+//             self.lhs.clear();
+//             self.rhs.clear();
+//             self.counter.clear();
+//         }
+//     }
 
-    fn data(&self) -> Borrow<'_, Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
-    }
+//     fn data(&self) -> Borrow<'_, Self::Data> {
+//         Borrow::FromRefCell(self.data.borrow())
+//     }
 
-    fn requires_grad(&self) -> bool {
-        self.requires_grad
-    }
-}
+//     fn requires_grad(&self) -> bool {
+//         self.requires_grad
+//     }
+//}

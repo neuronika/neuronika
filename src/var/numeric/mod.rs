@@ -1,5 +1,8 @@
 use ndarray::linalg::{general_mat_mul, general_mat_vec_mul};
-use ndarray::{arr1, Array, Array2, ArrayView1, Axis, Dimension, Ix1, Ix2, Ix3, RemoveAxis, Zip};
+use ndarray::{
+    arr1, Array, Array2, ArrayView1, Axis, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn,
+    RemoveAxis, ShapeBuilder, Zip,
+};
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Result};
@@ -84,297 +87,224 @@ impl PassCounter {
     }
 }
 
+/// **Private** local module that groups together all the stuff needed in this file and that should not be
+/// exposed elsewere.
+///
+/// This module mimics the behaviour of the `C++ anonymous namespace`.
+mod local {
+    use ndarray::{Ix, Zip};
+
+    /// Computes the broadcasted shape of two slices of [dimensions] inplace.
+    ///
+    /// This function must be used *only* with those dimensions' slice of same length that need
+    /// to be compared, since the result of the extra ones is always a copy of them.
+    ///
+    /// This function is needed in order to avoid some duplicated code that would appear into the
+    /// various [Broadcast trait] implementations.
+    ///
+    /// [Broadcast trait]: neuronika::Broadcast
+    /// [dimensions]: ndarray::Dimension
+    ///
+    /// ## Parameters
+    /// * `fst` - Mutable slice of dimensions in which to store the resulting shape
+    /// * `snd` - Other slice of dimensions required for the comparison
+    ///
+    /// ## Panics
+    /// If `fst` and `snd` have unbroadcastable shapes, that is when they differ and neither is `1`, then
+    /// this function panics.
+    ///
+    /// ## Warnings
+    /// This function is intended to be used only for interal purposes, thus should not be exported.
+    #[inline]
+    pub(super) fn compute_broadcasting(fst: &mut [Ix], snd: &[Ix]) {
+        debug_assert_eq!(fst.len(), snd.len(), "incompatible lengths");
+
+        Zip::from(fst).and(snd).apply(|l, r| {
+            if l != r && *l != 1 && *r != 1 {
+                panic!("cannot broadcast");
+            }
+            *l = std::cmp::max(*l, *r)
+        });
+    }
+}
+
+// =============================================== Tensor Type ===============================================
+
+/// A *n*-dimensional [tensor] of *real* values that support efficient [broadcasting].
+///
+/// All the standard mathematic binary operators like `+`, `-`, `*` and `/`, exploit **SIMD** computation
+/// and are also executed in multiple threads whenever possible.
+///
+/// [tensor]: https://en.wikipedia.org/wiki/Tensor
+/// [broadcasting]: https://numpy.org/devdocs/user/theory.broadcasting.html
+#[derive(Debug, PartialEq)]
+pub struct Tensor<D>
+where
+    D: Dimension,
+{
+    /// Content of the tensor
+    pub data: Array<f32, D>, // --- pub for now --
+}
+
+impl<D> Display for Tensor<D>
+where
+    D: Dimension,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", self.data)
+    }
+}
+
 // ============================================= Types Relations =============================================
 
-/// Relation among two [Dimension] items.
+/// Broadcast relation among two [Dimension]s.
 ///
 /// This trait is needed in order to use the *broadcasting* semantic of the standard algebraic operations
 /// among [tensor]s.
 ///
-/// [tensor]: prova::Tensor
-pub trait Max<R>
+/// [tensor]: neuronika::Tensor
+pub trait Broadcast<R>
 where
-    Self: Dimension,
-    R: Dimension,
+    Self: Dimension + RemoveAxis,
+    R: Dimension + RemoveAxis,
 {
-    type Output: Dimension + RemoveAxis + Max<R> + Max<Self>;
+    type Output: Dimension + RemoveAxis + Broadcast<R> + Broadcast<Self>;
 
-    fn max(self, rhs: R) -> Maximum<Self, R>;
+    fn broadcast(self, rhs: R) -> Broadcasted<Self, R>;
 }
 
-/// The [Max] of two [Dimension] items.
+/// The [Broadcast] result of two [dimension]s.
 ///
-/// [Max]: crate::Max
+/// [Broadcast]: neuronica::Broadcast
 /// [Dimension]: ndarray::Dimension
-pub type Maximum<L, R> = <L as Max<R>>::Output;
+pub type Broadcasted<L, R> = <L as Broadcast<R>>::Output;
 
-impl Max<Ix1> for Ix1 {
-    type Output = Ix1;
+impl Broadcast<IxDyn> for IxDyn {
+    type Output = IxDyn;
 
-    fn max(self, rhs: Ix1) -> Ix1 {
-        let self_els = self.into_pattern();
-        let rhs_els = rhs.into_pattern();
-        if self_els > rhs_els {
-            self
-        } else {
-            rhs
+    fn broadcast(self, rhs: IxDyn) -> IxDyn {
+        let lhs_dim = self.ndim();
+        let rhs_dim = rhs.ndim();
+        let mut res;
+        if lhs_dim < rhs_dim {
+            res = rhs.clone();
+            local::compute_broadcasting(&mut res.slice_mut()[rhs_dim - lhs_dim..], self.slice());
+            return res;
         }
-    }
-}
-
-impl Max<Ix2> for Ix2 {
-    type Output = Ix2;
-
-    fn max(self, rhs: Ix2) -> Ix2 {
-        let dim0 = if self.into_pattern().0 == 1 {
-            rhs.into_pattern().1
+        res = self.clone();
+        if lhs_dim == rhs_dim {
+            local::compute_broadcasting(res.slice_mut(), rhs.slice());
         } else {
-            self.into_pattern().0
-        };
-        let dim1 = if self.into_pattern().1 == 1 {
-            rhs.into_pattern().1
-        } else {
-            self.into_pattern().1
-        };
-        Ix2(dim0, dim1)
-    }
-}
-impl Max<Ix3> for Ix3 {
-    type Output = Ix3;
-
-    fn max(self, rhs: Ix3) -> Ix3 {
-        let dim0 = if self.into_pattern().0 == 1 {
-            rhs.into_pattern().1
-        } else {
-            self.into_pattern().0
-        };
-        let dim1 = if self.into_pattern().1 == 1 {
-            rhs.into_pattern().1
-        } else {
-            self.into_pattern().1
-        };
-        let dim2 = if self.into_pattern().2 == 1 {
-            rhs.into_pattern().2
-        } else {
-            self.into_pattern().2
-        };
-        Ix3(dim0, dim1, dim2)
+            local::compute_broadcasting(&mut res.slice_mut()[lhs_dim - rhs_dim..], rhs.slice());
+        }
+        res
     }
 }
 
-impl Max<Ix1> for Ix2 {
-    type Output = Ix2;
+/// Automatically implements all the trivial cases for the [Broadcast] relation.
+///
+/// [Broadcast]: neuronika::Broadcast
+macro_rules! unary_broadcast_impls {
+    ($($dim: ty),* $(,)*) => {
+        $(
+            impl Broadcast<IxDyn> for $dim {
+                type Output = IxDyn;
 
-    fn max(self, rhs: Ix1) -> Ix2 {
-        let self_pattern = self.into_pattern();
-        let right_pattern = rhs.into_pattern();
+                fn broadcast(self, rhs: IxDyn) -> IxDyn {
+                    let lhs_dim = self.ndim();
+                    let rhs_dim = rhs.ndim();
+                    let mut res;
+                    if lhs_dim < rhs_dim {
+                        res = rhs.clone();
+                        local::compute_broadcasting(&mut res.slice_mut()[rhs_dim - lhs_dim..], self.slice());
+                        return res;
+                    }
+                    res = self.clone().into_dyn();
+                    if lhs_dim == rhs_dim {
+                        local::compute_broadcasting(res.slice_mut(), rhs.slice());
+                    } else {
+                        local::compute_broadcasting(&mut res.slice_mut()[lhs_dim - rhs_dim..], rhs.slice());
+                    }
+                    res
+                }
+            }
 
-        let broadcasted = if self_pattern.1 == 1 {
-            right_pattern
-        } else {
-            self_pattern.1
-        };
+            impl Broadcast<$dim> for IxDyn {
+                type Output = IxDyn;
 
-        Ix2(self_pattern.0, broadcasted)
-    }
+                fn broadcast(self, rhs: $dim) -> IxDyn {
+                    let lhs_dim = self.ndim();
+                    let rhs_dim = rhs.ndim();
+                    let mut res;
+                    if lhs_dim < rhs_dim {
+                        res = rhs.clone().into_dyn();
+                        local::compute_broadcasting(&mut res.slice_mut()[rhs_dim - lhs_dim..], self.slice());
+                        return res;
+                    }
+                    res = self.clone();
+                    if lhs_dim == rhs_dim {
+                        local::compute_broadcasting(res.slice_mut(), rhs.slice());
+                    } else {
+                        local::compute_broadcasting(&mut res.slice_mut()[lhs_dim - rhs_dim..], rhs.slice());
+                    }
+                    res
+                }
+            }
+
+            impl Broadcast<$dim> for $dim {
+                type Output = $dim;
+
+                fn broadcast(self, rhs: $dim) -> $dim {
+                    let mut res = self.clone();
+                    local::compute_broadcasting(res.slice_mut(), rhs.slice());
+                    res
+                }
+            }
+        )*
+    };
 }
 
-impl Max<Ix2> for Ix1 {
-    type Output = Ix2;
+/// Automatically implements all the other cases of the [Broadcast] relation accordingly.
+///
+/// [Broadcast]: neuronika::Broadcast
+macro_rules! binary_broadcast_impls {
+    ($small: ty, $big: ty) => {
+        impl Broadcast<$small> for $big {
+            type Output = $big;
 
-    fn max(self, rhs: Ix2) -> Ix2 {
-        let self_pattern = self.into_pattern();
-        let right_pattern = rhs.into_pattern();
+            fn broadcast(self, rhs: $small) -> $big {
+                let mut res = self.clone();
+                local::compute_broadcasting(&mut res.slice_mut()[(self.ndim() - rhs.ndim())..], rhs.slice());
+                res
+            }
+        }
 
-        let broadcasted = if right_pattern.1 == 1 {
-            self_pattern
-        } else {
-            right_pattern.1
-        };
+        impl Broadcast<$big> for $small {
+            type Output = $big;
 
-        Ix2(right_pattern.0, broadcasted)
-    }
+            fn broadcast(self, rhs: $big) -> $big {
+                let mut res = rhs.clone();
+                local::compute_broadcasting(&mut res.slice_mut()[(rhs.ndim() - self.ndim())..], self.slice());
+                res
+            }
+        }
+    };
+
+    ($(($small: ty, $big: ty)),* $(,)*) => {
+        $(binary_broadcast_impls!{$small, $big })*
+    };
 }
 
-impl Max<Ix1> for Ix3 {
-    type Output = Ix3;
+#[rustfmt::skip]
+unary_broadcast_impls!(Ix1, Ix2, Ix3, Ix4, Ix5, Ix6);
 
-    fn max(self, rhs: Ix1) -> Ix3 {
-        let self_pattern = self.into_pattern();
-        let right_pattern = rhs.into_pattern();
-
-        let broadcasted = if self_pattern.2 == 1 {
-            right_pattern
-        } else {
-            self_pattern.2
-        };
-
-        Ix3(self_pattern.0, self_pattern.1, broadcasted)
-    }
-}
-
-impl Max<Ix3> for Ix1 {
-    type Output = Ix3;
-
-    fn max(self, rhs: Ix3) -> Ix3 {
-        let self_pattern = self.into_pattern();
-        let right_pattern = rhs.into_pattern();
-
-        let broadcasted = if right_pattern.2 == 1 {
-            self_pattern
-        } else {
-            right_pattern.2
-        };
-
-        Ix3(right_pattern.0, right_pattern.1, broadcasted)
-    }
-}
-
-impl Max<Ix2> for Ix3 {
-    type Output = Ix3;
-
-    fn max(self, rhs: Ix2) -> Ix3 {
-        let self_pattern = self.into_pattern();
-        let right_pattern = rhs.into_pattern();
-
-        let broadcasted = (
-            if self_pattern.1 == 1 {
-                right_pattern.0
-            } else {
-                self_pattern.1
-            },
-            if self_pattern.2 == 1 {
-                right_pattern.1
-            } else {
-                self_pattern.2
-            },
-        );
-
-        Ix3(self_pattern.0, broadcasted.0, broadcasted.1)
-    }
-}
-
-impl Max<Ix3> for Ix2 {
-    type Output = Ix3;
-
-    fn max(self, rhs: Ix3) -> Ix3 {
-        let self_pattern = self.into_pattern();
-        let right_pattern = rhs.into_pattern();
-
-        let broadcasted = (
-            if right_pattern.1 == 1 {
-                self_pattern.0
-            } else {
-                right_pattern.1
-            },
-            if right_pattern.2 == 1 {
-                self_pattern.1
-            } else {
-                right_pattern.2
-            },
-        );
-
-        Ix3(self_pattern.0, broadcasted.0, broadcasted.1)
-    }
-}
-
-pub trait VStack<R>
-where
-    Self: Dimension,
-    R: Dimension,
-{
-    type Output: Dimension + RemoveAxis;
-
-    fn vstack(self, rhs: R) -> VStacked<Self, R>;
-}
-
-pub type VStacked<L, R> = <L as VStack<R>>::Output;
-
-impl VStack<Ix1> for Ix1 {
-    type Output = Ix2;
-    fn vstack(self, rhs: Ix1) -> Ix2 {
-        Ix2(2, rhs.size())
-    }
-}
-
-impl VStack<Ix2> for Ix2 {
-    type Output = Ix2;
-    fn vstack(self, rhs: Ix2) -> Ix2 {
-        Ix2(
-            self.into_pattern().0 + rhs.into_pattern().0,
-            rhs.into_pattern().1,
-        )
-    }
-}
-
-impl VStack<Ix3> for Ix3 {
-    type Output = Ix3;
-    fn vstack(self, rhs: Ix3) -> Ix3 {
-        Ix3(
-            self.into_pattern().0 + rhs.into_pattern().0,
-            rhs.into_pattern().1,
-            rhs.into_pattern().2,
-        )
-    }
-}
-
-pub trait HStack<R>
-where
-    Self: Dimension,
-    R: Dimension,
-{
-    type Output: Dimension + RemoveAxis;
-
-    fn hstack(self, rhs: R) -> HStacked<Self, R>;
-}
-
-pub type HStacked<L, R> = <L as HStack<R>>::Output;
-
-impl HStack<Ix1> for Ix1 {
-    type Output = Ix1;
-    fn hstack(self, rhs: Ix1) -> Ix1 {
-        Ix1(self.size() + rhs.size())
-    }
-}
-
-impl HStack<Ix2> for Ix2 {
-    type Output = Ix2;
-    fn hstack(self, rhs: Ix2) -> Ix2 {
-        Ix2(
-            self.into_pattern().0,
-            self.into_pattern().1 + rhs.into_pattern().1,
-        )
-    }
-}
-
-impl HStack<Ix3> for Ix3 {
-    type Output = Ix3;
-    fn hstack(self, rhs: Ix3) -> Ix3 {
-        Ix3(
-            self.into_pattern().0,
-            self.into_pattern().1 + rhs.into_pattern().1,
-            rhs.into_pattern().2,
-        )
-    }
-}
-
-pub trait DStack<R>
-where
-    Self: Dimension,
-    R: Dimension,
-{
-    type Output: Dimension + RemoveAxis;
-
-    fn dstack(self, rhs: R) -> DStacked<Self, R>;
-}
-
-pub type DStacked<L, R> = <L as DStack<R>>::Output;
-
-impl DStack<Ix2> for Ix2 {
-    type Output = Ix3;
-    fn dstack(self, _: Ix2) -> Ix3 {
-        Ix3(self.into_pattern().0, self.into_pattern().1, 2)
-    }
+#[rustfmt::skip]
+binary_broadcast_impls! {
+    (Ix1, Ix6), (Ix1, Ix5), (Ix1, Ix4), (Ix1, Ix3), (Ix1, Ix2),
+    (Ix2, Ix6), (Ix2, Ix5), (Ix2, Ix4), (Ix2, Ix3),
+    (Ix3, Ix6), (Ix3, Ix5), (Ix3, Ix4),
+    (Ix4, Ix6), (Ix4, Ix5),
+    (Ix5, Ix6)
 }
 
 // =========================================== Operators Overload ===========================================
@@ -383,38 +313,36 @@ impl DStack<Ix2> for Ix2 {
 /// [tensor]s.
 ///
 /// [tensor]: crate::Tensor
-macro_rules! impl_arithmetic_ops {
-    ($(($trait: ident, $fun: ident, $op: tt)),+ $(,)?) => {
+macro_rules! operators_overload_impls {
+    ($(($op: ident, $fun: ident, $sym: tt)),+ $(,)*) => {
         $(
-            impl<L, R> $trait<&Tensor<R>> for &Tensor<L>
+            impl<L, R> $op<&Tensor<R>> for &Tensor<L>
             where
-                L: Dimension + Max<R>,
-                R: Dimension,
+                L: Dimension + RemoveAxis + Broadcast<R>,
+                R: Dimension + RemoveAxis,
             {
-                type Output = Tensor<Maximum<L, R>>;
+                type Output = Tensor<Broadcasted<L, R>>;
 
                 fn $fun(self, rhs: &Tensor<R>) -> Self::Output {
-                    let shape = self.data.raw_dim().max(rhs.data.raw_dim());
-                    let mut data = Array::<f32, Maximum<L, R>>::zeros(shape);
+                    let shape = self.data.raw_dim().broadcast(rhs.data.raw_dim());
+                    let mut data = Array::<f32, Broadcasted<L, R>>::zeros(shape);
                     Zip::from(&mut data)
                         .and_broadcast(&self.data)
                         .and_broadcast(&rhs.data)
-                        .par_apply(|res, l, r| *res = l $op r);
+                        .par_apply(|res, l, r| *res = l $sym r);
 
                     Self::Output { data }
                 }
             }
-
         )*
     };
 }
 
-impl_arithmetic_ops!((Add, add, +), (Sub, sub, -), (Mul, mul, *), (Div, div, /));
+operators_overload_impls!((Add, add, +), (Sub, sub, -), (Mul, mul, *), (Div, div, /));
 
-// Implements the Neg trait.
 impl<D> Neg for &Tensor<D>
 where
-    D: Dimension,
+    D: Dimension + RemoveAxis,
 {
     type Output = Tensor<D>;
 
@@ -511,33 +439,6 @@ macro_rules! impl_bkwrd_un_ops_param {
     };
 }
 
-// =============================================== Tensor Type ===============================================
-
-/// A *n*-dimensional [tensor] of *real* values that support efficient [broadcasting].
-///
-/// All the standard mathematic binary operators like `+`, `-`, `*` and `/`, exploit **SIMD** computation
-/// and are also executed in multiple threads whenever possible.
-///
-/// [tensor]: https://en.wikipedia.org/wiki/Tensor
-/// [broadcasting]: https://numpy.org/devdocs/user/theory.broadcasting.html
-#[derive(Debug, PartialEq)]
-pub struct Tensor<D>
-where
-    D: Dimension,
-{
-    /// Content of the tensor
-    pub data: Array<f32, D>,
-}
-
-impl<D> Display for Tensor<D>
-where
-    D: Dimension,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{}", self.data)
-    }
-}
-
 // ============================================ Impl for Tensor Type ============================================
 
 // Methods specific to the two dimensional Tensor.
@@ -600,7 +501,7 @@ where
     // Initializes another Tensor with the same
     // dimensionsality as this with all its
     // values set to zero.
-    pub fn zeros(&self) -> Self {
+    pub fn zeros_from(&self) -> Self {
         Self {
             data: <Array<f32, D>>::zeros(self.data.raw_dim()),
         }
@@ -750,6 +651,84 @@ where
         }
     }
 
+    /// Stacks a slice of [Tensor]s of [dimension] `D` upon a new axis, generating a new one with dimension `D+1`.
+    ///
+    /// Please, note that the new axis will have index `0`.
+    ///
+    /// [Tensor]: neuronika::Tensor
+    /// [dimension]: ndarray::Dimension
+    ///
+    /// ## Parameters
+    /// `tensors` - Slice of tensors to stack together.
+    ///
+    /// ## Panics
+    /// If `tensors` is empty, or their shapes differ, then this function panics.
+    ///
+    /// ## Examples
+    /// ```
+    /// use neuronika::Tensor;
+    ///
+    /// let fst = Tensor::zeros(3); // 3 rows
+    /// let snd = Tensor::zeros(3); // 3 rows
+    ///
+    /// // So, we expect that the result has 2 rows, and 3 columns
+    /// assert_eq!(Tensor::stack(&[fst, snd]), Tensor::zeros((2, 3)));
+    /// ```
+    pub fn stack(tensors: &[Tensor<D>]) -> Tensor<D::Larger>
+    where
+        D::Larger: RemoveAxis,
+    {
+        let arrays: Vec<_> = tensors.iter().map(|t| t.data.view()).collect();
+
+        Tensor {
+            data: ndarray::stack_new_axis(Axis(0), &arrays[..]).unwrap(),
+        }
+    }
+
+    /// Concatenates a slice of `D` [dimensional] [Tensor]s on an existing axis, generating a new
+    /// one with same dimension and owning a copy of their content arranged properly.
+    ///
+    /// [Tensor]: neuronika::Tensor
+    /// [dimension]: ndarray::Dimension
+    ///
+    /// ## Parameters
+    /// `axis` - Axis upon which to perform the concatenation
+    /// `tensors` - Slice of tensors to concatenate together.
+    ///
+    /// ## Panics
+    /// If `axis` is out of bounds, `tensors` is empty, or they have mismatching shapes apart from
+    /// along `axis`, then this function panics.
+    ///
+    /// ## Examples
+    /// ```
+    /// use neuronika::Tensor;
+    /// use ndarray::Axis;
+    ///
+    /// let fst = Tensor::zeros((3, 1)); // 3 rows, 1 column
+    /// let snd = Tensor::zeros((3, 4)); // 3 rows, 4 columns
+    ///
+    /// // So, we expect that the result of concatenation along
+    /// // axis `1` has 3 rows and 5 columns
+    /// assert_eq!(Tensor::concatenate(Axis(1), &[fst, snd]), Tensor::zeros((3, 5)));
+    /// ```
+    pub fn concatenate(axis: Axis, tensors: &[Tensor<D>]) -> Tensor<D> {
+        let arrays: Vec<_> = tensors.iter().map(|t| t.data.view()).collect();
+
+        Tensor {
+            data: ndarray::concatenate(axis, &arrays[..]).unwrap(),
+        }
+    }
+
+    /// Creates a zeroed tensor of the desired shape.
+    pub fn zeros<S>(shape: S) -> Self
+    where
+        S: ShapeBuilder<Dim = D>,
+    {
+        Self {
+            data: Array::zeros(shape),
+        }
+    }
+
     impl_fwd_bin_ops!(add_fwd, |self_el, lhs_el, rhs_el| *self_el =
         *lhs_el + *rhs_el);
     impl_fwd_bin_ops!(sub_fwd, |self_el, lhs_el, rhs_el| *self_el =
@@ -879,17 +858,8 @@ where
     );
 
     pub fn softmax(&self, axis: usize) -> Self {
-        let mut new = self.zeros();
-        Zip::from(self.data.lanes(Axis(axis)))
-            .and(new.data.lanes_mut(Axis(axis)))
-            .apply(|lane_self, lane_new| {
-                let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
-                let num = &lane_self.map(|el| (el - max).exp());
-                let den = num.sum();
-                Zip::from(lane_new)
-                    .and(num)
-                    .apply(|lane_new_el, num_el| *lane_new_el = *num_el / den);
-            });
+        let mut new = self.zeros_from();
+        new.softmax_fwd(&self, axis);
         new
     }
 
@@ -949,210 +919,210 @@ where
             });
     }
 
-    pub(super) fn vstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<VStacked<D, E>>
-    where
-        D: VStack<E>,
-    {
-        let (self_data, other_data) = { (&self.data, &other.data) };
+    // pub(super) fn vstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<VStacked<D, E>>
+    // where
+    //     D: VStack<E>,
+    // {
+    //     let (self_data, other_data) = { (&self.data, &other.data) };
 
-        let mut new = Tensor {
-            data: Array::<f32, VStacked<D, E>>::zeros(
-                self_data.raw_dim().vstack(other_data.raw_dim()),
-            ),
-        };
+    //     let mut new = Tensor {
+    //         data: Array::<f32, VStacked<D, E>>::zeros(
+    //             self_data.raw_dim().vstack(other_data.raw_dim()),
+    //         ),
+    //     };
 
-        new.vstack_fwd(self, other);
-        new
-    }
+    //     new.vstack_fwd(self, other);
+    //     new
+    // }
 
-    pub(super) fn hstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<HStacked<D, E>>
-    where
-        D: HStack<E>,
-    {
-        let (self_data, other_data) = { (&self.data, &other.data) };
+    // pub(super) fn hstack<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<HStacked<D, E>>
+    // where
+    //     D: HStack<E>,
+    // {
+    //     let (self_data, other_data) = { (&self.data, &other.data) };
 
-        let mut new = Tensor {
-            data: Array::<f32, HStacked<D, E>>::zeros(
-                self_data.raw_dim().hstack(other_data.raw_dim()),
-            ),
-        };
+    //     let mut new = Tensor {
+    //         data: Array::<f32, HStacked<D, E>>::zeros(
+    //             self_data.raw_dim().hstack(other_data.raw_dim()),
+    //         ),
+    //     };
 
-        new.hstack_fwd(self, other);
-        new
-    }
+    //     new.hstack_fwd(self, other);
+    //     new
+    // }
 
-    pub(super) fn vstack_fwd<E: Dimension, F: Dimension>(
-        &mut self,
-        lhs: &Tensor<E>,
-        rhs: &Tensor<F>,
-    ) {
-        let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
-        let split = if lhs_data.ndim() == 1 && rhs_data.ndim() == 1 {
-            lhs_data.len()
-        } else {
-            lhs_data.len_of(Axis(1))
-        };
+    // pub(super) fn vstack_fwd<E: Dimension, F: Dimension>(
+    //     &mut self,
+    //     lhs: &Tensor<E>,
+    //     rhs: &Tensor<F>,
+    // ) {
+    //     let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
+    //     let split = if lhs_data.ndim() == 1 && rhs_data.ndim() == 1 {
+    //         lhs_data.len()
+    //     } else {
+    //         lhs_data.len_of(Axis(1))
+    //     };
 
-        let (self_dest, other_dest) = self.data.view_mut().split_at(Axis(1), split);
-        Zip::from(self_dest)
-            .and_broadcast(lhs_data)
-            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
-        Zip::from(other_dest)
-            .and_broadcast(rhs_data)
-            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
-    }
+    //     let (self_dest, other_dest) = self.data.view_mut().split_at(Axis(1), split);
+    //     Zip::from(self_dest)
+    //         .and_broadcast(lhs_data)
+    //         .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    //     Zip::from(other_dest)
+    //         .and_broadcast(rhs_data)
+    //         .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    // }
 
-    pub(super) fn hstack_fwd<E: Dimension, F: Dimension>(
-        &mut self,
-        lhs: &Tensor<E>,
-        rhs: &Tensor<F>,
-    ) {
-        let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
-        let split = if lhs_data.ndim() == 1 && rhs_data.ndim() == 1 {
-            lhs_data.len()
-        } else {
-            lhs_data.len_of(Axis(0))
-        };
+    // pub(super) fn hstack_fwd<E: Dimension, F: Dimension>(
+    //     &mut self,
+    //     lhs: &Tensor<E>,
+    //     rhs: &Tensor<F>,
+    // ) {
+    //     let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
+    //     let split = if lhs_data.ndim() == 1 && rhs_data.ndim() == 1 {
+    //         lhs_data.len()
+    //     } else {
+    //         lhs_data.len_of(Axis(0))
+    //     };
 
-        let (self_dest, other_dest) = self.data.view_mut().split_at(Axis(0), split);
-        Zip::from(self_dest)
-            .and_broadcast(lhs_data)
-            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
-        Zip::from(other_dest)
-            .and_broadcast(rhs_data)
-            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
-    }
+    //     let (self_dest, other_dest) = self.data.view_mut().split_at(Axis(0), split);
+    //     Zip::from(self_dest)
+    //         .and_broadcast(lhs_data)
+    //         .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    //     Zip::from(other_dest)
+    //         .and_broadcast(rhs_data)
+    //         .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    // }
 
-    pub(super) fn vstack_bkwrd<E: Dimension, F: Dimension>(
-        &self,
-        lhs_grad: &mut Tensor<E>,
-        rhs_grad: &mut Tensor<F>,
-        action: &BackwardAction,
-    ) {
-        let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
+    // pub(super) fn vstack_bkwrd<E: Dimension, F: Dimension>(
+    //     &self,
+    //     lhs_grad: &mut Tensor<E>,
+    //     rhs_grad: &mut Tensor<F>,
+    //     action: &BackwardAction,
+    // ) {
+    //     let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
 
-        let split = if lhs_grad_data.ndim() == 1 && rhs_grad_data.ndim() == 1 {
-            lhs_grad_data.len()
-        } else {
-            lhs_grad_data.len_of(Axis(1))
-        };
+    //     let split = if lhs_grad_data.ndim() == 1 && rhs_grad_data.ndim() == 1 {
+    //         lhs_grad_data.len()
+    //     } else {
+    //         lhs_grad_data.len_of(Axis(1))
+    //     };
 
-        let (lhs_dest, rhs_dest) = self.data.view().split_at(Axis(1), split);
-        match action {
-            BackwardAction::Set => {
-                Zip::from(lhs_grad_data)
-                    .and_broadcast(lhs_dest)
-                    .apply(|dest_el, src_el| *dest_el = *src_el);
-                Zip::from(rhs_grad_data)
-                    .and_broadcast(rhs_dest)
-                    .apply(|dest_el, src_el| *dest_el = *src_el);
-            }
-            BackwardAction::Increment => {
-                Zip::from(lhs_grad_data)
-                    .and_broadcast(lhs_dest)
-                    .apply(|dest_el, src_el| *dest_el += *src_el);
-                Zip::from(rhs_grad_data)
-                    .and_broadcast(rhs_dest)
-                    .apply(|dest_el, src_el| *dest_el += *src_el);
-            }
-        }
-    }
+    //     let (lhs_dest, rhs_dest) = self.data.view().split_at(Axis(1), split);
+    //     match action {
+    //         BackwardAction::Set => {
+    //             Zip::from(lhs_grad_data)
+    //                 .and_broadcast(lhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el = *src_el);
+    //             Zip::from(rhs_grad_data)
+    //                 .and_broadcast(rhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el = *src_el);
+    //         }
+    //         BackwardAction::Increment => {
+    //             Zip::from(lhs_grad_data)
+    //                 .and_broadcast(lhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el += *src_el);
+    //             Zip::from(rhs_grad_data)
+    //                 .and_broadcast(rhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el += *src_el);
+    //         }
+    //     }
+    // }
 
-    pub(super) fn hstack_bkwrd<E: Dimension, F: Dimension>(
-        &self,
-        lhs_grad: &mut Tensor<E>,
-        rhs_grad: &mut Tensor<F>,
-        action: &BackwardAction,
-    ) {
-        let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
+    // pub(super) fn hstack_bkwrd<E: Dimension, F: Dimension>(
+    //     &self,
+    //     lhs_grad: &mut Tensor<E>,
+    //     rhs_grad: &mut Tensor<F>,
+    //     action: &BackwardAction,
+    // ) {
+    //     let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
 
-        let split = if lhs_grad_data.ndim() == 1 && rhs_grad_data.ndim() == 1 {
-            lhs_grad_data.len()
-        } else {
-            lhs_grad_data.len_of(Axis(0))
-        };
+    //     let split = if lhs_grad_data.ndim() == 1 && rhs_grad_data.ndim() == 1 {
+    //         lhs_grad_data.len()
+    //     } else {
+    //         lhs_grad_data.len_of(Axis(0))
+    //     };
 
-        let (lhs_dest, rhs_dest) = self.data.view().split_at(Axis(0), split);
-        match action {
-            BackwardAction::Set => {
-                Zip::from(lhs_grad_data)
-                    .and_broadcast(lhs_dest)
-                    .apply(|dest_el, src_el| *dest_el = *src_el);
-                Zip::from(rhs_grad_data)
-                    .and_broadcast(rhs_dest)
-                    .apply(|dest_el, src_el| *dest_el = *src_el);
-            }
-            BackwardAction::Increment => {
-                Zip::from(lhs_grad_data)
-                    .and_broadcast(lhs_dest)
-                    .apply(|dest_el, src_el| *dest_el += *src_el);
-                Zip::from(rhs_grad_data)
-                    .and_broadcast(rhs_dest)
-                    .apply(|dest_el, src_el| *dest_el += *src_el);
-            }
-        }
-    }
+    //     let (lhs_dest, rhs_dest) = self.data.view().split_at(Axis(0), split);
+    //     match action {
+    //         BackwardAction::Set => {
+    //             Zip::from(lhs_grad_data)
+    //                 .and_broadcast(lhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el = *src_el);
+    //             Zip::from(rhs_grad_data)
+    //                 .and_broadcast(rhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el = *src_el);
+    //         }
+    //         BackwardAction::Increment => {
+    //             Zip::from(lhs_grad_data)
+    //                 .and_broadcast(lhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el += *src_el);
+    //             Zip::from(rhs_grad_data)
+    //                 .and_broadcast(rhs_dest)
+    //                 .apply(|dest_el, src_el| *dest_el += *src_el);
+    //         }
+    //     }
+    // }
 
-    pub(super) fn dstack(&self, other: &Self) -> Tensor<DStacked<D, D>>
-    where
-        D: DStack<D>,
-    {
-        let (self_data, other_data) = { (&self.data, &other.data) };
+    // pub(super) fn dstack(&self, other: &Self) -> Tensor<DStacked<D, D>>
+    // where
+    //     D: DStack<D>,
+    // {
+    //     let (self_data, other_data) = { (&self.data, &other.data) };
 
-        let mut new = Tensor {
-            data: Array::<f32, DStacked<D, D>>::zeros(
-                self_data.raw_dim().dstack(other_data.raw_dim()),
-            ),
-        };
+    //     let mut new = Tensor {
+    //         data: Array::<f32, DStacked<D, D>>::zeros(
+    //             self_data.raw_dim().dstack(other_data.raw_dim()),
+    //         ),
+    //     };
 
-        new.dstack_fwd(self, other);
-        new
-    }
+    //     new.dstack_fwd(self, other);
+    //     new
+    // }
 
-    pub(super) fn dstack_fwd<E: Dimension>(&mut self, lhs: &Tensor<E>, rhs: &Tensor<E>) {
-        let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
-        let (lhs_dest, rhs_dest) = {
-            let (one, the_other) = self.data.view_mut().split_at(Axis(2), 1);
-            (one.remove_axis(Axis(2)), the_other.remove_axis(Axis(2)))
-        };
-        Zip::from(lhs_dest)
-            .and_broadcast(lhs_data)
-            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
-        Zip::from(rhs_dest)
-            .and_broadcast(rhs_data)
-            .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
-    }
+    // pub(super) fn dstack_fwd<E: Dimension>(&mut self, lhs: &Tensor<E>, rhs: &Tensor<E>) {
+    //     let (lhs_data, rhs_data) = { (&lhs.data, &rhs.data) };
+    //     let (lhs_dest, rhs_dest) = {
+    //         let (one, the_other) = self.data.view_mut().split_at(Axis(2), 1);
+    //         (one.remove_axis(Axis(2)), the_other.remove_axis(Axis(2)))
+    //     };
+    //     Zip::from(lhs_dest)
+    //         .and_broadcast(lhs_data)
+    //         .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    //     Zip::from(rhs_dest)
+    //         .and_broadcast(rhs_data)
+    //         .apply(|self_dest_el, self_data_el| *self_dest_el = *self_data_el);
+    // }
 
-    pub(super) fn dstack_bkwrd<E: Dimension>(
-        &self,
-        lhs_grad: &mut Tensor<E>,
-        rhs_grad: &mut Tensor<E>,
-        action: &BackwardAction,
-    ) {
-        let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
-        let (lhs_grad_src, rhs_grad_src) = {
-            let (one, the_other) = self.data.view().split_at(Axis(2), 1);
-            (one.remove_axis(Axis(2)), the_other.remove_axis(Axis(2)))
-        };
-        match action {
-            BackwardAction::Set => {
-                Zip::from(lhs_grad_data)
-                    .and_broadcast(lhs_grad_src)
-                    .apply(|lhs_dest_el, src_data_el| *lhs_dest_el = *src_data_el);
-                Zip::from(rhs_grad_data)
-                    .and_broadcast(rhs_grad_src)
-                    .apply(|rhs_dest_el, src_data_el| *rhs_dest_el = *src_data_el);
-            }
-            BackwardAction::Increment => {
-                Zip::from(lhs_grad_data)
-                    .and_broadcast(lhs_grad_src)
-                    .apply(|lhs_dest_el, src_data_el| *lhs_dest_el += *src_data_el);
-                Zip::from(rhs_grad_data)
-                    .and_broadcast(rhs_grad_src)
-                    .apply(|rhs_dest_el, src_data_el| *rhs_dest_el += *src_data_el);
-            }
-        }
-    }
+    // pub(super) fn dstack_bkwrd<E: Dimension>(
+    //     &self,
+    //     lhs_grad: &mut Tensor<E>,
+    //     rhs_grad: &mut Tensor<E>,
+    //     action: &BackwardAction,
+    // ) {
+    //     let (lhs_grad_data, rhs_grad_data) = { (&mut lhs_grad.data, &mut rhs_grad.data) };
+    //     let (lhs_grad_src, rhs_grad_src) = {
+    //         let (one, the_other) = self.data.view().split_at(Axis(2), 1);
+    //         (one.remove_axis(Axis(2)), the_other.remove_axis(Axis(2)))
+    //     };
+    //     match action {
+    //         BackwardAction::Set => {
+    //             Zip::from(lhs_grad_data)
+    //                 .and_broadcast(lhs_grad_src)
+    //                 .apply(|lhs_dest_el, src_data_el| *lhs_dest_el = *src_data_el);
+    //             Zip::from(rhs_grad_data)
+    //                 .and_broadcast(rhs_grad_src)
+    //                 .apply(|rhs_dest_el, src_data_el| *rhs_dest_el = *src_data_el);
+    //         }
+    //         BackwardAction::Increment => {
+    //             Zip::from(lhs_grad_data)
+    //                 .and_broadcast(lhs_grad_src)
+    //                 .apply(|lhs_dest_el, src_data_el| *lhs_dest_el += *src_data_el);
+    //             Zip::from(rhs_grad_data)
+    //                 .and_broadcast(rhs_grad_src)
+    //                 .apply(|rhs_dest_el, src_data_el| *rhs_dest_el += *src_data_el);
+    //         }
+    //     }
+    // }
 }
 
 #[cfg(test)]

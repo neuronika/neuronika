@@ -3,11 +3,11 @@ pub(crate) mod ops;
 
 use itertools::Itertools;
 use ndarray::{Dimension, Ix1, Ix2, RemoveAxis};
-use numeric::{DStack, DStacked, HStack, HStacked, Max, Maximum, Tensor, VStack, VStacked};
+use numeric::{Broadcast, Broadcasted, Tensor};
 use ops::{
-    AddOp, Borrow, DStackOp, DivOp, DotOp, DotVecOp, ExpOp, HStackOp, LeakyReLUOp, LnOp, MulOp,
+    AddOp, Borrow, DivOp, DotOp, DotVecOp, ExpOp, LeakyReLUOp, LnOp, MulOp,
     NegOp, Op, Param, PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp,
-    TOp, TanhOp, VStackOp,
+    TOp, TanhOp,
 };
 use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
@@ -249,7 +249,7 @@ where
 
     pub fn ln(&self) -> Var<LnOp<T, D>, D>
     where
-        D: Max<D>,
+        D: Broadcast<D>,
     {
         Var::new(
             Rc::new(LnOp::new(Rc::clone(&self.repr))),
@@ -278,40 +278,40 @@ where
         )
     }
 
-    pub fn hstack<U, E>(&self, other: &Var<U, E>) -> Var<HStackOp<T, U, D, E>, HStacked<D, E>>
-    where
-        U: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-        D: HStack<E>,
-        E: Dimension + RemoveAxis + 'static,
-    {
-        Var::new(
-            Rc::new(HStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
-            self.upstream.clone(),
-        )
-    }
+    // pub fn hstack<U, E>(&self, other: &Var<U, E>) -> Var<HStackOp<T, U, D, E>, HStacked<D, E>>
+    // where
+    //     U: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+    //     D: HStack<E>,
+    //     E: Dimension + RemoveAxis + 'static,
+    // {
+    //     Var::new(
+    //         Rc::new(HStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+    //         self.upstream.clone(),
+    //     )
+    // }
 
-    pub fn vstack<U, E>(&self, other: &Var<U, E>) -> Var<VStackOp<T, U, D, E>, VStacked<D, E>>
-    where
-        U: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-        D: VStack<E>,
-        E: Dimension + RemoveAxis + 'static,
-    {
-        Var::new(
-            Rc::new(VStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
-            self.upstream.clone(),
-        )
-    }
+    // pub fn vstack<U, E>(&self, other: &Var<U, E>) -> Var<VStackOp<T, U, D, E>, VStacked<D, E>>
+    // where
+    //     U: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+    //     D: VStack<E>,
+    //     E: Dimension + RemoveAxis + 'static,
+    // {
+    //     Var::new(
+    //         Rc::new(VStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+    //         self.upstream.clone(),
+    //     )
+    // }
 
-    pub fn dstack<U, E>(&self, other: &Var<U, D>) -> Var<DStackOp<T, U, D>, DStacked<D, D>>
-    where
-        U: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-        D: DStack<D>,
-    {
-        Var::new(
-            Rc::new(DStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
-            self.upstream.clone(),
-        )
-    }
+    // pub fn dstack<U, E>(&self, other: &Var<U, D>) -> Var<DStackOp<T, U, D>, DStacked<D, D>>
+    // where
+    //     U: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    //     D: DStack<D>,
+    // {
+    //     Var::new(
+    //         Rc::new(DStackOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+    //         self.upstream.clone(),
+    //     )
+    // }
 }
 
 pub fn track_upstream(
@@ -338,10 +338,10 @@ macro_rules! impl_node_arithmetic_ops {
         where
             LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
             RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-            D: Dimension + RemoveAxis + Max<E> + 'static,
+            D: Dimension + RemoveAxis + Broadcast<E> + 'static,
             E: Dimension + RemoveAxis + 'static,
         {
-            type Output = Var<$repr<LHS, RHS, D, E>, Maximum<D, E>>;
+            type Output = Var<$repr<LHS, RHS, D, E>, Broadcasted<D, E>>;
 
             fn $fun(self, other: Var<RHS, E>) -> Self::Output {
                 Var::new(
