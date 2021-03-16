@@ -10,17 +10,14 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 
 // ===================================== Computational Graph Aux. Components =====================================
 
-// Forward action tracker. Ensures
-// that the actual computation only happens
-// when the node is fully accumulated.
+/// Forward action counter. Ensures that the actual computation only happens when the node is fully accumulated.
 #[derive(Debug, PartialEq)]
 pub enum ForwardAction {
     Evaluate,
     Cached,
 }
 
-// Backward action tracker. Keeps track
-// of the gradient accumulation.
+/// Backward action counter. Keeps track of the gradient accumulation operation.
 #[derive(Debug, PartialEq)]
 pub enum BackwardAction {
     // Set the gradient.
@@ -29,10 +26,8 @@ pub enum BackwardAction {
     Increment,
 }
 
-// Keeps track of the number of times
-// that a node in the computational graph
-// has been evaluated during either the forward
-// or the backward pass.
+/// Keeps track of the number of times that a node in the computational graph
+/// has been evaluated during either the forward or the backward pass.
 #[derive(Debug, Default)]
 pub struct PassCounter {
     forward_count: Cell<usize>,

@@ -5,9 +5,8 @@ use itertools::Itertools;
 use ndarray::{Dimension, Ix1, Ix2, RemoveAxis};
 use numeric::{Broadcast, Broadcasted, Tensor};
 use ops::{
-    AddOp, Borrow, DivOp, DotOp, DotVecOp, ExpOp, LeakyReLUOp, LnOp, MulOp,
-    NegOp, Op, Param, PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp,
-    TOp, TanhOp,
+    AddOp, Borrow, DivOp, DotOp, DotVecOp, ExpOp, LeakyReLUOp, LnOp, MulOp, NegOp, Op, Param,
+    PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp, TOp, TanhOp,
 };
 use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
