@@ -1,4 +1,4 @@
-use super::{Trackable, Var};
+use super::{Trackable, GraphBuilder};
 use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
 use std::ops::Deref;
@@ -73,16 +73,16 @@ impl<D> Param<D>
 where
     D: Dimension + RemoveAxis + 'static,
 {
-    pub fn new(data: Tensor<D>) -> Var<Self, D> {
+    pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
         let zeroed_data = data.zeros_from();
         let node = Rc::new(Param {
             id: PARAM_ID.fetch_add(1, Ordering::SeqCst),
             data: RefCell::new(data),
             grad: RefCell::new(zeroed_data),
         });
-        let upstream = vec![Var::new(Rc::clone(&node), Vec::new()).as_trackable()];
+        let upstream = vec![GraphBuilder::new(Rc::clone(&node), Vec::new()).as_trackable()];
 
-        Var::new(node, upstream)
+        GraphBuilder::new(node, upstream)
     }
 
     pub fn grad(&self) -> Borrow<Tensor<D>> {
@@ -127,8 +127,8 @@ impl<D> Input<D>
 where
     D: Dimension + RemoveAxis + 'static,
 {
-    pub fn new(data: Tensor<D>) -> Var<Self, D> {
-        Var::new(
+    pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
+        GraphBuilder::new(
             Rc::new(Input {
                 data: RefCell::new(data),
             }),
