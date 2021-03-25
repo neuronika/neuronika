@@ -1,63 +1,230 @@
-use super::{Trackable, GraphBuilder};
-use std::cell::{Ref, RefCell};
+use super::numeric::{Broadcast, Broadcasted, Tensor};
+use super::{GraphBuilder, Trackable};
+use ndarray::{
+    arr1, linalg::general_mat_vec_mul, Array2, ArrayView1, Axis, Dimension, Ix1, Ix2, RemoveAxis,
+    Zip,
+};
+use std::cell::{Cell, Ref, RefCell};
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-static PARAM_ID: AtomicUsize = AtomicUsize::new(0);
+static PARAM_ID: AtomicUsize = AtomicUsize::new(0); // TODO: remove me
 
-use super::numeric::{BackwardAction, Broadcast, Broadcasted, ForwardAction, PassCounter, Tensor};
-use ndarray::{arr1, Array2, Dimension, Ix1, Ix2, RemoveAxis, Zip};
+// ===================================== Computational Graph Aux. Components =====================================
 
-#[derive(Debug)]
-pub enum Borrow<'data, A: 'data> {
-    FromRefCell(Ref<'data, A>),
-    Plain(&'data A),
+/// Forward action counter. Ensures that the actual computation only happens when the node is fully accumulated.
+#[derive(Debug, PartialEq)]
+pub enum ForwardAction {
+    Evaluate,
+    Cached,
 }
 
-impl<'data, T: 'data> Deref for Borrow<'data, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        match *self {
-            Borrow::FromRefCell(ref val) => val.deref(),
-            Borrow::Plain(ref val) => val.deref(),
+/// Backward action counter. Keeps track of the gradient accumulation operation.
+#[derive(Debug, PartialEq)]
+pub enum BackwardAction {
+    // Set the gradient.
+    Set,
+    // Accumulates the gradient.
+    Increment,
+}
+
+/// Keeps track of the number of times that a node in the computational graph
+/// has been evaluated during either the forward or the backward pass.
+#[derive(Debug, Default)]
+pub struct PassCounter {
+    forward_count: Cell<usize>,
+    backward_count: Cell<usize>,
+}
+
+impl PassCounter {
+    pub fn clear(&self) {
+        self.forward_count.set(0);
+        self.backward_count.set(0);
+    }
+
+    #[inline(always)]
+    pub fn is_zero(&self) -> bool {
+        self.forward_count.get() == 0
+    }
+
+    pub fn recurse_backward(&self) -> bool {
+        let backward_count = self.backward_count.get();
+        let forward_count = self.forward_count.get();
+
+        if backward_count == forward_count {
+            self.clear();
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline(always)]
+    pub fn forward_action(&self) -> ForwardAction {
+        let count = self.forward_count.get();
+        self.forward_count.set(count + 1);
+
+        match count {
+            0 => ForwardAction::Evaluate,
+            _ => ForwardAction::Cached,
+        }
+    }
+
+    #[inline(always)]
+    pub fn backward_action(&self) -> BackwardAction {
+        let backward_count = self.backward_count.get();
+
+        let action = match backward_count {
+            0 => BackwardAction::Set,
+            _ => BackwardAction::Increment,
+        };
+
+        self.backward_count.set(backward_count + 1);
+        action
+    }
+}
+
+// ===================================== Accumulation + Reduction Function =====================================
+
+fn accumulate<D, E>(target: &mut Tensor<D>, source: &Tensor<E>, scale: f32, action: &BackwardAction)
+where
+    D: Dimension + RemoveAxis,
+    E: Dimension + RemoveAxis,
+{
+    let (trgt_data, source_data) = { (target.array_mut(), source.array()) };
+
+    if trgt_data.len() == 1 {
+        match action {
+            BackwardAction::Set => Zip::from(trgt_data).apply(|el| *el = source_data.sum() * scale),
+            BackwardAction::Increment => {
+                Zip::from(trgt_data).apply(|el| *el += source_data.sum() * scale)
+            }
+        }
+    } else {
+        match trgt_data.ndim().cmp(&source_data.ndim()) {
+            std::cmp::Ordering::Less => {
+                let mut dyn_source = source_data.sum_axis(Axis(0)).into_dyn();
+                while trgt_data.ndim() < dyn_source.ndim() {
+                    dyn_source = dyn_source.sum_axis(Axis(0));
+                }
+                let static_source = dyn_source.into_dimensionality::<D>().unwrap();
+                let mut axis_of_len_one = false;
+                for i in 0..trgt_data.ndim() {
+                    let size = trgt_data.len_of(Axis(i));
+                    if size == 1_usize {
+                        axis_of_len_one = true;
+                        match action {
+                            BackwardAction::Set => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(static_source.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el = src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                            BackwardAction::Increment => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(static_source.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el += src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                        }
+                    }
+                }
+                if !axis_of_len_one {
+                    match action {
+                        BackwardAction::Set => {
+                            Zip::from(trgt_data)
+                                .and(&static_source)
+                                .apply(|el_trgt, el_source| *el_trgt = *el_source * scale);
+                        }
+                        BackwardAction::Increment => {
+                            Zip::from(trgt_data)
+                                .and(&static_source)
+                                .apply(|el_trgt, el_source| *el_trgt += *el_source * scale);
+                        }
+                    }
+                }
+            }
+            std::cmp::Ordering::Equal => {
+                let source_same_dim = source_data.view().into_dimensionality::<D>().unwrap();
+                let mut axis_of_len_one = false;
+                for i in 0..trgt_data.ndim() {
+                    let size = trgt_data.len_of(Axis(i));
+                    if size == 1_usize {
+                        axis_of_len_one = true;
+                        match action {
+                            BackwardAction::Set => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(source_same_dim.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el = src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                            BackwardAction::Increment => {
+                                Zip::from(trgt_data.lanes_mut(Axis(i)))
+                                    .and(source_same_dim.lanes(Axis(i)))
+                                    .apply(|dest_lane, src_lane| {
+                                        Zip::from(dest_lane).apply(|dest_view_el| {
+                                            *dest_view_el += src_lane.sum() * scale
+                                        });
+                                    });
+                            }
+                        }
+                    }
+                }
+                if !axis_of_len_one {
+                    match action {
+                        BackwardAction::Set => {
+                            Zip::from(trgt_data)
+                                .and_broadcast(&source_same_dim)
+                                .apply(|el_trgt, el_source| *el_trgt = *el_source * scale);
+                        }
+                        BackwardAction::Increment => {
+                            Zip::from(trgt_data)
+                                .and_broadcast(&source_same_dim)
+                                .apply(|el_trgt, el_source| *el_trgt += *el_source * scale);
+                        }
+                    }
+                }
+            }
+            std::cmp::Ordering::Greater => match action {
+                BackwardAction::Set => {
+                    Zip::from(trgt_data)
+                        .and_broadcast(source_data)
+                        .apply(|el_trgt, el_source| *el_trgt = *el_source * scale);
+                }
+                BackwardAction::Increment => {
+                    Zip::from(trgt_data)
+                        .and_broadcast(source_data)
+                        .apply(|el_trgt, el_source| *el_trgt += *el_source * scale);
+                }
+            },
         }
     }
 }
+
+// ===================================== Computational Graph Components Trait =====================================
 
 pub trait Op: Debug + 'static {
     type Data;
     type Grad;
     fn forward(&self);
     fn backward(&self, grad: &Ref<Self::Grad>);
-    fn data(&self) -> Borrow<Self::Data>;
+    fn data(&self) -> Ref<Self::Data>;
     fn requires_grad(&self) -> bool;
     fn clear(&self);
 }
 
-impl<D> Op for Rc<dyn Op<Data = Tensor<D>, Grad = Tensor<D>>>
-where
-    D: 'static + Dimension + RemoveAxis,
-{
-    type Data = Tensor<D>;
-    type Grad = Tensor<D>;
-    fn forward(&self) {
-        self.deref().forward()
-    }
-    fn backward(&self, gradient: &Ref<Self::Grad>) {
-        self.deref().backward(gradient)
-    }
-    fn data(&self) -> Borrow<Self::Data> {
-        self.deref().data()
-    }
-    fn requires_grad(&self) -> bool {
-        self.deref().requires_grad()
-    }
-    fn clear(&self) {
-        self.deref().clear()
-    }
-}
+// =============================== Computational Graph Leaf: Learnable Parameter ===============================
 
 #[derive(Debug)]
 pub struct Param<D>
@@ -85,8 +252,8 @@ where
         GraphBuilder::new(node, upstream)
     }
 
-    pub fn grad(&self) -> Borrow<Tensor<D>> {
-        Borrow::FromRefCell(self.grad.borrow())
+    pub fn grad(&self) -> Ref<Tensor<D>> {
+        self.grad.borrow()
     }
 
     pub fn zero_grad(&self) {
@@ -102,18 +269,23 @@ where
     type Grad = Tensor<D>;
     fn forward(&self) {}
     fn backward(&self, gradient: &Ref<Self::Grad>) {
-        self.grad
-            .borrow_mut()
-            .accumulate(gradient, 1.0, &BackwardAction::Increment);
+        accumulate(
+            &mut self.grad.borrow_mut(),
+            gradient,
+            1.0,
+            &BackwardAction::Increment,
+        );
     }
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
     fn requires_grad(&self) -> bool {
         true
     }
     fn clear(&self) {}
 }
+
+// ============================= Computational Graph Leaf: Non Learnable Input =============================
 
 #[derive(Debug)]
 pub struct Input<D>
@@ -145,14 +317,16 @@ where
     type Grad = Tensor<D>;
     fn forward(&self) {}
     fn backward(&self, _: &Ref<Self::Grad>) {}
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
     fn requires_grad(&self) -> bool {
         false
     }
     fn clear(&self) {}
 }
+
+// ============================ Computational Graph Internal Component: Negation  ============================
 
 #[derive(Debug)]
 pub struct NegOp<OP, D>
@@ -179,8 +353,8 @@ where
         NegOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -201,24 +375,29 @@ where
 
         self.operand.forward();
 
-        self.data
-            .borrow_mut()
-            .data
-            .assign(&(-&self.operand.data().deref().data));
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| *self_data_el = -operand_data_el);
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        self.grad
-            .borrow_mut()
-            .accumulate(grad, -1.0, &self.counter.backward_action());
+        accumulate(
+            &mut self.grad.borrow_mut(),
+            grad,
+            -1.0,
+            &self.counter.backward_action(),
+        );
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -232,6 +411,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Addition  ============================
 
 #[derive(Debug)]
 pub struct AddOp<LHS, RHS, D, E>
@@ -265,9 +446,9 @@ where
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
-            lhs: lhs,
-            rhs: rhs,
-            requires_grad: requires_grad,
+            lhs,
+            rhs,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -291,21 +472,23 @@ where
         self.lhs.forward();
         self.rhs.forward();
 
+        let mut self_data = self.data.borrow_mut();
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        self.data.borrow_mut().add_fwd(&lhs_data, &rhs_data);
+        Zip::from(self_data.array_mut())
+            .and_broadcast(lhs_data.array())
+            .and_broadcast(rhs_data.array())
+            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+                *self_data_el = *lhs_data_el + *rhs_data_el
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.lhs_grad
-            .borrow_mut()
-            .accumulate(grad.deref(), 1.0, &action);
-        self.rhs_grad
-            .borrow_mut()
-            .accumulate(grad.deref(), 1.0, &action);
+        accumulate(&mut self.lhs_grad.borrow_mut(), grad.deref(), 1.0, &action);
+        accumulate(&mut self.rhs_grad.borrow_mut(), grad.deref(), 1.0, &action);
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -321,14 +504,16 @@ where
         }
     }
 
-    fn data(&self) -> Borrow<'_, Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
         self.requires_grad
     }
 }
+
+// ============================ Computational Graph Internal Component: Subtraction  ============================
 
 #[derive(Debug)]
 pub struct SubOp<LHS, RHS, D, E>
@@ -362,9 +547,9 @@ where
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
-            lhs: lhs,
-            rhs: rhs,
-            requires_grad: requires_grad,
+            lhs,
+            rhs,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -388,21 +573,23 @@ where
         self.lhs.forward();
         self.rhs.forward();
 
+        let mut self_data = self.data.borrow_mut();
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        self.data.borrow_mut().sub_fwd(&lhs_data, &rhs_data);
+        Zip::from(self_data.array_mut())
+            .and_broadcast(lhs_data.array())
+            .and_broadcast(rhs_data.array())
+            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+                *self_data_el = *lhs_data_el - *rhs_data_el
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.lhs_grad
-            .borrow_mut()
-            .accumulate(grad.deref(), 1.0, &action);
-        self.rhs_grad
-            .borrow_mut()
-            .accumulate(grad.deref(), -1.0, &action);
+        accumulate(&mut self.lhs_grad.borrow_mut(), grad.deref(), 1.0, &action);
+        accumulate(&mut self.rhs_grad.borrow_mut(), grad.deref(), -1.0, &action);
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -418,14 +605,16 @@ where
         }
     }
 
-    fn data(&self) -> Borrow<'_, Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
         self.requires_grad
     }
 }
+
+// ============================ Computational Graph Internal Component: Multiplication  ============================
 
 #[derive(Debug)]
 pub struct MulOp<LHS, RHS, D, E>
@@ -459,9 +648,9 @@ where
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
-            lhs: lhs,
-            rhs: rhs,
-            requires_grad: requires_grad,
+            lhs,
+            rhs,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -485,20 +674,32 @@ where
         self.lhs.forward();
         self.rhs.forward();
 
+        let mut self_data = self.data.borrow_mut();
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        self.data.borrow_mut().mul_fwd(&lhs_data, &rhs_data);
+        Zip::from(self_data.array_mut())
+            .and_broadcast(lhs_data.array())
+            .and_broadcast(rhs_data.array())
+            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+                *self_data_el = *lhs_data_el * *rhs_data_el
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
-        self.lhs_grad
-            .borrow_mut()
-            .accumulate(&(grad.deref() * &self.rhs.data()), 1.0, &action);
-        self.rhs_grad
-            .borrow_mut()
-            .accumulate(&(grad.deref() * &self.lhs.data()), 1.0, &action);
+        accumulate(
+            &mut self.lhs_grad.borrow_mut(),
+            &(grad.deref() * &self.rhs.data()),
+            1.0,
+            &action,
+        );
+        accumulate(
+            &mut self.rhs_grad.borrow_mut(),
+            &(grad.deref() * &self.lhs.data()),
+            1.0,
+            &action,
+        );
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -514,14 +715,16 @@ where
         }
     }
 
-    fn data(&self) -> Borrow<'_, Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
         self.requires_grad
     }
 }
+
+// ============================ Computational Graph Internal Component: Division  ============================
 
 #[derive(Debug)]
 pub struct DivOp<LHS, RHS, D, E>
@@ -555,9 +758,9 @@ where
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
-            lhs: lhs,
-            rhs: rhs,
-            requires_grad: requires_grad,
+            lhs,
+            rhs,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -581,25 +784,34 @@ where
         self.lhs.forward();
         self.rhs.forward();
 
+        let mut self_data = self.data.borrow_mut();
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        self.data.borrow_mut().div_fwd(&lhs_data, &rhs_data);
+        Zip::from(self_data.array_mut())
+            .and_broadcast(lhs_data.array())
+            .and_broadcast(rhs_data.array())
+            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+                *self_data_el = *lhs_data_el / *rhs_data_el
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.lhs_grad
-            .borrow_mut()
-            .accumulate(&(grad.deref() / &self.rhs.data()), 1.0, &action);
+        accumulate(
+            &mut self.lhs_grad.borrow_mut(),
+            &(grad.deref() / &self.rhs.data()),
+            1.0,
+            &action,
+        );
 
         let mut tmp = grad.deref() * &self.lhs.data();
-        Zip::from(&mut tmp.data)
-            .and_broadcast(&self.rhs.data().data)
+        Zip::from(tmp.array_mut())
+            .and_broadcast(self.rhs.data().array())
             .apply(|tmp_el, rhs_el| *tmp_el /= rhs_el.powi(2));
 
-        self.rhs_grad.borrow_mut().accumulate(&tmp, -1.0, &action);
+        accumulate(&mut self.rhs_grad.borrow_mut(), &tmp, -1.0, &action);
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -615,14 +827,16 @@ where
         }
     }
 
-    fn data(&self) -> Borrow<'_, Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
         self.requires_grad
     }
 }
+
+// ============================ Computational Graph Internal Component: Matrix Mult.  ============================
 
 #[derive(Debug)]
 pub struct DotOp<LHS, RHS> {
@@ -644,9 +858,7 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let data = Tensor {
-            data: lhs.data().data.dot(&rhs.data().data),
-        };
+        let data = Tensor::new(lhs.data().array().dot(rhs.data().array()));
 
         let grad = data.zeros_from();
         let lhs_grad = lhs.data().zeros_from();
@@ -657,9 +869,9 @@ where
             grad: RefCell::new(grad),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
-            lhs: lhs,
-            rhs: rhs,
-            requires_grad: requires_grad,
+            lhs,
+            rhs,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -694,9 +906,12 @@ where
     fn backward(&self, input_grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.grad
-            .borrow_mut()
-            .accumulate(input_grad.deref(), 1.0, &action);
+        accumulate(
+            &mut self.grad.borrow_mut(),
+            input_grad.deref(),
+            1.0,
+            &action,
+        );
 
         if self.counter.recurse_backward() {
             let rhs_data = self.rhs.data();
@@ -725,8 +940,8 @@ where
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -740,6 +955,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Mat. Vec. Prod.  ============================
 
 #[derive(Debug)]
 pub struct DotVecOp<LHS, RHS> {
@@ -761,9 +978,7 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let data = Tensor {
-            data: lhs.data().data.dot(&rhs.data().data),
-        };
+        let data = Tensor::new(lhs.data().array().dot(rhs.data().array()));
 
         let grad = data.zeros_from();
         let lhs_grad = lhs.data().zeros_from();
@@ -774,9 +989,9 @@ where
             grad: RefCell::new(grad),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
-            lhs: lhs,
-            rhs: rhs,
-            requires_grad: requires_grad,
+            lhs,
+            rhs,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -810,19 +1025,24 @@ where
     fn backward(&self, input_grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.grad
-            .borrow_mut()
-            .accumulate(input_grad.deref(), 1.0, &action);
+        accumulate(
+            &mut self.grad.borrow_mut(),
+            input_grad.deref(),
+            1.0,
+            &action,
+        );
 
         if self.counter.recurse_backward() {
             let rhs_data = self.rhs.data();
             let lhs_data = self.lhs.data();
             let grad = self.grad.borrow();
 
-            Zip::from(self.lhs_grad.borrow_mut().data.genrows_mut())
-                .and(&grad.data)
-                .apply(|mut row, grad_el| {
-                    row.assign(&rhs_data.data.map(|el| el * grad_el));
+            Zip::from(self.lhs_grad.borrow_mut().array_mut().genrows_mut())
+                .and(grad.array())
+                .apply(|row, grad_el| {
+                    Zip::from(row)
+                        .and(rhs_data.array())
+                        .apply(|row_el, rhs_data_el| *row_el = *rhs_data_el * *grad_el);
                 });
 
             lhs_data.mat_vec_mul(
@@ -838,8 +1058,8 @@ where
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -853,6 +1073,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Inner Prod.  ============================
 
 #[derive(Debug)]
 pub struct ScalProdOp<LHS, RHS> {
@@ -875,17 +1097,15 @@ where
         let lhs_grad = lhs.data().zeros_from();
         let rhs_grad = rhs.data().zeros_from();
 
-        let data = Tensor {
-            data: arr1(&[lhs.data().data.dot(&rhs.data().data)]),
-        };
+        let data = Tensor::new(arr1(&[lhs.data().array().dot(rhs.data().array())]));
 
         ScalProdOp {
             data: RefCell::new(data),
             lhs_grad: RefCell::new(lhs_grad),
             rhs_grad: RefCell::new(rhs_grad),
-            lhs: lhs,
-            rhs: rhs,
-            requires_grad: requires_grad,
+            lhs,
+            rhs,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -907,20 +1127,22 @@ where
         self.lhs.forward();
         self.rhs.forward();
         let mut data = self.data.borrow_mut();
-        data.data[0] = self.lhs.data().data.dot(&self.rhs.data().data);
+        data.array_mut()[0] = self.lhs.data().array().dot(self.rhs.data().array());
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.lhs_grad.borrow_mut().accumulate(
+        accumulate(
+            &mut self.lhs_grad.borrow_mut(),
             &self.rhs.data().deref(),
-            grad.deref().data[0],
+            grad.deref().array()[0],
             &action,
         );
-        self.rhs_grad.borrow_mut().accumulate(
+        accumulate(
+            &mut self.rhs_grad.borrow_mut(),
             &self.lhs.data().deref(),
-            grad.deref().data[0],
+            grad.deref().array()[0],
             &action,
         );
 
@@ -930,8 +1152,8 @@ where
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -945,6 +1167,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Power  ============================
 
 #[derive(Debug)]
 pub struct PowOp<OP, D>
@@ -965,18 +1189,16 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>, exp: i32) -> Self {
-        let data = Tensor {
-            data: operand.data().deref().data.map(|el| el.powi(exp)),
-        };
+        let data = Tensor::new(operand.data().array().map(|el| el.powi(exp)));
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         PowOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            exp: exp,
-            requires_grad: requires_grad,
+            operand,
+            exp,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -997,24 +1219,44 @@ where
 
         self.operand.forward();
 
-        let (mut data, exp) = { (self.data.borrow_mut(), self.exp) };
-        data.pow_fwd(self.operand.data().deref(), exp);
+        let (mut self_data, operand_data, exp) =
+            { (self.data.borrow_mut(), self.operand.data(), self.exp) };
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.powi(exp));
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
+        let exp = self.exp;
 
-        self.grad
-            .borrow_mut()
-            .pow_bkwrd(grad, &self.operand.data(), &action, self.exp);
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                    });
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1028,6 +1270,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Sum Reduction  ============================
 
 #[derive(Debug)]
 pub struct SumOp<OP, D>
@@ -1054,8 +1298,8 @@ where
         SumOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1076,21 +1320,21 @@ where
 
         self.operand.forward();
 
-        self.data.borrow_mut().data[0] = self.operand.data().data.sum();
+        self.data.borrow_mut().array_mut()[0] = self.operand.data().array().sum();
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.grad.borrow_mut().accumulate(grad, 1.0, &action);
+        accumulate(&mut self.grad.borrow_mut(), grad, 1.0, &action);
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1104,6 +1348,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Natural Log.  ============================
 
 #[derive(Debug)]
 pub struct LnOp<OP, D>
@@ -1123,17 +1369,15 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor {
-            data: operand.data().deref().data.map(|el| el.ln()),
-        };
+        let data = Tensor::new(operand.data().array().map(|el| el.ln()));
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         LnOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1154,24 +1398,44 @@ where
 
         self.operand.forward();
 
-        let mut data = self.data.borrow_mut();
-        data.data.assign(&self.operand.data().deref().data);
-        data.data.map_inplace(|el| *el = el.ln());
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.ln());
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
-        self.grad
-            .borrow_mut()
-            .accumulate(&(grad.deref() / &self.operand.data()), 1.0, &action);
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el / *operand_data_el
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el / *operand_data_el
+                    });
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1185,6 +1449,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: ReLU  ============================
 
 #[derive(Debug)]
 pub struct ReLUOp<OP, D>
@@ -1204,21 +1470,20 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor {
-            data: operand
+        let data = Tensor::new(
+            operand
                 .data()
-                .deref()
-                .data
+                .array()
                 .map(|el| if *el < 0.0 { 0.0 } else { *el }),
-        };
+        );
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         ReLUOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1238,23 +1503,59 @@ where
         }
 
         self.operand.forward();
-        self.data.borrow_mut().relu_fwd(&self.operand.data());
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| {
+                *self_data_el = if *operand_data_el > 0.0 {
+                    *operand_data_el
+                } else {
+                    0.0
+                }
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
 
-        self.grad
-            .borrow_mut()
-            .relu_bkwrd(grad, &self.data(), &action);
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.0
+                        }
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.0
+                        }
+                    });
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1268,6 +1569,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: LeakyReLU  ============================
 
 #[derive(Debug)]
 pub struct LeakyReLUOp<OP, D>
@@ -1287,21 +1590,20 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor {
-            data: operand
+        let data = Tensor::new(
+            operand
                 .data()
-                .deref()
-                .data
-                .map(|el| if *el < 0.0 { 0.01 } else { *el }),
-        };
+                .array()
+                .map(|el| if *el < 0.0 { 0.01 * el } else { *el }),
+        );
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         LeakyReLUOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1321,23 +1623,59 @@ where
         }
 
         self.operand.forward();
-        self.data.borrow_mut().leaky_relu_fwd(&self.operand.data());
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| {
+                *self_data_el = if *operand_data_el > 0.0 {
+                    *operand_data_el
+                } else {
+                    0.01 * operand_data_el
+                }
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
 
-        self.grad
-            .borrow_mut()
-            .leaky_relu_bkwrd(grad, &self.data(), &action);
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.01 * down_grad_el
+                        }
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.01 * down_grad_el
+                        }
+                    });
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1351,6 +1689,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Softplus  ============================
 
 #[derive(Debug)]
 pub struct SoftplusOp<OP, D>
@@ -1370,25 +1710,23 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor {
-            data: operand.data().deref().data.map(|el| {
-                if *el < -15.0 {
-                    0.0
-                } else if *el > 15.0 {
-                    *el
-                } else {
-                    (1.0 + el.exp()).ln()
-                }
-            }),
-        };
+        let data = Tensor::new(operand.data().array().map(|el| {
+            if *el < -15.0 {
+                0.0
+            } else if *el > 15.0 {
+                *el
+            } else {
+                (1.0 + el.exp()).ln()
+            }
+        }));
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         SoftplusOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1408,22 +1746,64 @@ where
         }
 
         self.operand.forward();
-        self.data.borrow_mut().softplus_fwd(&self.operand.data());
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| {
+                *self_data_el = if *operand_data_el < -15.0 {
+                    0.0
+                } else if *operand_data_el > 15.0 {
+                    *operand_data_el
+                } else {
+                    (1.0 + operand_data_el.exp()).ln()
+                }
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
-        self.grad
-            .borrow_mut()
-            .softplus_bkwrd(grad, &self.operand.data(), &action);
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
 
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = if *operand_data_el >= 15.0 {
+                            *down_grad_el
+                        } else if *operand_data_el <= -15.0 {
+                            0.0
+                        } else {
+                            down_grad_el / (1.0 + (-*operand_data_el).exp())
+                        }
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += if *operand_data_el >= 15.0 {
+                            *down_grad_el
+                        } else if *operand_data_el <= -15.0 {
+                            0.0
+                        } else {
+                            down_grad_el / (1.0 + (-*operand_data_el).exp())
+                        }
+                    });
+            }
+        }
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1437,6 +1817,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Sigmoid  ============================
 
 #[derive(Debug)]
 pub struct SigmoidOp<OP, D>
@@ -1456,17 +1838,15 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor {
-            data: operand.data().deref().data.map(|el| {
-                if *el >= 15.0 {
-                    1.0
-                } else if *el <= -15.0 {
-                    0.0
-                } else {
-                    1.0 / (1.0 + (-el).exp())
-                }
-            }),
-        };
+        let data = Tensor::new(operand.data().array().map(|el| {
+            if *el >= 15.0 {
+                1.0
+            } else if *el <= -15.0 {
+                0.0
+            } else {
+                1.0 / (1.0 + (-el).exp())
+            }
+        }));
 
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
@@ -1474,8 +1854,8 @@ where
         SigmoidOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1495,22 +1875,53 @@ where
         }
 
         self.operand.forward();
-        self.data.borrow_mut().sigmoid_fwd(&self.operand.data());
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| {
+                *self_data_el = if *operand_data_el >= 15.0 {
+                    1.0
+                } else if *operand_data_el <= -15.0 {
+                    0.0
+                } else {
+                    1.0 / (1.0 + (-*operand_data_el).exp())
+                }
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
-        self.grad
-            .borrow_mut()
-            .sigmoid_bkwrd(grad, &self.data(), &action);
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                    });
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1524,6 +1935,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Hyper. Tangent  ============================
 
 #[derive(Debug)]
 pub struct TanhOp<OP, D>
@@ -1543,17 +1956,15 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor {
-            data: operand.data().deref().data.map(|el| el.tanh()),
-        };
+        let data = Tensor::new(operand.data().array().map(|el| el.tanh()));
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         TanhOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1573,22 +1984,45 @@ where
         }
 
         self.operand.forward();
-        self.data.borrow_mut().tanh_fwd(&self.operand.data());
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.tanh());
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
-        self.grad
-            .borrow_mut()
-            .tanh_bkwrd(grad, &self.data(), &action);
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * (1.0 - operand_data_el.powi(2))
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * (1.0 - operand_data_el.powi(2))
+                    });
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1602,6 +2036,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Exponential  ============================
 
 #[derive(Debug)]
 pub struct ExpOp<OP, D>
@@ -1621,17 +2057,15 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor {
-            data: operand.data().deref().data.map(|el| el.exp()),
-        };
+        let data = Tensor::new(operand.data().array().map(|el| el.exp()));
         let grad = data.zeros_from();
         let requires_grad = operand.requires_grad();
 
         ExpOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1651,22 +2085,45 @@ where
         }
 
         self.operand.forward();
-        self.data.borrow_mut().exp_fwd(&self.operand.data());
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        Zip::from(self_data.array_mut())
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.exp());
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
-        self.grad
-            .borrow_mut()
-            .exp_bkwrd(grad, &self.data(), &action);
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * *operand_data_el
+                    });
+            }
+            BackwardAction::Increment => {
+                Zip::from(self_grad.array_mut())
+                    .and(grad.array())
+                    .and(operand_data.array())
+                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * *operand_data_el
+                    });
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1680,6 +2137,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Softmax  ============================
 
 #[derive(Debug)]
 pub struct SoftmaxOp<OP, D>
@@ -1709,12 +2168,12 @@ where
         let requires_grad = operand.requires_grad();
 
         SoftmaxOp {
-            axis: axis,
+            axis,
             data: RefCell::new(data),
             grad: RefCell::new(grad),
             jacobian: RefCell::new(Array2::zeros((j_dim, j_dim))),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1734,29 +2193,72 @@ where
         }
 
         self.operand.forward();
-        self.data
-            .borrow_mut()
-            .softmax_fwd(&self.operand.data(), self.axis);
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+        let axis = self.axis;
+
+        Zip::from(operand_data.array().lanes(Axis(axis)))
+            .and(self_data.array_mut().lanes_mut(Axis(axis)))
+            .apply(|lane_self, lane_new| {
+                let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
+                let num = &lane_self.map(|el| (el - max).exp());
+                let den = num.sum();
+                Zip::from(lane_new)
+                    .and(num)
+                    .apply(|lane_new_el, num_el| *lane_new_el = *num_el / den);
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
-        let action = self.counter.backward_action();
+        let mut self_grad = self.grad.borrow_mut();
+        let operand_data = self.operand.data();
+        let mut jacobian = self.jacobian.borrow_mut();
+        let axis = self.axis;
 
-        self.grad.borrow_mut().softmax_bkwrd(
-            grad,
-            &self.data.borrow(),
-            &mut self.jacobian.borrow_mut(),
-            &action,
-            self.axis,
-        );
+        fn fill_jacobian(jacobian: &mut Array2<f32>, array: &ArrayView1<f32>) {
+            for (row_idx, (mut row, row_val)) in jacobian
+                .genrows_mut()
+                .into_iter()
+                .zip(array.iter())
+                .enumerate()
+            {
+                for (col_idx, (grad, col_val)) in row
+                    .as_slice_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(array.iter())
+                    .enumerate()
+                {
+                    if row_idx == col_idx {
+                        *grad = row_val * (1.0 - col_val);
+                    } else {
+                        *grad = -row_val * col_val;
+                    }
+                }
+            }
+        }
+
+        let beta = match self.counter.backward_action() {
+            BackwardAction::Set => 0.0,
+            BackwardAction::Increment => 1.0,
+        };
+
+        Zip::from(self_grad.array_mut().lanes_mut(Axis(axis)))
+            .and(operand_data.array().lanes(Axis(axis)))
+            .and(grad.array().lanes(Axis(axis)))
+            .apply(|mut d_g_col, data_col, grad_col| {
+                fill_jacobian(&mut jacobian, &data_col);
+                general_mat_vec_mul(1.0, &jacobian, &grad_col, beta, &mut d_g_col);
+            });
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1770,6 +2272,8 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Transposition  ============================
 
 #[derive(Debug)]
 pub struct TOp<OP, D>
@@ -1796,8 +2300,8 @@ where
         TOp {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-            operand: operand,
-            requires_grad: requires_grad,
+            operand,
+            requires_grad,
             counter: PassCounter::default(),
         }
     }
@@ -1819,22 +2323,22 @@ where
         self.operand.forward();
         self.data
             .borrow_mut()
-            .data
-            .assign(&self.operand.data().data.t());
+            .array_mut()
+            .assign(&self.operand.data().array().t());
     }
 
     fn backward(&self, grad: &Ref<Self::Grad>) {
         let action = self.counter.backward_action();
 
-        self.grad.borrow_mut().accumulate(&grad.t(), 1.0, &action);
+        accumulate(&mut self.grad.borrow_mut(), &grad.t(), 1.0, &action);
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
     }
 
-    fn data(&self) -> Borrow<Self::Data> {
-        Borrow::FromRefCell(self.data.borrow())
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
     }
 
     fn requires_grad(&self) -> bool {
@@ -1849,290 +2353,273 @@ where
     }
 }
 
-// #[derive(Debug)]
-// pub struct VStackOp<LHS, RHS, D, E>
-// where
-//     D: Dimension + RemoveAxis + VStack<E>,
-//     E: Dimension + RemoveAxis,
-// {
-//     data: RefCell<Tensor<VStacked<D, E>>>,
-//     lhs: Rc<LHS>,
-//     rhs: Rc<RHS>,
-//     lhs_grad: RefCell<Tensor<D>>,
-//     rhs_grad: RefCell<Tensor<E>>,
-//     requires_grad: bool,
-//     counter: PassCounter,
-// }
+#[cfg(test)]
+mod tests {
+    use super::{accumulate, BackwardAction, Tensor};
+    use ndarray::array;
 
-// impl<LHS, RHS, D, E> VStackOp<LHS, RHS, D, E>
-// where
-//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-//     D: Dimension + RemoveAxis + VStack<E>,
-//     E: Dimension + RemoveAxis,
-// {
-//     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
-//         let data = lhs.data().vstack(rhs.data().deref());
+    #[test]
+    fn assign_test() {
+        let mut scalar_trgt = Tensor { array: array![0.0] };
+        let mut vector_trgt = Tensor {
+            array: array![0.0, 0.0, 0.0],
+        };
+        let mut matrix_trgt = Tensor {
+            array: array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        };
 
-//         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+        let scalar = Tensor { array: array![1.0] };
+        let vector = Tensor {
+            array: array![1.0, 1.0, 1.0],
+        };
+        let matrix = Tensor {
+            array: array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
+        };
 
-//         let lhs_grad = lhs.data().zeros_from();
-//         let rhs_grad = rhs.data().zeros_from();
+        // Scalar scalar assignment.
+        accumulate(&mut scalar_trgt, &scalar, 1.0, &BackwardAction::Set);
+        assert_eq!(scalar_trgt.array[0], scalar.array[0]);
 
-//         VStackOp {
-//             data: RefCell::new(data),
-//             lhs: lhs,
-//             rhs: rhs,
-//             lhs_grad: RefCell::new(lhs_grad),
-//             rhs_grad: RefCell::new(rhs_grad),
-//             requires_grad: requires_grad,
-//             counter: PassCounter::default(),
-//         }
-//     }
-// }
+        // Scalar scalar vector.
+        accumulate(&mut scalar_trgt, &vector, 1.0, &BackwardAction::Set);
+        assert_eq!(scalar_trgt.array[0], 3.0);
 
-// impl<LHS, RHS, D, E> Op for VStackOp<LHS, RHS, D, E>
-// where
-//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-//     D: Dimension + RemoveAxis + VStack<E> + 'static,
-//     E: Dimension + RemoveAxis + 'static,
-// {
-//     type Data = Tensor<VStacked<D, E>>;
-//     type Grad = Tensor<VStacked<D, E>>;
+        // Scalar scalar matrix.
+        accumulate(&mut scalar_trgt, &matrix, 1.0, &BackwardAction::Set);
+        assert_eq!(scalar_trgt.array[0], 9.0);
 
-//     fn forward(&self) {
-//         if self.counter.forward_action() == ForwardAction::Cached {
-//             return;
-//         }
+        // Vector scalar assignment.
+        accumulate(&mut vector_trgt, &scalar, 1.0, &BackwardAction::Set);
+        assert_eq!(vector_trgt.array, array![1.0, 1.0, 1.0]);
 
-//         self.lhs.forward();
-//         self.rhs.forward();
+        // Vector vector assignment.
+        accumulate(&mut vector_trgt, &vector, 1.0, &BackwardAction::Set);
+        assert_eq!(vector_trgt.array, array![1.0, 1.0, 1.0]);
 
-//         self.data
-//             .borrow_mut()
-//             .vstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
-//     }
+        // Vector matrix assignment.
+        accumulate(&mut vector_trgt, &matrix, 1.0, &BackwardAction::Set);
+        assert_eq!(vector_trgt.array, array![3.0, 3.0, 3.0]);
 
-//     fn backward(&self, grad: &Ref<Self::Grad>) {
-//         let action = self.counter.backward_action();
+        // Matrix scalar assignment.
+        accumulate(&mut matrix_trgt, &scalar, 1.0, &BackwardAction::Set);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+        );
 
-//         grad.deref().vstack_bkwrd(
-//             &mut self.lhs_grad.borrow_mut(),
-//             &mut self.rhs_grad.borrow_mut(),
-//             &action,
-//         );
+        // Matrix vector assignment.
+        accumulate(&mut matrix_trgt, &vector, 1.0, &BackwardAction::Set);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+        );
 
-//         if self.counter.recurse_backward() {
-//             self.lhs.backward(&self.lhs_grad.borrow());
-//             self.rhs.backward(&self.rhs_grad.borrow());
-//         }
-//     }
+        // Matrix matrix assignment.
+        accumulate(&mut matrix_trgt, &matrix, 1.0, &BackwardAction::Set);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+        );
+    }
 
-//     fn clear(&self) {
-//         if !self.counter.is_zero() {
-//             self.lhs.clear();
-//             self.rhs.clear();
-//             self.counter.clear();
-//         }
-//     }
+    #[test]
+    fn scaled_assign_test() {
+        let mut scalar_trgt = Tensor { array: array![0.0] };
+        let mut vector_trgt = Tensor {
+            array: array![0.0, 0.0, 0.0],
+        };
+        let mut matrix_trgt = Tensor {
+            array: array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        };
 
-//     fn data(&self) -> Borrow<'_, Self::Data> {
-//         Borrow::FromRefCell(self.data.borrow())
-//     }
+        let scalar = Tensor { array: array![1.0] };
+        let vector = Tensor {
+            array: array![1.0, 1.0, 1.0],
+        };
+        let matrix = Tensor {
+            array: array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
+        };
 
-//     fn requires_grad(&self) -> bool {
-//         self.requires_grad
-//     }
-// }
+        // Scalar scalar assignment.
+        accumulate(&mut scalar_trgt, &scalar, -1.0, &BackwardAction::Set);
+        assert_eq!(scalar_trgt.array[0], -scalar.array[0]);
 
-// #[derive(Debug)]
-// pub struct HStackOp<LHS, RHS, D, E>
-// where
-//     D: Dimension + RemoveAxis + HStack<E>,
-//     E: Dimension + RemoveAxis,
-// {
-//     data: RefCell<Tensor<HStacked<D, E>>>,
-//     lhs: Rc<LHS>,
-//     rhs: Rc<RHS>,
-//     lhs_grad: RefCell<Tensor<D>>,
-//     rhs_grad: RefCell<Tensor<E>>,
-//     requires_grad: bool,
-//     counter: PassCounter,
-// }
+        // Scalar scalar vector.
+        accumulate(&mut scalar_trgt, &vector, -1.0, &BackwardAction::Set);
+        assert_eq!(scalar_trgt.array[0], -3.0);
 
-// impl<LHS, RHS, D, E> HStackOp<LHS, RHS, D, E>
-// where
-//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-//     D: Dimension + RemoveAxis + HStack<E>,
-//     E: Dimension + RemoveAxis,
-// {
-//     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
-//         let data = lhs.data().hstack(rhs.data().deref());
+        // Scalar scalar matrix.
+        accumulate(&mut scalar_trgt, &matrix, -1.0, &BackwardAction::Set);
+        assert_eq!(scalar_trgt.array[0], -9.0);
 
-//         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+        // Vector scalar assignment.
+        accumulate(&mut vector_trgt, &scalar, -1.0, &BackwardAction::Set);
+        assert_eq!(vector_trgt.array, -array![1.0, 1.0, 1.0]);
 
-//         let lhs_grad = lhs.data().zeros_from();
-//         let rhs_grad = rhs.data().zeros_from();
+        // Vector vector assignment.
+        accumulate(&mut vector_trgt, &vector, -1.0, &BackwardAction::Set);
+        assert_eq!(vector_trgt.array, -array![1.0, 1.0, 1.0]);
 
-//         HStackOp {
-//             data: RefCell::new(data),
-//             lhs: lhs,
-//             rhs: rhs,
-//             lhs_grad: RefCell::new(lhs_grad),
-//             rhs_grad: RefCell::new(rhs_grad),
-//             requires_grad: requires_grad,
-//             counter: PassCounter::default(),
-//         }
-//     }
-// }
+        // Vector matrix assignment.
+        accumulate(&mut vector_trgt, &matrix, -1.0, &BackwardAction::Set);
+        assert_eq!(vector_trgt.array, -array![3.0, 3.0, 3.0]);
 
-// impl<LHS, RHS, D, E> Op for HStackOp<LHS, RHS, D, E>
-// where
-//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
-//     D: Dimension + RemoveAxis + HStack<E> + 'static,
-//     E: Dimension + RemoveAxis + 'static,
-// {
-//     type Data = Tensor<HStacked<D, E>>;
-//     type Grad = Tensor<HStacked<D, E>>;
+        // Matrix scalar assignment.
+        accumulate(&mut matrix_trgt, &scalar, -1.0, &BackwardAction::Set);
+        assert_eq!(
+            matrix_trgt.array,
+            -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+        );
 
-//     fn forward(&self) {
-//         if self.counter.forward_action() == ForwardAction::Cached {
-//             return;
-//         }
+        // Matrix vector assignment.
+        accumulate(&mut matrix_trgt, &vector, -1.0, &BackwardAction::Set);
+        assert_eq!(
+            matrix_trgt.array,
+            -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+        );
 
-//         self.lhs.forward();
-//         self.rhs.forward();
+        // Matrix matrix assignment.
+        accumulate(&mut matrix_trgt, &matrix, -1.0, &BackwardAction::Set);
+        assert_eq!(
+            matrix_trgt.array,
+            -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+        );
+    }
 
-//         self.data
-//             .borrow_mut()
-//             .hstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
-//     }
+    #[test]
+    fn add_assign_test() {
+        let mut scalar_trgt = Tensor { array: array![5.0] };
+        let mut vector_trgt = Tensor {
+            array: array![5.0, 5.0, 5.0],
+        };
+        let mut matrix_trgt = Tensor {
+            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
+        };
 
-//     fn backward(&self, grad: &Ref<Self::Grad>) {
-//         let action = self.counter.backward_action();
+        let scalar = Tensor { array: array![5.0] };
+        let vector = Tensor {
+            array: array![5.0, 5.0, 5.0],
+        };
+        let matrix = Tensor {
+            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
+        };
 
-//         grad.hstack_bkwrd(
-//             &mut self.lhs_grad.borrow_mut(),
-//             &mut self.rhs_grad.borrow_mut(),
-//             &action,
-//         );
+        // Scalar scalar assignment.
+        accumulate(&mut scalar_trgt, &scalar, 1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt.array[0], 10.0);
 
-//         if self.counter.recurse_backward() {
-//             self.lhs.backward(&self.lhs_grad.borrow());
-//             self.rhs.backward(&self.rhs_grad.borrow());
-//         }
-//     }
+        // Scalar scalar vector.
+        accumulate(&mut scalar_trgt, &vector, 1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt.array[0], 25.0);
 
-//     fn clear(&self) {
-//         if !self.counter.is_zero() {
-//             self.lhs.clear();
-//             self.rhs.clear();
-//             self.counter.clear();
-//         }
-//     }
+        // Scalar scalar matrix.
+        accumulate(&mut scalar_trgt, &matrix, 1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt.array[0], 70.0);
 
-//     fn data(&self) -> Borrow<'_, Self::Data> {
-//         Borrow::FromRefCell(self.data.borrow())
-//     }
+        // Vector scalar assignment.
+        accumulate(&mut vector_trgt, &scalar, 1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt.array, array![10.0, 10.0, 10.0]);
 
-//     fn requires_grad(&self) -> bool {
-//         self.requires_grad
-//     }
-// }
+        // Vector vector assignment.
+        accumulate(&mut vector_trgt, &vector, 1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt.array, array![15.0, 15.0, 15.0]);
 
-// #[derive(Debug)]
-// pub struct DStackOp<LHS, RHS, D>
-// where
-//     D: Dimension + RemoveAxis + DStack<D>,
-// {
-//     data: RefCell<Tensor<DStacked<D, D>>>,
-//     lhs: Rc<LHS>,
-//     rhs: Rc<RHS>,
-//     lhs_grad: RefCell<Tensor<D>>,
-//     rhs_grad: RefCell<Tensor<D>>,
-//     requires_grad: bool,
-//     counter: PassCounter,
-// }
+        // Vector matrix assignment.
+        accumulate(&mut vector_trgt, &matrix, 1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt.array, array![30.0, 30.0, 30.0]);
 
-// impl<LHS, RHS, D> DStackOp<LHS, RHS, D>
-// where
-//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     RHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     D: Dimension + RemoveAxis + DStack<D>,
-// {
-//     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
-//         let data = lhs.data().dstack(rhs.data().deref());
+        // Matrix scalar assignment.
+        accumulate(&mut matrix_trgt, &scalar, 1.0, &BackwardAction::Increment);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[10.0, 10.0, 10.0], [10.0, 10.0, 10.0], [10.0, 10.0, 10.0]]
+        );
 
-//         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+        // Matrix vector assignment.
+        accumulate(&mut matrix_trgt, &vector, 1.0, &BackwardAction::Increment);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[15.0, 15.0, 15.0], [15.0, 15.0, 15.0], [15.0, 15.0, 15.0]]
+        );
 
-//         let lhs_grad = lhs.data().zeros_from();
-//         let rhs_grad = rhs.data().zeros_from();
+        // Matrix matrix assignment.
+        accumulate(&mut matrix_trgt, &matrix, 1.0, &BackwardAction::Increment);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[20.0, 20.0, 20.0], [20.0, 20.0, 20.0], [20.0, 20.0, 20.0]]
+        );
+    }
 
-//         DStackOp {
-//             data: RefCell::new(data),
-//             lhs: lhs,
-//             rhs: rhs,
-//             lhs_grad: RefCell::new(lhs_grad),
-//             rhs_grad: RefCell::new(rhs_grad),
-//             requires_grad: requires_grad,
-//             counter: PassCounter::default(),
-//         }
-//     }
-// }
+    #[test]
+    fn scaled_add_assign_test() {
+        let mut scalar_trgt = Tensor { array: array![5.0] };
+        let mut vector_trgt = Tensor {
+            array: array![5.0, 5.0, 5.0],
+        };
+        let mut matrix_trgt = Tensor {
+            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
+        };
 
-// impl<LHS, RHS, D> Op for DStackOp<LHS, RHS, D>
-// where
-//     LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     RHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-//     D: Dimension + RemoveAxis + DStack<D> + 'static,
-// {
-//     type Data = Tensor<DStacked<D, D>>;
-//     type Grad = Tensor<DStacked<D, D>>;
+        let scalar = Tensor { array: array![5.0] };
+        let vector = Tensor {
+            array: array![5.0, 5.0, 5.0],
+        };
+        let matrix = Tensor {
+            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
+        };
 
-//     fn forward(&self) {
-//         if self.counter.forward_action() == ForwardAction::Cached {
-//             return;
-//         }
+        // Scalar scalar assignment.
+        &mut accumulate(&mut scalar_trgt, &scalar, -1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt.array[0], 0.0);
+        scalar_trgt.set_zero();
 
-//         self.lhs.forward();
-//         self.rhs.forward();
+        // Scalar scalar vector.
+        &mut accumulate(&mut scalar_trgt, &vector, -1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt.array[0], -15.0);
+        scalar_trgt.set_zero();
 
-//         self.data
-//             .borrow_mut()
-//             .dstack_fwd(self.lhs.data().deref(), self.rhs.data().deref())
-//     }
+        // Scalar scalar matrix.
+        &mut accumulate(&mut scalar_trgt, &matrix, -1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt.array[0], -45.0);
+        scalar_trgt.set_zero();
 
-//     fn backward(&self, grad: &Ref<Self::Grad>) {
-//         let action = self.counter.backward_action();
+        // Vector scalar assignment.
+        &mut accumulate(&mut vector_trgt, &scalar, -1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt.array, array![0.0, 0.0, 0.0]);
+        vector_trgt.set_zero();
 
-//         grad.dstack_bkwrd(
-//             &mut self.lhs_grad.borrow_mut(),
-//             &mut self.rhs_grad.borrow_mut(),
-//             &action,
-//         );
+        // Vector vector assignment.
+        &mut accumulate(&mut vector_trgt, &vector, -1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt.array, array![-5.0, -5.0, -5.0]);
+        vector_trgt.set_zero();
 
-//         if self.counter.recurse_backward() {
-//             self.lhs.backward(&self.lhs_grad.borrow());
-//             self.rhs.backward(&self.rhs_grad.borrow());
-//         }
-//     }
+        // Vector matrix assignment.
+        &mut accumulate(&mut vector_trgt, &matrix, -1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt.array, array![-15.0, -15.0, -15.0]);
+        vector_trgt.set_zero();
 
-//     fn clear(&self) {
-//         if !self.counter.is_zero() {
-//             self.lhs.clear();
-//             self.rhs.clear();
-//             self.counter.clear();
-//         }
-//     }
+        // Matrix scalar assignment.
+        &mut accumulate(&mut matrix_trgt, &scalar, -1.0, &BackwardAction::Increment);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+        );
+        matrix_trgt.set_zero();
 
-//     fn data(&self) -> Borrow<'_, Self::Data> {
-//         Borrow::FromRefCell(self.data.borrow())
-//     }
+        // Matrix vector assignment.
+        &mut accumulate(&mut matrix_trgt, &vector, -1.0, &BackwardAction::Increment);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0]]
+        );
+        matrix_trgt.set_zero();
 
-//     fn requires_grad(&self) -> bool {
-//         self.requires_grad
-//     }
-//}
+        // Matrix matrix assignment.
+        &mut accumulate(&mut matrix_trgt, &matrix, -1.0, &BackwardAction::Increment);
+        assert_eq!(
+            matrix_trgt.array,
+            array![[-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0]]
+        );
+        matrix_trgt.set_zero();
+    }
+}

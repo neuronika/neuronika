@@ -5,8 +5,8 @@ use itertools::Itertools;
 use ndarray::{Dimension, Ix1, Ix2, RemoveAxis};
 use numeric::{Broadcast, Broadcasted, Tensor};
 use ops::{
-    AddOp, Borrow, DivOp, DotOp, DotVecOp, ExpOp, LeakyReLUOp, LnOp, MulOp, NegOp, Op, Param,
-    PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp, TOp, TanhOp,
+    AddOp, DivOp, DotOp, DotVecOp, ExpOp, LeakyReLUOp, LnOp, MulOp, NegOp, Op, Param, PowOp,
+    ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp, TOp, TanhOp,
 };
 use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
@@ -141,9 +141,9 @@ where
 {
     pub(super) fn new(repr: Rc<T>, upstream: Vec<Box<dyn Trackable>>) -> Self {
         GraphBuilder {
-            repr: repr,
+            repr,
             grad: None,
-            upstream: upstream,
+            upstream,
         }
     }
 }
@@ -153,7 +153,7 @@ where
     T: Op<Data = Tensor<D>, Grad = Tensor<D>>,
     D: Dimension + RemoveAxis + 'static,
 {
-    pub fn data(&self) -> Borrow<T::Data> {
+    pub fn data(&self) -> Ref<T::Data> {
         self.repr.data()
     }
 
@@ -182,13 +182,9 @@ where
     pub fn backward(&mut self, seed: f32) {
         let data_ref: &Tensor<D> = &self.repr.data();
         self.grad
-            .get_or_insert_with(|| {
-                RefCell::new(Tensor {
-                    data: data_ref.data.map(|_| seed),
-                })
-            })
+            .get_or_insert_with(|| RefCell::new(Tensor::new(data_ref.array().map(|_| seed))))
             .borrow_mut()
-            .data
+            .array_mut()
             .map_inplace(|el| *el = seed);
 
         if let Some(ref grad) = self.grad {
