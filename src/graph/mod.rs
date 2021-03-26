@@ -1,13 +1,14 @@
+pub(crate) mod node;
 pub(super) mod numeric;
-pub(crate) mod ops;
 
 use itertools::Itertools;
 use ndarray::{Dimension, Ix1, Ix2, RemoveAxis};
-use numeric::{Broadcast, Broadcasted, Tensor};
-use ops::{
-    AddOp, Borrow, DivOp, DotOp, DotVecOp, ExpOp, LeakyReLUOp, LnOp, MulOp, NegOp, Op, Param,
-    PowOp, ReLUOp, ScalProdOp, SigmoidOp, SoftmaxOp, SoftplusOp, SubOp, SumOp, TOp, TanhOp,
+use node::{
+    Addition, Division, Dot, Exp, LeakyReLU, Logn, Multiplication, Negation, Node, Parameter,
+    Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Subtraction, Summation, Tanh,
+    Transpose, VectorDot,
 };
+use numeric::{Broadcast, Broadcasted, Tensor};
 use std::cell::{Ref, RefCell};
 use std::fmt::Debug;
 use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
@@ -23,7 +24,7 @@ pub trait Trackable: Debug + TrackableClone {
     fn get_id(&self) -> usize;
 }
 
-impl<D> TrackableClone for GraphBuilder<Param<D>, D>
+impl<D> TrackableClone for GraphBuilder<Parameter<D>, D>
 where
     D: Dimension + RemoveAxis + 'static,
 {
@@ -32,7 +33,7 @@ where
     }
 }
 
-impl<D> Trackable for GraphBuilder<Param<D>, D>
+impl<D> Trackable for GraphBuilder<Parameter<D>, D>
 where
     D: Dimension + RemoveAxis + 'static,
 {
@@ -59,7 +60,7 @@ impl Clone for Box<dyn Trackable> {
 #[derive(Debug)]
 pub struct GraphBuilder<T, D>
 where
-    T: Op,
+    T: Node,
     D: Dimension + RemoveAxis,
 {
     repr: Rc<T>,
@@ -69,7 +70,7 @@ where
 
 impl<T, D> Clone for GraphBuilder<T, D>
 where
-    T: Op,
+    T: Node,
     D: Dimension + RemoveAxis,
 {
     fn clone(&self) -> Self {
@@ -81,7 +82,7 @@ where
     }
 }
 
-impl<D> GraphBuilder<Param<D>, D>
+impl<D> GraphBuilder<Parameter<D>, D>
 where
     D: Dimension + RemoveAxis + 'static,
 {
@@ -92,14 +93,14 @@ where
 
 impl<T> GraphBuilder<T, Ix1>
 where
-    T: Op<Data = Tensor<Ix1>, Grad = Tensor<Ix1>>,
+    T: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
 {
-    pub fn dot<U>(&self, other: &GraphBuilder<U, Ix1>) -> GraphBuilder<ScalProdOp<T, U>, Ix1>
+    pub fn dot<U>(&self, other: &GraphBuilder<U, Ix1>) -> GraphBuilder<ScalarProduct<T, U>, Ix1>
     where
-        U: Op<Data = Tensor<Ix1>, Grad = Tensor<Ix1>>,
+        U: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
     {
         GraphBuilder::new(
-            Rc::new(ScalProdOp::new(
+            Rc::new(ScalarProduct::new(
                 Rc::clone(&self.repr),
                 Rc::clone(&other.repr),
             )),
@@ -110,24 +111,27 @@ where
 
 impl<T> GraphBuilder<T, Ix2>
 where
-    T: Op<Data = Tensor<Ix2>, Grad = Tensor<Ix2>>,
+    T: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
 {
-    pub fn mm<U>(&self, other: &GraphBuilder<U, Ix2>) -> GraphBuilder<DotOp<T, U>, Ix2>
+    pub fn mm<U>(&self, other: &GraphBuilder<U, Ix2>) -> GraphBuilder<Dot<T, U>, Ix2>
     where
-        U: Op<Data = Tensor<Ix2>, Grad = Tensor<Ix2>>,
+        U: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
     {
         GraphBuilder::new(
-            Rc::new(DotOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            Rc::new(Dot::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
             track_upstream(&self.upstream, &other.upstream),
         )
     }
 
-    pub fn mv_mul<U>(&self, other: &GraphBuilder<U, Ix1>) -> GraphBuilder<DotVecOp<T, U>, Ix1>
+    pub fn mv_mul<U>(&self, other: &GraphBuilder<U, Ix1>) -> GraphBuilder<VectorDot<T, U>, Ix1>
     where
-        U: Op<Data = Tensor<Ix1>, Grad = Tensor<Ix1>>,
+        U: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
     {
         GraphBuilder::new(
-            Rc::new(DotVecOp::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            Rc::new(VectorDot::new(
+                Rc::clone(&self.repr),
+                Rc::clone(&other.repr),
+            )),
             track_upstream(&self.upstream, &other.upstream),
         )
     }
@@ -135,25 +139,25 @@ where
 
 impl<T, D, E> GraphBuilder<T, E>
 where
-    T: Op<Data = Tensor<D>, Grad = Tensor<E>>,
+    T: Node<Data = Tensor<D>, Gradient = Tensor<E>>,
     D: Dimension + RemoveAxis + 'static,
     E: Dimension + RemoveAxis + 'static,
 {
     pub(super) fn new(repr: Rc<T>, upstream: Vec<Box<dyn Trackable>>) -> Self {
         GraphBuilder {
-            repr: repr,
+            repr,
             grad: None,
-            upstream: upstream,
+            upstream,
         }
     }
 }
 
 impl<T, D> GraphBuilder<T, D>
 where
-    T: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + RemoveAxis + 'static,
 {
-    pub fn data(&self) -> Borrow<T::Data> {
+    pub fn data(&self) -> Ref<T::Data> {
         self.repr.data()
     }
 
@@ -182,13 +186,9 @@ where
     pub fn backward(&mut self, seed: f32) {
         let data_ref: &Tensor<D> = &self.repr.data();
         self.grad
-            .get_or_insert_with(|| {
-                RefCell::new(Tensor {
-                    data: data_ref.data.map(|_| seed),
-                })
-            })
+            .get_or_insert_with(|| RefCell::new(Tensor::new(data_ref.array().map(|_| seed))))
             .borrow_mut()
-            .data
+            .array_mut()
             .map_inplace(|el| *el = seed);
 
         if let Some(ref grad) = self.grad {
@@ -196,83 +196,83 @@ where
         }
     }
 
-    pub fn sum(&self) -> GraphBuilder<SumOp<T, D>, D> {
+    pub fn sum(&self) -> GraphBuilder<Summation<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(SumOp::new(Rc::clone(&self.repr))),
+            Rc::new(Summation::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn pow(&self, exp: i32) -> GraphBuilder<PowOp<T, D>, D> {
+    pub fn pow(&self, exp: i32) -> GraphBuilder<Power<T, D>, D> {
         GraphBuilder {
-            repr: Rc::new(PowOp::new(Rc::clone(&self.repr), exp)),
+            repr: Rc::new(Power::new(Rc::clone(&self.repr), exp)),
             grad: None,
             upstream: self.upstream.clone(),
         }
     }
 
-    pub fn relu(&self) -> GraphBuilder<ReLUOp<T, D>, D> {
+    pub fn relu(&self) -> GraphBuilder<ReLU<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(ReLUOp::new(Rc::clone(&self.repr))),
+            Rc::new(ReLU::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn leaky_relu(&self) -> GraphBuilder<LeakyReLUOp<T, D>, D> {
+    pub fn leaky_relu(&self) -> GraphBuilder<LeakyReLU<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(LeakyReLUOp::new(Rc::clone(&self.repr))),
+            Rc::new(LeakyReLU::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softplus(&self) -> GraphBuilder<SoftplusOp<T, D>, D> {
+    pub fn softplus(&self) -> GraphBuilder<Softplus<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(SoftplusOp::new(Rc::clone(&self.repr))),
+            Rc::new(Softplus::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn sigmoid(&self) -> GraphBuilder<SigmoidOp<T, D>, D> {
+    pub fn sigmoid(&self) -> GraphBuilder<Sigmoid<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(SigmoidOp::new(Rc::clone(&self.repr))),
+            Rc::new(Sigmoid::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn tanh(&self) -> GraphBuilder<TanhOp<T, D>, D> {
+    pub fn tanh(&self) -> GraphBuilder<Tanh<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(TanhOp::new(Rc::clone(&self.repr))),
+            Rc::new(Tanh::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn ln(&self) -> GraphBuilder<LnOp<T, D>, D>
+    pub fn ln(&self) -> GraphBuilder<Logn<T, D>, D>
     where
         D: Broadcast<D>,
     {
         GraphBuilder::new(
-            Rc::new(LnOp::new(Rc::clone(&self.repr))),
+            Rc::new(Logn::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn exp(&self) -> GraphBuilder<ExpOp<T, D>, D> {
+    pub fn exp(&self) -> GraphBuilder<Exp<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(ExpOp::new(Rc::clone(&self.repr))),
+            Rc::new(Exp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softmax(&self, axis: usize) -> GraphBuilder<SoftmaxOp<T, D>, D> {
+    pub fn softmax(&self, axis: usize) -> GraphBuilder<Softmax<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(SoftmaxOp::new(Rc::clone(&self.repr), axis)),
+            Rc::new(Softmax::new(Rc::clone(&self.repr), axis)),
             self.upstream.clone(),
         )
     }
 
-    pub fn t(&self) -> GraphBuilder<TOp<T, D>, D> {
+    pub fn t(&self) -> GraphBuilder<Transpose<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(TOp::new(Rc::clone(&self.repr))),
+            Rc::new(Transpose::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
@@ -300,8 +300,8 @@ macro_rules! impl_node_arithmetic_ops {
     ($trait:ident, $fun:ident, $repr:ident) => {
         impl<LHS, RHS, D, E> $trait<GraphBuilder<RHS, E>> for GraphBuilder<LHS, D>
         where
-            LHS: Op<Data = Tensor<D>, Grad = Tensor<D>>,
-            RHS: Op<Data = Tensor<E>, Grad = Tensor<E>>,
+            LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+            RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
             D: Dimension + RemoveAxis + Broadcast<E> + 'static,
             E: Dimension + RemoveAxis + 'static,
         {
@@ -317,18 +317,18 @@ macro_rules! impl_node_arithmetic_ops {
     };
 }
 
-impl_node_arithmetic_ops!(Add, add, AddOp);
-impl_node_arithmetic_ops!(Sub, sub, SubOp);
-impl_node_arithmetic_ops!(Mul, mul, MulOp);
-impl_node_arithmetic_ops!(Div, div, DivOp);
+impl_node_arithmetic_ops!(Add, add, Addition);
+impl_node_arithmetic_ops!(Sub, sub, Subtraction);
+impl_node_arithmetic_ops!(Mul, mul, Multiplication);
+impl_node_arithmetic_ops!(Div, div, Division);
 
 impl<T, D> Neg for GraphBuilder<T, D>
 where
-    T: Op<Data = Tensor<D>, Grad = Tensor<D>>,
+    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + RemoveAxis + 'static,
 {
-    type Output = GraphBuilder<NegOp<T, D>, D>;
+    type Output = GraphBuilder<Negation<T, D>, D>;
     fn neg(self) -> Self::Output {
-        GraphBuilder::new(Rc::new(NegOp::new(self.repr)), self.upstream.clone())
+        GraphBuilder::new(Rc::new(Negation::new(self.repr)), self.upstream.clone())
     }
 }
