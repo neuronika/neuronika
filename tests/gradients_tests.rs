@@ -5,10 +5,10 @@ use neuronika::*;
 
 #[test]
 fn scalar_add() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
 
@@ -33,10 +33,10 @@ fn scalar_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
 
@@ -61,10 +61,10 @@ fn scalar_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 10], 1.0),
     });
 
@@ -92,10 +92,10 @@ fn scalar_add() {
 
 #[test]
 fn scalar_sub() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[3.0]),
     });
 
@@ -120,10 +120,10 @@ fn scalar_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![3.0; 10]),
     });
 
@@ -148,10 +148,10 @@ fn scalar_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 10], 1.0),
     });
 
@@ -179,10 +179,10 @@ fn scalar_sub() {
 
 #[test]
 fn scalar_mul() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[3.0]),
     });
 
@@ -207,10 +207,10 @@ fn scalar_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![3.0; 10]),
     });
 
@@ -235,10 +235,10 @@ fn scalar_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 10], 3.0),
     });
 
@@ -266,10 +266,10 @@ fn scalar_mul() {
 
 #[test]
 fn scalar_div() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
 
@@ -294,10 +294,10 @@ fn scalar_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
 
@@ -322,10 +322,10 @@ fn scalar_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 5.0),
     });
 
@@ -353,10 +353,10 @@ fn scalar_div() {
 
 #[test]
 fn vector_add() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
 
@@ -381,10 +381,10 @@ fn vector_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
 
@@ -409,10 +409,10 @@ fn vector_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![10.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 10], 1.0),
     });
 
@@ -437,10 +437,10 @@ fn vector_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 1], 1.0),
     });
 
@@ -468,10 +468,10 @@ fn vector_add() {
 
 #[test]
 fn vector_sub() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
 
@@ -496,10 +496,10 @@ fn vector_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
 
@@ -524,10 +524,10 @@ fn vector_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 10], -1.0),
     });
 
@@ -552,10 +552,10 @@ fn vector_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 1], 1.0),
     });
 
@@ -583,10 +583,10 @@ fn vector_sub() {
 
 #[test]
 fn vector_mul() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[3.0]),
     });
 
@@ -611,10 +611,10 @@ fn vector_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![3.0; 10]),
     });
 
@@ -639,10 +639,10 @@ fn vector_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 10], 3.0),
     });
 
@@ -667,10 +667,10 @@ fn vector_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([10, 1], 3.0),
     });
 
@@ -698,10 +698,10 @@ fn vector_mul() {
 
 #[test]
 fn vector_div() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
 
@@ -726,10 +726,10 @@ fn vector_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 10]),
     });
 
@@ -754,10 +754,10 @@ fn vector_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 5]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 5.0),
     });
 
@@ -782,10 +782,10 @@ fn vector_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 5]),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 1], 5.0),
     });
 
@@ -813,10 +813,10 @@ fn vector_div() {
 
 #[test]
 fn matrix_add() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
 
@@ -841,10 +841,10 @@ fn matrix_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![1.0; 5]),
     });
 
@@ -869,10 +869,10 @@ fn matrix_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
 
@@ -897,10 +897,10 @@ fn matrix_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 1], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([1, 5], 1.0),
     });
 
@@ -925,10 +925,10 @@ fn matrix_add() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([1, 1], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
 
@@ -956,10 +956,10 @@ fn matrix_add() {
 
 #[test]
 fn matrix_sub() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[1.0]),
     });
 
@@ -984,10 +984,10 @@ fn matrix_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![-1.0; 5]),
     });
 
@@ -1012,10 +1012,10 @@ fn matrix_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], -1.0),
     });
 
@@ -1040,10 +1040,10 @@ fn matrix_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([1, 5], -1.0),
     });
 
@@ -1068,10 +1068,10 @@ fn matrix_sub() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 1.0),
     });
 
@@ -1099,10 +1099,10 @@ fn matrix_sub() {
 
 #[test]
 fn matrix_mul() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[3.0]),
     });
 
@@ -1127,10 +1127,10 @@ fn matrix_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![3.0; 5]),
     });
 
@@ -1155,10 +1155,10 @@ fn matrix_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 3.0),
     });
 
@@ -1183,10 +1183,10 @@ fn matrix_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([5, 1], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([1, 5], 3.0),
     });
 
@@ -1211,10 +1211,10 @@ fn matrix_mul() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([1, 1], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([5, 5], 3.0),
     });
 
@@ -1242,10 +1242,10 @@ fn matrix_mul() {
 
 #[test]
 fn matrix_div() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([2, 2], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: arr1(&[5.0]),
     });
 
@@ -1270,10 +1270,10 @@ fn matrix_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([2, 2], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array1::from(vec![5.0; 2]),
     });
 
@@ -1298,10 +1298,10 @@ fn matrix_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([2, 2], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([2, 2], 5.0),
     });
 
@@ -1326,10 +1326,10 @@ fn matrix_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([2, 1], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([1, 2], 5.0),
     });
 
@@ -1354,10 +1354,10 @@ fn matrix_div() {
         }
     );
 
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([1, 1], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([2, 2], 5.0),
     });
 
@@ -1385,13 +1385,13 @@ fn matrix_div() {
 
 #[test]
 fn upstream_test() {
-    let x = Param::new(Tensor {
+    let x = Parameter::new(Tensor {
         array: Array::from_elem([2, 2], 5.0),
     });
-    let y = Param::new(Tensor {
+    let y = Parameter::new(Tensor {
         array: Array::from_elem([2, 2], 5.0),
     });
-    let z = Param::new(Tensor {
+    let z = Parameter::new(Tensor {
         array: Array::from_elem([1, 1], 1.0),
     });
 
