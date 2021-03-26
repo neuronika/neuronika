@@ -4,9 +4,9 @@ pub(super) mod numeric;
 use itertools::Itertools;
 use ndarray::{Dimension, Ix1, Ix2, RemoveAxis};
 use node::{
-    Addition, Division, Dot, Exp, LeakyReLU, Logn, Multiplication, Negation, Node, Parameter,
-    Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Subtraction, Summation, Tanh,
-    Transpose, VectorDot,
+    Addition, Concatenate, Division, Dot, Exp, LeakyReLU, Logn, Multiplication, Negation, Node,
+    Parameter, Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction, Sum,
+    Tanh, Transpose, Unsqueeze, VectorDot,
 };
 use numeric::{Broadcast, Broadcasted, Tensor};
 use std::cell::{Ref, RefCell};
@@ -196,9 +196,9 @@ where
         }
     }
 
-    pub fn sum(&self) -> GraphBuilder<Summation<T, D>, D> {
+    pub fn sum(&self) -> GraphBuilder<Sum<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(Summation::new(Rc::clone(&self.repr))),
+            Rc::new(Sum::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
@@ -274,6 +274,41 @@ where
         GraphBuilder::new(
             Rc::new(Transpose::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
+        )
+    }
+
+    pub fn unsqueeze(&self, axis: usize) -> GraphBuilder<Unsqueeze<T, D>, D::Larger> {
+        GraphBuilder::new(
+            Rc::new(Unsqueeze::new(Rc::clone(&self.repr), axis)),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn cat<U>(
+        self,
+        other: GraphBuilder<U, D>,
+        axis: usize,
+    ) -> GraphBuilder<Concatenate<T, U, D>, D>
+    where
+        U: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    {
+        GraphBuilder::new(
+            Rc::new(Concatenate::new(self.repr, other.repr, axis)),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+
+    pub fn stack<U>(
+        self,
+        other: GraphBuilder<U, D>,
+        axis: usize,
+    ) -> GraphBuilder<Stack<T, U, D>, D::Larger>
+    where
+        U: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    {
+        GraphBuilder::new(
+            Rc::new(Stack::new(self.repr, other.repr, axis)),
+            track_upstream(&self.upstream, &other.upstream),
         )
     }
 }

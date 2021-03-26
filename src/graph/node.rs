@@ -1261,26 +1261,30 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let exp = self.exp;
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let exp = self.exp;
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el =
+                                *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el +=
+                                *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                        });
+                }
             }
         }
 
@@ -1308,7 +1312,7 @@ where
 // ============================ Computational Graph Internal Component: Sum Reduction  ============================
 
 #[derive(Debug)]
-pub struct Summation<OP, D>
+pub struct Sum<OP, D>
 where
     D: Dimension + RemoveAxis,
 {
@@ -1319,7 +1323,7 @@ where
     counter: PassCounter,
 }
 
-impl<OP, D> Summation<OP, D>
+impl<OP, D> Sum<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + RemoveAxis,
@@ -1339,7 +1343,7 @@ where
     }
 }
 
-impl<OP, D> Node for Summation<OP, D>
+impl<OP, D> Node for Sum<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + RemoveAxis + 'static,
@@ -1441,25 +1445,27 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el / *operand_data_el
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el / *operand_data_el
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el = *down_grad_el / *operand_data_el
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el += *down_grad_el / *operand_data_el
+                        });
+                }
             }
         }
 
@@ -1553,33 +1559,35 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.0
-                        }
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.0
-                        }
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el = if *operand_data_el > 0.0 {
+                                *down_grad_el
+                            } else {
+                                0.0
+                            }
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el += if *operand_data_el > 0.0 {
+                                *down_grad_el
+                            } else {
+                                0.0
+                            }
+                        });
+                }
             }
         }
 
@@ -1673,33 +1681,35 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.01 * down_grad_el
-                        }
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.01 * down_grad_el
-                        }
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el = if *operand_data_el > 0.0 {
+                                *down_grad_el
+                            } else {
+                                0.01 * down_grad_el
+                            }
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el += if *operand_data_el > 0.0 {
+                                *down_grad_el
+                            } else {
+                                0.01 * down_grad_el
+                            }
+                        });
+                }
             }
         }
 
@@ -1798,37 +1808,39 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = if *operand_data_el >= 15.0 {
-                            *down_grad_el
-                        } else if *operand_data_el <= -15.0 {
-                            0.0
-                        } else {
-                            down_grad_el / (1.0 + (-*operand_data_el).exp())
-                        }
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += if *operand_data_el >= 15.0 {
-                            *down_grad_el
-                        } else if *operand_data_el <= -15.0 {
-                            0.0
-                        } else {
-                            down_grad_el / (1.0 + (-*operand_data_el).exp())
-                        }
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el = if *operand_data_el >= 15.0 {
+                                *down_grad_el
+                            } else if *operand_data_el <= -15.0 {
+                                0.0
+                            } else {
+                                down_grad_el / (1.0 + (-*operand_data_el).exp())
+                            }
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el += if *operand_data_el >= 15.0 {
+                                *down_grad_el
+                            } else if *operand_data_el <= -15.0 {
+                                0.0
+                            } else {
+                                down_grad_el / (1.0 + (-*operand_data_el).exp())
+                            }
+                        });
+                }
             }
         }
         if self.counter.recurse_backward() {
@@ -1927,25 +1939,29 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el =
+                                *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el +=
+                                *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                        });
+                }
             }
         }
 
@@ -2028,25 +2044,27 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * (1.0 - operand_data_el.powi(2))
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * (1.0 - operand_data_el.powi(2))
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el = *down_grad_el * (1.0 - operand_data_el.powi(2))
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el += *down_grad_el * (1.0 - operand_data_el.powi(2))
+                        });
+                }
             }
         }
 
@@ -2129,25 +2147,27 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * *operand_data_el
-                    });
-            }
-            BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * *operand_data_el
-                    });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el = *down_grad_el * *operand_data_el
+                        });
+                }
+                BackwardAction::Increment => {
+                    Zip::from(self_grad.array_mut())
+                        .and(grad.array())
+                        .and(operand_data.array())
+                        .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
+                            *self_grad_el += *down_grad_el * *operand_data_el
+                        });
+                }
             }
         }
 
@@ -2245,47 +2265,48 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let mut jacobian = self.jacobian.borrow_mut();
-        let axis = self.axis;
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let mut jacobian = self.jacobian.borrow_mut();
+            let axis = self.axis;
 
-        fn fill_jacobian(jacobian: &mut Array2<f32>, array: &ArrayView1<f32>) {
-            for (row_idx, (mut row, row_val)) in jacobian
-                .genrows_mut()
-                .into_iter()
-                .zip(array.iter())
-                .enumerate()
-            {
-                for (col_idx, (grad, col_val)) in row
-                    .as_slice_mut()
-                    .unwrap()
-                    .iter_mut()
+            fn fill_jacobian(jacobian: &mut Array2<f32>, array: &ArrayView1<f32>) {
+                for (row_idx, (mut row, row_val)) in jacobian
+                    .genrows_mut()
+                    .into_iter()
                     .zip(array.iter())
                     .enumerate()
                 {
-                    if row_idx == col_idx {
-                        *grad = row_val * (1.0 - col_val);
-                    } else {
-                        *grad = -row_val * col_val;
+                    for (col_idx, (grad, col_val)) in row
+                        .as_slice_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .zip(array.iter())
+                        .enumerate()
+                    {
+                        if row_idx == col_idx {
+                            *grad = row_val * (1.0 - col_val);
+                        } else {
+                            *grad = -row_val * col_val;
+                        }
                     }
                 }
             }
+
+            let beta = match self.counter.backward_action() {
+                BackwardAction::Set => 0.0,
+                BackwardAction::Increment => 1.0,
+            };
+
+            Zip::from(self_grad.array_mut().lanes_mut(Axis(axis)))
+                .and(operand_data.array().lanes(Axis(axis)))
+                .and(grad.array().lanes(Axis(axis)))
+                .apply(|mut d_g_col, data_col, grad_col| {
+                    fill_jacobian(&mut jacobian, &data_col);
+                    general_mat_vec_mul(1.0, &jacobian, &grad_col, beta, &mut d_g_col);
+                });
         }
-
-        let beta = match self.counter.backward_action() {
-            BackwardAction::Set => 0.0,
-            BackwardAction::Increment => 1.0,
-        };
-
-        Zip::from(self_grad.array_mut().lanes_mut(Axis(axis)))
-            .and(operand_data.array().lanes(Axis(axis)))
-            .and(grad.array().lanes(Axis(axis)))
-            .apply(|mut d_g_col, data_col, grad_col| {
-                fill_jacobian(&mut jacobian, &data_col);
-                general_mat_vec_mul(1.0, &jacobian, &grad_col, beta, &mut d_g_col);
-            });
-
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
         }
@@ -2386,6 +2407,394 @@ where
         }
     }
 }
+
+// ============================ Computational Graph Internal Component: Concatenate  ============================
+
+#[derive(Debug)]
+pub struct Concatenate<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<D>>,
+    axis: usize,
+    lhs: Rc<LHS>,
+    rhs: Rc<RHS>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<D>>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<LHS, RHS, D> Concatenate<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
+        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+        let data = Tensor::concatenate(Axis(axis), &[&lhs.data(), &rhs.data()]);
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
+
+        Self {
+            data: RefCell::new(data),
+            axis,
+            lhs,
+            rhs,
+            lhs_grad: RefCell::new(lhs_grad),
+            rhs_grad: RefCell::new(rhs_grad),
+            requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<LHS, RHS, D> Node for Concatenate<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Data = Tensor<D>;
+    type Gradient = Tensor<D>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.lhs.forward();
+        self.rhs.forward();
+
+        let mut self_data = self.data.borrow_mut();
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let axis = self.axis;
+
+        let (mut lhs_, mut rhs_) = self_data
+            .array_mut()
+            .view_mut()
+            .split_at(Axis(axis), lhs_data.array().len_of(Axis(axis)));
+        Zip::from(lhs_data.array())
+            .and(&mut lhs_)
+            .apply(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(rhs_data.array())
+            .and(&mut rhs_)
+            .apply(|single_el, fused_el| *fused_el = *single_el);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Gradient>) {
+        let mut lhs_grad = self.lhs_grad.borrow_mut();
+        let mut rhs_grad = self.rhs_grad.borrow_mut();
+        let axis = self.axis;
+
+        let (lhs_, rhs_) = grad
+            .array()
+            .view()
+            .split_at(Axis(axis), lhs_grad.array().len_of(Axis(axis)));
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(lhs_grad.array_mut())
+                    .and(&lhs_)
+                    .apply(|single_el, fused_el| *single_el = *fused_el);
+                Zip::from(rhs_grad.array_mut())
+                    .and(&rhs_)
+                    .apply(|single_el, fused_el| *single_el = *fused_el);
+            }
+            BackwardAction::Increment => {
+                Zip::from(lhs_grad.array_mut())
+                    .and(&lhs_)
+                    .apply(|single_el, fused_el| *single_el += *fused_el);
+                Zip::from(rhs_grad.array_mut())
+                    .and(&rhs_)
+                    .apply(|single_el, fused_el| *single_el += *fused_el);
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.lhs.backward(&self.lhs_grad.borrow());
+            self.rhs.backward(&self.rhs_grad.borrow());
+        }
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.lhs.clear();
+            self.rhs.clear();
+            self.counter.clear();
+        }
+    }
+
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+}
+
+// ============================ Computational Graph Internal Component: Stack  ============================
+
+#[derive(Debug)]
+pub struct Stack<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<D::Larger>>,
+    axis: usize,
+    lhs: Rc<LHS>,
+    rhs: Rc<RHS>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<D>>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<LHS, RHS, D> Stack<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
+        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+        let data = Tensor::stack(Axis(axis), &[&lhs.data(), &rhs.data()]);
+        let lhs_grad = lhs.data().zeros_from();
+        let rhs_grad = rhs.data().zeros_from();
+
+        Self {
+            data: RefCell::new(data),
+            axis,
+            lhs,
+            rhs,
+            lhs_grad: RefCell::new(lhs_grad),
+            rhs_grad: RefCell::new(rhs_grad),
+            requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<LHS, RHS, D> Node for Stack<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Data = Tensor<D::Larger>;
+    type Gradient = Tensor<D::Larger>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.lhs.forward();
+        self.rhs.forward();
+
+        let mut self_data = self.data.borrow_mut();
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let axis = self.axis;
+
+        let mut subview_iter = self_data.array_mut().axis_iter_mut(Axis(axis));
+
+        let subview_left = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+        let subview_right = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+
+        Zip::from(lhs_data.array())
+            .and(subview_left)
+            .apply(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(rhs_data.array())
+            .and(subview_right)
+            .apply(|single_el, fused_el| *fused_el = *single_el);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Gradient>) {
+        let mut lhs_grad = self.lhs_grad.borrow_mut();
+        let mut rhs_grad = self.rhs_grad.borrow_mut();
+        let axis = self.axis;
+
+        let mut subview_iter = grad.array().axis_iter(Axis(axis));
+
+        let subview_left = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+        let subview_right = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                Zip::from(lhs_grad.array_mut())
+                    .and(subview_left)
+                    .apply(|single_el, fused_el| *single_el = *fused_el);
+                Zip::from(rhs_grad.array_mut())
+                    .and(subview_right)
+                    .apply(|single_el, fused_el| *single_el = *fused_el);
+            }
+            BackwardAction::Increment => {
+                Zip::from(lhs_grad.array_mut())
+                    .and(subview_left)
+                    .apply(|single_el, fused_el| *single_el += *fused_el);
+                Zip::from(rhs_grad.array_mut())
+                    .and(subview_right)
+                    .apply(|single_el, fused_el| *single_el += *fused_el);
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.lhs.backward(&self.lhs_grad.borrow());
+            self.rhs.backward(&self.rhs_grad.borrow());
+        }
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.lhs.clear();
+            self.rhs.clear();
+            self.counter.clear();
+        }
+    }
+
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+}
+
+// ============================ Computational Graph Internal Component: Unsqueeze  ============================
+
+#[derive(Debug)]
+pub struct Unsqueeze<OP, D>
+where
+    D: Dimension + RemoveAxis,
+{
+    data: RefCell<Tensor<D::Larger>>,
+    axis: usize,
+    grad: RefCell<Tensor<D>>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP, D> Unsqueeze<OP, D>
+where
+    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(operand: Rc<OP>, axis: usize) -> Self {
+        let data = operand.data().unsqueeze(Axis(axis));
+        let grad = operand.data().zeros_from();
+        let requires_grad = operand.requires_grad();
+
+        Self {
+            data: RefCell::new(data),
+            axis,
+            grad: RefCell::new(grad),
+            operand,
+            requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP, D> Node for Unsqueeze<OP, D>
+where
+    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Data = Tensor<D::Larger>;
+    type Gradient = Tensor<D::Larger>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+
+        let mut self_data = self.data.borrow_mut();
+        let mut mut_array = self_data
+            .array_mut()
+            .axis_iter_mut(Axis(self.axis))
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+        let operand_data = self.operand.data();
+
+        Zip::from(&mut mut_array)
+            .and(operand_data.array())
+            .par_apply(|self_data_el, operand_data_el| *self_data_el = *operand_data_el);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Gradient>) {
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let axis = self.axis;
+            let down_grad = grad
+                .array()
+                .axis_iter(Axis(axis))
+                .next()
+                .unwrap()
+                .into_dimensionality::<D>()
+                .unwrap();
+
+            match self.counter.backward_action() {
+                BackwardAction::Set => Zip::from(self_grad.array_mut())
+                    .and(&down_grad)
+                    .par_apply(|self_grad_el, down_grad_el| *self_grad_el = *down_grad_el),
+                BackwardAction::Increment => Zip::from(self_grad.array_mut())
+                    .and(&down_grad)
+                    .par_apply(|self_grad_el, down_grad_el| *self_grad_el += *down_grad_el),
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+// ============================ Gradient Accumulation and Reduction Tests  ============================
 
 #[cfg(test)]
 mod tests {

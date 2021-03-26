@@ -436,19 +436,22 @@ fn div_test() {
 fn concatenations() {
     let fst = Tensor::zeros(3);
     let snd = Tensor::zeros(2);
-    assert_eq!(Tensor::concatenate(Axis(0), &[fst, snd]), Tensor::zeros(5));
+    assert_eq!(
+        Tensor::concatenate(Axis(0), &[&fst, &snd]),
+        Tensor::zeros(5)
+    );
 
     let fst = Tensor::zeros((3, 2, 1));
     let snd = Tensor::zeros((3, 2, 3));
     assert_eq!(
-        Tensor::concatenate(Axis(2), &[fst, snd]),
+        Tensor::concatenate(Axis(2), &[&fst, &snd]),
         Tensor::zeros((3, 2, 4))
     );
 
     let fst = Tensor::zeros((3, 2, 1));
     let snd = Tensor::zeros((3, 8, 1));
     assert_eq!(
-        Tensor::concatenate(Axis(1), &[fst, snd]),
+        Tensor::concatenate(Axis(1), &[&fst, &snd]),
         Tensor::zeros((3, 10, 1))
     );
 }
@@ -457,15 +460,21 @@ fn concatenations() {
 fn stackings() {
     let fst = Tensor::zeros(3);
     let snd = Tensor::zeros(3);
-    assert_eq!(Tensor::stack(&[fst, snd]), Tensor::zeros((2, 3)));
+    assert_eq!(Tensor::stack(Axis(0), &[&fst, &snd]), Tensor::zeros((2, 3)));
 
     let fst = Tensor::zeros((3, 2, 3));
     let snd = Tensor::zeros((3, 2, 3));
-    assert_eq!(Tensor::stack(&[fst, snd]), Tensor::zeros((2, 3, 2, 3)));
+    assert_eq!(
+        Tensor::stack(Axis(0), &[&fst, &snd]),
+        Tensor::zeros((2, 3, 2, 3))
+    );
 
     let fst = Tensor::zeros((3, 2, 1));
     let snd = Tensor::zeros((3, 2, 1));
-    assert_eq!(Tensor::stack(&[fst, snd]), Tensor::zeros((2, 3, 2, 1)));
+    assert_eq!(
+        Tensor::stack(Axis(0), &[&fst, &snd]),
+        Tensor::zeros((2, 3, 2, 1))
+    );
 }
 
 #[test]

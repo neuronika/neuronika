@@ -1399,3 +1399,31 @@ fn upstream_test() {
 
     assert_eq!(w.upstream().len(), 3);
 }
+
+#[test]
+fn cat_stack() {
+    let x = neuronika::tensor!([1.0, 1.0]; true);
+    let y = neuronika::tensor!([1.0, 1.0]; true);
+    let z = neuronika::tensor!([1.0, 1.0]; true);
+
+    let v = neuronika::stack!(0, [x, y, z]);
+    let w = neuronika::stack!(1, [x, y, z]);
+
+    assert_eq!(
+        *v.data(),
+        *neuronika::tensor!([[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]]; false).data()
+    );
+
+    assert_eq!(
+        *w.data(),
+        *neuronika::tensor!([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]; false).data()
+    );
+
+    let y = x.sum();
+    let z = neuronika::tensor!([1.0]; true);
+    let w = neuronika::cat!(0, [x, y, z]);
+    assert_eq!(
+        *w.data(),
+        *neuronika::tensor!([1.0, 1.0, 2.0, 1.0]; false).data()
+    );
+}

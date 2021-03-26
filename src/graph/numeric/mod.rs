@@ -395,21 +395,22 @@ where
     /// ## Examples
     /// ```
     /// use neuronika::Tensor;
+    /// use ndarray::Axis;
     ///
     /// let fst = Tensor::zeros(3); // 3 rows
     /// let snd = Tensor::zeros(3); // 3 rows
     ///
     /// // So, we expect that the result has 2 rows, and 3 columns
-    /// assert_eq!(Tensor::stack(&[fst, snd]), Tensor::zeros((2, 3)));
+    /// assert_eq!(Tensor::stack(Axis(0), &[&fst, &snd]), Tensor::zeros((2, 3)));
     /// ```
-    pub fn stack(tensors: &[Tensor<D>]) -> Tensor<D::Larger>
+    pub fn stack(axis: Axis, tensors: &[&Tensor<D>]) -> Tensor<D::Larger>
     where
         D::Larger: RemoveAxis,
     {
         let arrays: Vec<_> = tensors.iter().map(|t| t.array.view()).collect();
 
         Tensor {
-            array: ndarray::stack_new_axis(Axis(0), &arrays[..]).unwrap(),
+            array: ndarray::stack_new_axis(axis, &arrays[..]).unwrap(),
         }
     }
 
@@ -437,13 +438,19 @@ where
     ///
     /// // So, we expect that the result of concatenation along
     /// // axis `1` has 3 rows and 5 columns
-    /// assert_eq!(Tensor::concatenate(Axis(1), &[fst, snd]), Tensor::zeros((3, 5)));
+    /// assert_eq!(Tensor::concatenate(Axis(1), &[&fst, &snd]), Tensor::zeros((3, 5)));
     /// ```
-    pub fn concatenate(axis: Axis, tensors: &[Tensor<D>]) -> Tensor<D> {
+    pub fn concatenate(axis: Axis, tensors: &[&Tensor<D>]) -> Tensor<D> {
         let arrays: Vec<_> = tensors.iter().map(|t| t.array.view()).collect();
 
         Tensor {
             array: ndarray::concatenate(axis, &arrays[..]).unwrap(),
+        }
+    }
+
+    pub fn unsqueeze(&self, axis: Axis) -> Tensor<D::Larger> {
+        Tensor {
+            array: self.array.clone().insert_axis(axis),
         }
     }
 

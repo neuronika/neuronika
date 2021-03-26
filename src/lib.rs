@@ -69,3 +69,31 @@ macro_rules! full {
         Input::new(t)
     }};
 }
+
+#[macro_export]
+macro_rules! cat {
+    ($axis:expr, [$a:ident, $b:ident])=>{
+        {
+            $a.cat($b, $axis)
+        }
+    };
+    ($axis:expr, [$a:ident, $($b:ident),*])=>{
+       {
+           $a.cat(cat!($axis, [$($b),*]), $axis)
+       }
+    }
+}
+
+#[macro_export]
+macro_rules! stack {
+    ($axis:expr, [$a:ident, $b:ident])=>{
+        {
+            $a.unsqueeze($axis).cat($b.unsqueeze($axis), $axis)
+        }
+    };
+    ($axis:expr, [$a:ident, $($b:ident),*])=>{
+       {
+           $a.unsqueeze($axis).cat(stack!($axis, [$($b),*]), $axis)
+       }
+    }
+}
