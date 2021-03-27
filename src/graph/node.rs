@@ -1,12 +1,11 @@
-use super::numeric::{Broadcast, Broadcasted, Tensor};
-use super::{GraphBuilder, Trackable};
+use super::{Broadcasted, GraphBuilder, Tensor, Trackable};
 use ndarray::{
-    arr1, linalg::general_mat_vec_mul, Array2, ArrayView1, Axis, Dimension, Ix1, Ix2, RemoveAxis,
-    Zip,
+    concatenate, linalg::general_mat_mul, linalg::general_mat_vec_mul, stack, Array2, ArrayView1,
+    Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
 };
 use std::cell::{Cell, Ref, RefCell};
 use std::fmt::Debug;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -88,127 +87,67 @@ impl PassCounter {
 
 // ===================================== Accumulation + Reduction Function =====================================
 
-fn accumulate<D, E>(target: &mut Tensor<D>, source: &Tensor<E>, scale: f32, action: &BackwardAction)
+fn accumulate<D, E>(lhs: &mut Tensor<D>, rhs: &Tensor<E>, scale: f32, action: &BackwardAction)
 where
-    D: Dimension + RemoveAxis,
-    E: Dimension + RemoveAxis,
+    D: Dimension,
+    E: Dimension,
 {
-    let (trgt_data, source_data) = { (target.array_mut(), source.array()) };
-
-    if trgt_data.len() == 1 {
+    if lhs.len() == 1 {
+        let (rhs_sum, zip) = (rhs.sum(), Zip::from(lhs));
         match action {
-            BackwardAction::Set => Zip::from(trgt_data).apply(|el| *el = source_data.sum() * scale),
-            BackwardAction::Increment => {
-                Zip::from(trgt_data).apply(|el| *el += source_data.sum() * scale)
-            }
+            BackwardAction::Set => zip.for_each(|lhs_el| *lhs_el = rhs_sum * scale),
+            BackwardAction::Increment => zip.for_each(|lhs_el| *lhs_el += rhs_sum * scale),
+        }
+        return;
+    }
+
+    if lhs.ndim() > rhs.ndim() {
+        let zip = Zip::from(lhs).and_broadcast(rhs);
+        match action {
+            BackwardAction::Set => zip.for_each(|lhs_el, rhs_el| *lhs_el = *rhs_el * scale),
+            BackwardAction::Increment => zip.for_each(|lhs_el, rhs_el| *lhs_el += *rhs_el * scale),
+        }
+        return;
+    }
+
+    let mut dyn_rhs = rhs.clone().into_dyn();
+    for i in (lhs.ndim()..rhs.ndim()).rev() {
+        let axis = Axis(i);
+        let (first, rest) = dyn_rhs.view_mut().split_at(axis, 1);
+        Zip::from(first.remove_axis(axis))
+            .and(rest.lanes(axis))
+            .for_each(|dst, src| *dst += src.sum());
+        dyn_rhs.index_axis_inplace(axis, 0);
+    }
+
+    let (mut done, static_rhs) = { (false, dyn_rhs.clone().into_dimensionality::<D>().unwrap()) };
+    for i in 0..static_rhs.ndim() {
+        let axis = Axis(i);
+        if lhs.len_of(axis) == 1 {
+            done = true;
+            Zip::from(lhs.lanes_mut(axis))
+                .and(static_rhs.lanes(axis))
+                .for_each(|dest_lane, src_lane| {
+                    let zip = Zip::from(dest_lane);
+                    match action {
+                        BackwardAction::Set => {
+                            zip.for_each(|dest_view_el| *dest_view_el = src_lane.sum() * scale)
+                        }
+                        BackwardAction::Increment => {
+                            zip.for_each(|dest_view_el| *dest_view_el += src_lane.sum() * scale)
+                        }
+                    }
+                });
+        }
+    }
+    if !done {
+        let zip = Zip::from(lhs).and_broadcast(&static_rhs);
+        match action {
+            BackwardAction::Set => zip.for_each(|lhs_el, rhs_el| *lhs_el = rhs_el * scale),
+            BackwardAction::Increment => zip.for_each(|lhs_el, rhs_el| *lhs_el += rhs_el * scale),
         }
     } else {
-        match trgt_data.ndim().cmp(&source_data.ndim()) {
-            std::cmp::Ordering::Less => {
-                let mut dyn_source = source_data.sum_axis(Axis(0)).into_dyn();
-                while trgt_data.ndim() < dyn_source.ndim() {
-                    dyn_source = dyn_source.sum_axis(Axis(0));
-                }
-                let static_source = dyn_source.into_dimensionality::<D>().unwrap();
-                let mut axis_of_len_one = false;
-                for i in 0..trgt_data.ndim() {
-                    let size = trgt_data.len_of(Axis(i));
-                    if size == 1_usize {
-                        axis_of_len_one = true;
-                        match action {
-                            BackwardAction::Set => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(static_source.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el = src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                            BackwardAction::Increment => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(static_source.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el += src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                        }
-                    }
-                }
-                if !axis_of_len_one {
-                    match action {
-                        BackwardAction::Set => {
-                            Zip::from(trgt_data)
-                                .and(&static_source)
-                                .apply(|el_trgt, el_source| *el_trgt = *el_source * scale);
-                        }
-                        BackwardAction::Increment => {
-                            Zip::from(trgt_data)
-                                .and(&static_source)
-                                .apply(|el_trgt, el_source| *el_trgt += *el_source * scale);
-                        }
-                    }
-                }
-            }
-            std::cmp::Ordering::Equal => {
-                let source_same_dim = source_data.view().into_dimensionality::<D>().unwrap();
-                let mut axis_of_len_one = false;
-                for i in 0..trgt_data.ndim() {
-                    let size = trgt_data.len_of(Axis(i));
-                    if size == 1_usize {
-                        axis_of_len_one = true;
-                        match action {
-                            BackwardAction::Set => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(source_same_dim.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el = src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                            BackwardAction::Increment => {
-                                Zip::from(trgt_data.lanes_mut(Axis(i)))
-                                    .and(source_same_dim.lanes(Axis(i)))
-                                    .apply(|dest_lane, src_lane| {
-                                        Zip::from(dest_lane).apply(|dest_view_el| {
-                                            *dest_view_el += src_lane.sum() * scale
-                                        });
-                                    });
-                            }
-                        }
-                    }
-                }
-                if !axis_of_len_one {
-                    match action {
-                        BackwardAction::Set => {
-                            Zip::from(trgt_data)
-                                .and_broadcast(&source_same_dim)
-                                .apply(|el_trgt, el_source| *el_trgt = *el_source * scale);
-                        }
-                        BackwardAction::Increment => {
-                            Zip::from(trgt_data)
-                                .and_broadcast(&source_same_dim)
-                                .apply(|el_trgt, el_source| *el_trgt += *el_source * scale);
-                        }
-                    }
-                }
-            }
-            std::cmp::Ordering::Greater => match action {
-                BackwardAction::Set => {
-                    Zip::from(trgt_data)
-                        .and_broadcast(source_data)
-                        .apply(|el_trgt, el_source| *el_trgt = *el_source * scale);
-                }
-                BackwardAction::Increment => {
-                    Zip::from(trgt_data)
-                        .and_broadcast(source_data)
-                        .apply(|el_trgt, el_source| *el_trgt += *el_source * scale);
-                }
-            },
-        }
+        return;
     }
 }
 
@@ -240,7 +179,7 @@ pub trait Node: Debug + 'static {
 #[derive(Debug)]
 pub struct Parameter<D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub(crate) id: usize,
     pub(crate) data: RefCell<Tensor<D>>,
@@ -249,14 +188,14 @@ where
 
 impl<D> Parameter<D>
 where
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
-        let zeroed_data = data.zeros_from();
+        let grad = Tensor::zeros(data.raw_dim());
         let node = Rc::new(Parameter {
             id: PARAM_ID.fetch_add(1, Ordering::SeqCst),
             data: RefCell::new(data),
-            grad: RefCell::new(zeroed_data),
+            grad: RefCell::new(grad),
         });
         let upstream = vec![GraphBuilder::new(Rc::clone(&node), Vec::new()).as_trackable()];
 
@@ -268,13 +207,13 @@ where
     }
 
     pub fn zero_grad(&self) {
-        self.grad.borrow_mut().set_zero();
+        self.grad.borrow_mut().map_inplace(|el| *el = 0.0);
     }
 }
 
 impl<D> Node for Parameter<D>
 where
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -310,14 +249,14 @@ where
 #[derive(Debug)]
 pub struct Input<D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub(crate) data: RefCell<Tensor<D>>,
 }
 
 impl<D> Input<D>
 where
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
         GraphBuilder::new(
@@ -331,7 +270,7 @@ where
 
 impl<D> Node for Input<D>
 where
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -362,7 +301,7 @@ where
 #[derive(Debug)]
 pub struct Negation<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -374,11 +313,11 @@ where
 impl<OP, D> Negation<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let data = -operand.data().deref();
-        let grad = data.zeros_from();
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -394,7 +333,7 @@ where
 impl<OP, D> Node for Negation<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -409,9 +348,9 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| *self_data_el = -operand_data_el);
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| *self_data_el = -operand_data_el);
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
@@ -436,7 +375,6 @@ where
     }
 
     fn clear(&self) {
-        // Todo: Maybe here we can remove the `if` statement.
         if !self.counter.is_zero() {
             self.operand.clear();
             self.counter.clear();
@@ -446,33 +384,36 @@ where
 
 // ============================================== Computational Graph Internal Component: Addition ==============================================
 
+/// The `add
+///
+///
 #[derive(Debug)]
-pub struct Addition<LHS, RHS, D, E>
+pub struct Addition<Lhs, Rhs, D, E>
 where
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
     data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
     rhs_grad: RefCell<Tensor<E>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS, D, E> Addition<LHS, RHS, D, E>
+impl<Lhs, Rhs, D, E> Addition<Lhs, Rhs, D, E>
 where
-    LHS: Node<Data = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    Lhs: Node<Data = Tensor<D>>,
+    Rhs: Node<Data = Tensor<E>>,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() + rhs.data().deref();
-        let lhs_grad = lhs.data().zeros_from();
-        let rhs_grad = rhs.data().zeros_from();
+        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
+        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
 
         Self {
             data: RefCell::new(data),
@@ -486,12 +427,12 @@ where
     }
 }
 
-impl<LHS, RHS, D, E> Node for Addition<LHS, RHS, D, E>
+impl<Lhs, Rhs, D, E> Node for Addition<Lhs, Rhs, D, E>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
-    E: Dimension + RemoveAxis + 'static,
+    Lhs: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    Rhs: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
+    D: Dimension + DimMax<E> + 'static,
+    E: Dimension + 'static,
 {
     type Data = Tensor<Broadcasted<D, E>>;
     type Gradient = Tensor<Broadcasted<D, E>>;
@@ -508,10 +449,10 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        Zip::from(self_data.array_mut())
-            .and_broadcast(lhs_data.array())
-            .and_broadcast(rhs_data.array())
-            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and_broadcast(lhs_data.deref())
+            .and_broadcast(rhs_data.deref())
+            .par_for_each(|self_data_el, lhs_data_el, rhs_data_el| {
                 *self_data_el = *lhs_data_el + *rhs_data_el
             });
     }
@@ -550,8 +491,8 @@ where
 #[derive(Debug)]
 pub struct Subtraction<LHS, RHS, D, E>
 where
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
     data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
@@ -566,14 +507,14 @@ impl<LHS, RHS, D, E> Subtraction<LHS, RHS, D, E>
 where
     LHS: Node<Data = Tensor<D>>,
     RHS: Node<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() - rhs.data().deref();
-        let lhs_grad = lhs.data().zeros_from();
-        let rhs_grad = rhs.data().zeros_from();
+        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
+        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
 
         Self {
             data: RefCell::new(data),
@@ -591,8 +532,8 @@ impl<LHS, RHS, D, E> Node for Subtraction<LHS, RHS, D, E>
 where
     LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
-    E: Dimension + RemoveAxis + 'static,
+    D: Dimension + DimMax<E> + 'static,
+    E: Dimension + 'static,
 {
     type Data = Tensor<Broadcasted<D, E>>;
     type Gradient = Tensor<Broadcasted<D, E>>;
@@ -609,10 +550,10 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        Zip::from(self_data.array_mut())
-            .and_broadcast(lhs_data.array())
-            .and_broadcast(rhs_data.array())
-            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and_broadcast(lhs_data.deref())
+            .and_broadcast(rhs_data.deref())
+            .par_for_each(|self_data_el, lhs_data_el, rhs_data_el| {
                 *self_data_el = *lhs_data_el - *rhs_data_el
             });
     }
@@ -651,8 +592,8 @@ where
 #[derive(Debug)]
 pub struct Multiplication<LHS, RHS, D, E>
 where
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
     data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
@@ -667,14 +608,14 @@ impl<LHS, RHS, D, E> Multiplication<LHS, RHS, D, E>
 where
     LHS: Node<Data = Tensor<D>>,
     RHS: Node<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() * rhs.data().deref();
-        let lhs_grad = lhs.data().zeros_from();
-        let rhs_grad = rhs.data().zeros_from();
+        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
+        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
 
         Self {
             data: RefCell::new(data),
@@ -692,8 +633,8 @@ impl<LHS, RHS, D, E> Node for Multiplication<LHS, RHS, D, E>
 where
     LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
-    E: Dimension + RemoveAxis + 'static,
+    D: Dimension + DimMax<E> + 'static,
+    E: Dimension + 'static,
 {
     type Data = Tensor<Broadcasted<D, E>>;
     type Gradient = Tensor<Broadcasted<D, E>>;
@@ -710,28 +651,32 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        Zip::from(self_data.array_mut())
-            .and_broadcast(lhs_data.array())
-            .and_broadcast(rhs_data.array())
-            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and_broadcast(lhs_data.deref())
+            .and_broadcast(rhs_data.deref())
+            .par_for_each(|self_data_el, lhs_data_el, rhs_data_el| {
                 *self_data_el = *lhs_data_el * *rhs_data_el
             });
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
-        accumulate(
-            &mut self.lhs_grad.borrow_mut(),
-            &(grad.deref() * &self.rhs.data()),
-            1.0,
-            &action,
-        );
-        accumulate(
-            &mut self.rhs_grad.borrow_mut(),
-            &(grad.deref() * &self.lhs.data()),
-            1.0,
-            &action,
-        );
+        let rhs_data = self.rhs.data();
+        let lhs_data = self.lhs.data();
+        let down_grad = grad.deref();
+        let mut tmp = Tensor::zeros(down_grad.raw_dim());
+
+        Zip::from(&mut tmp)
+            .and(down_grad)
+            .and_broadcast(rhs_data.deref())
+            .par_for_each(|res, grad, rhs| *res = *grad * *rhs);
+        accumulate(&mut self.lhs_grad.borrow_mut(), &tmp, 1.0, &action);
+
+        Zip::from(&mut tmp)
+            .and(down_grad)
+            .and_broadcast(lhs_data.deref())
+            .par_for_each(|res, grad, lhs| *res = *grad * *lhs);
+        accumulate(&mut self.rhs_grad.borrow_mut(), &tmp, 1.0, &action);
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -761,8 +706,8 @@ where
 #[derive(Debug)]
 pub struct Division<LHS, RHS, D, E>
 where
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
     data: RefCell<Tensor<Broadcasted<D, E>>>,
     lhs_grad: RefCell<Tensor<D>>,
@@ -777,14 +722,14 @@ impl<LHS, RHS, D, E> Division<LHS, RHS, D, E>
 where
     LHS: Node<Data = Tensor<D>>,
     RHS: Node<Data = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E>,
-    E: Dimension + RemoveAxis,
+    D: Dimension + DimMax<E>,
+    E: Dimension,
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() / rhs.data().deref();
-        let lhs_grad = lhs.data().zeros_from();
-        let rhs_grad = rhs.data().zeros_from();
+        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
+        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
 
         Self {
             data: RefCell::new(data),
@@ -802,8 +747,8 @@ impl<LHS, RHS, D, E> Node for Division<LHS, RHS, D, E>
 where
     LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + RemoveAxis + Broadcast<E> + 'static,
-    E: Dimension + RemoveAxis + 'static,
+    D: Dimension + DimMax<E> + 'static,
+    E: Dimension + 'static,
 {
     type Data = Tensor<Broadcasted<D, E>>;
     type Gradient = Tensor<Broadcasted<D, E>>;
@@ -820,29 +765,32 @@ where
         let lhs_data = self.lhs.data();
         let rhs_data = self.rhs.data();
 
-        Zip::from(self_data.array_mut())
-            .and_broadcast(lhs_data.array())
-            .and_broadcast(rhs_data.array())
-            .par_apply(|self_data_el, lhs_data_el, rhs_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and_broadcast(lhs_data.deref())
+            .and_broadcast(rhs_data.deref())
+            .par_for_each(|self_data_el, lhs_data_el, rhs_data_el| {
                 *self_data_el = *lhs_data_el / *rhs_data_el
             });
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
+        let rhs_data = self.rhs.data();
+        let lhs_data = self.lhs.data();
+        let down_grad = grad.deref();
+        let mut tmp = Tensor::zeros(down_grad.raw_dim());
 
-        accumulate(
-            &mut self.lhs_grad.borrow_mut(),
-            &(grad.deref() / &self.rhs.data()),
-            1.0,
-            &action,
-        );
+        Zip::from(&mut tmp)
+            .and(down_grad)
+            .and_broadcast(rhs_data.deref())
+            .par_for_each(|res, grad, rhs| *res = *grad / *rhs);
+        accumulate(&mut self.lhs_grad.borrow_mut(), &tmp, 1.0, &action);
 
-        let mut tmp = grad.deref() * &self.lhs.data();
-        Zip::from(tmp.array_mut())
-            .and_broadcast(self.rhs.data().array())
-            .apply(|tmp_el, rhs_el| *tmp_el /= rhs_el.powi(2));
-
+        Zip::from(&mut tmp)
+            .and(down_grad)
+            .and_broadcast(lhs_data.deref())
+            .and_broadcast(rhs_data.deref())
+            .par_for_each(|res, grad, lhs, rhs| *res = *grad * *lhs / rhs.powi(2));
         accumulate(&mut self.rhs_grad.borrow_mut(), &tmp, -1.0, &action);
 
         if self.counter.recurse_backward() {
@@ -890,11 +838,11 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let data = Tensor::new(lhs.data().array().dot(rhs.data().array()));
+        let data = lhs.data().dot(rhs.data().deref());
 
-        let grad = data.zeros_from();
-        let lhs_grad = lhs.data().zeros_from();
-        let rhs_grad = rhs.data().zeros_from();
+        let grad = Tensor::zeros(data.raw_dim());
+        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
+        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
 
         Self {
             data: RefCell::new(data),
@@ -925,46 +873,47 @@ where
         self.lhs.forward();
         self.rhs.forward();
 
-        self.lhs.data().mat_mul(
-            &self.rhs.data(),
-            &mut self.data.borrow_mut(),
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let mut res_data = self.data.borrow_mut();
+
+        general_mat_mul(
             1.0,
+            lhs_data.deref(),
+            rhs_data.deref(),
             0.0,
-            false,
-            false,
+            res_data.deref_mut(),
         );
     }
 
     fn backward(&self, input_grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
 
-        accumulate(
-            &mut self.grad.borrow_mut(),
-            input_grad.deref(),
-            1.0,
-            &action,
-        );
+        let mut self_grad = self.grad.borrow_mut();
+        let down_grad = input_grad.deref();
+
+        accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
 
         if self.counter.recurse_backward() {
-            let rhs_data = self.rhs.data();
             let lhs_data = self.lhs.data();
+            let mut lhs_grad = self.lhs_grad.borrow_mut();
+            let rhs_data = self.rhs.data();
+            let mut rhs_grad = self.rhs_grad.borrow_mut();
             let grad = self.grad.borrow();
 
-            grad.deref().mat_mul(
-                &rhs_data,
-                &mut self.lhs_grad.borrow_mut(),
+            general_mat_mul(
                 1.0,
-                0.0,
-                false,
-                true,
-            );
-            lhs_data.mat_mul(
                 grad.deref(),
-                &mut self.rhs_grad.borrow_mut(),
-                1.0,
+                &rhs_data.deref().t(),
                 0.0,
-                true,
-                false,
+                lhs_grad.deref_mut(),
+            );
+            general_mat_mul(
+                1.0,
+                &lhs_data.deref().t(),
+                grad.deref(),
+                0.0,
+                rhs_grad.deref_mut(),
             );
 
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -1010,11 +959,18 @@ where
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let data = Tensor::new(lhs.data().array().dot(rhs.data().array()));
-
-        let grad = data.zeros_from();
-        let lhs_grad = lhs.data().zeros_from();
-        let rhs_grad = rhs.data().zeros_from();
+        let (data, grad, lhs_grad, rhs_grad) = {
+            let lhs_data = lhs.data();
+            let rhs_data = rhs.data();
+            let data = lhs_data.dot(rhs_data.deref());
+            let grad = Tensor::zeros(data.raw_dim());
+            (
+                data,
+                grad,
+                Tensor::zeros(lhs_data.raw_dim()),
+                Tensor::zeros(rhs_data.raw_dim()),
+            )
+        };
 
         Self {
             data: RefCell::new(data),
@@ -1045,44 +1001,48 @@ where
         self.lhs.forward();
         self.rhs.forward();
 
-        self.lhs.data().mat_vec_mul(
-            &self.rhs.data(),
-            &mut self.data.borrow_mut(),
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let mut self_data = self.data.borrow_mut();
+
+        general_mat_vec_mul(
             1.0,
+            lhs_data.deref(),
+            rhs_data.deref(),
             0.0,
-            false,
+            self_data.deref_mut(),
         );
     }
 
     fn backward(&self, input_grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
 
-        accumulate(
-            &mut self.grad.borrow_mut(),
-            input_grad.deref(),
-            1.0,
-            &action,
-        );
+        let mut self_grad = self.grad.borrow_mut();
+        let down_grad = input_grad.deref();
+
+        accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
 
         if self.counter.recurse_backward() {
-            let rhs_data = self.rhs.data();
             let lhs_data = self.lhs.data();
+            let mut lhs_grad = self.lhs_grad.borrow_mut();
+            let rhs_data = self.rhs.data();
+            let mut rhs_grad = self.rhs_grad.borrow_mut();
             let grad = self.grad.borrow();
 
-            Zip::from(self.lhs_grad.borrow_mut().array_mut().genrows_mut())
-                .and(grad.array())
-                .apply(|row, grad_el| {
+            Zip::from(lhs_grad.rows_mut())
+                .and(grad.deref())
+                .for_each(|row, grad_el| {
                     Zip::from(row)
-                        .and(rhs_data.array())
-                        .apply(|row_el, rhs_data_el| *row_el = *rhs_data_el * *grad_el);
+                        .and(rhs_data.deref())
+                        .for_each(|row_el, rhs_data_el| *row_el = *rhs_data_el * *grad_el);
                 });
 
-            lhs_data.mat_vec_mul(
-                grad.deref(),
-                &mut self.rhs_grad.borrow_mut(),
+            general_mat_vec_mul(
                 1.0,
+                &lhs_data.deref().t(),
+                grad.deref(),
                 0.0,
-                true,
+                rhs_grad.deref_mut(),
             );
 
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -1127,10 +1087,15 @@ where
 {
     pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let lhs_grad = lhs.data().zeros_from();
-        let rhs_grad = rhs.data().zeros_from();
-
-        let data = Tensor::new(arr1(&[lhs.data().array().dot(rhs.data().array())]));
+        let (data, lhs_grad, rhs_grad) = {
+            let lhs_data = lhs.data();
+            let rhs_data = rhs.data();
+            (
+                Tensor::<Ix1>::from(vec![lhs_data.dot(rhs_data.deref())]),
+                Tensor::zeros(lhs_data.raw_dim()),
+                Tensor::zeros(rhs_data.raw_dim()),
+            )
+        };
 
         Self {
             data: RefCell::new(data),
@@ -1159,23 +1124,33 @@ where
 
         self.lhs.forward();
         self.rhs.forward();
-        let mut data = self.data.borrow_mut();
-        data.array_mut()[0] = self.lhs.data().array().dot(self.rhs.data().array());
+
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let mut self_data = self.data.borrow_mut();
+
+        self_data[0] = lhs_data.dot(rhs_data.deref());
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
 
+        let lhs_data = self.lhs.data();
+        let mut lhs_grad = self.lhs_grad.borrow_mut();
+        let rhs_data = self.rhs.data();
+        let mut rhs_grad = self.rhs_grad.borrow_mut();
+        let down_grad = grad.deref();
+
         accumulate(
-            &mut self.lhs_grad.borrow_mut(),
-            &self.rhs.data().deref(),
-            grad.deref().array()[0],
+            lhs_grad.deref_mut(),
+            rhs_data.deref(),
+            down_grad[0],
             &action,
         );
         accumulate(
-            &mut self.rhs_grad.borrow_mut(),
-            &self.lhs.data().deref(),
-            grad.deref().array()[0],
+            rhs_grad.deref_mut(),
+            lhs_data.deref(),
+            down_grad[0],
             &action,
         );
 
@@ -1207,7 +1182,7 @@ where
 #[derive(Debug)]
 pub struct Power<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -1220,11 +1195,11 @@ where
 impl<OP, D> Power<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>, exp: i32) -> Self {
-        let data = Tensor::new(operand.data().array().map(|el| el.powi(exp)));
-        let grad = data.zeros_from();
+        let data = operand.data().map(|el| el.powi(exp));
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -1241,7 +1216,7 @@ where
 impl<OP, D> Node for Power<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -1255,32 +1230,34 @@ where
 
         let (mut self_data, operand_data, exp) =
             { (self.data.borrow_mut(), self.operand.data(), self.exp) };
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.powi(exp));
+
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| {
+                *self_data_el = operand_data_el.powi(exp)
+            });
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad.deref();
         let exp = self.exp;
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad)
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
-                    });
+                zip.for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
-                    });
+                zip.for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                });
             }
         }
 
@@ -1308,9 +1285,9 @@ where
 // ============================ Computational Graph Internal Component: Sum Reduction  ============================
 
 #[derive(Debug)]
-pub struct Summation<OP, D>
+pub struct Sum<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<Ix1>>,
     grad: RefCell<Tensor<D>>,
@@ -1319,15 +1296,20 @@ where
     counter: PassCounter,
 }
 
-impl<OP, D> Summation<OP, D>
+impl<OP, D> Sum<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = operand.data().deref().sum();
-        let grad = operand.data().zeros_from();
         let requires_grad = operand.requires_grad();
+        let (data, grad) = {
+            let operand_data = operand.data();
+            (
+                Tensor::<Ix1>::from(vec![operand_data.sum()]),
+                Tensor::zeros(operand_data.raw_dim()),
+            )
+        };
 
         Self {
             data: RefCell::new(data),
@@ -1339,10 +1321,10 @@ where
     }
 }
 
-impl<OP, D> Node for Summation<OP, D>
+impl<OP, D> Node for Sum<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<Ix1>;
     type Gradient = Tensor<D>;
@@ -1354,13 +1336,19 @@ where
 
         self.operand.forward();
 
-        self.data.borrow_mut().array_mut()[0] = self.operand.data().array().sum();
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        self_data[0] = operand_data.sum();
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
 
-        accumulate(&mut self.grad.borrow_mut(), grad, 1.0, &action);
+        let mut self_grad = self.grad.borrow_mut();
+        let down_grad = grad.deref();
+
+        accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
@@ -1388,7 +1376,7 @@ where
 #[derive(Debug)]
 pub struct Logn<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -1400,11 +1388,11 @@ where
 impl<OP, D> Logn<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor::new(operand.data().array().map(|el| el.ln()));
-        let grad = data.zeros_from();
+        let data = operand.data().map(|el| el.ln());
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -1420,7 +1408,7 @@ where
 impl<OP, D> Node for Logn<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static + Broadcast<D>,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -1435,31 +1423,30 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.ln());
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| *self_data_el = operand_data_el.ln());
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad.deref();
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad.deref())
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el / *operand_data_el
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = *down_grad_el / *operand_data_el
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el / *operand_data_el
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += *down_grad_el / *operand_data_el
+                });
             }
         }
 
@@ -1489,7 +1476,7 @@ where
 #[derive(Debug)]
 pub struct ReLU<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -1501,16 +1488,11 @@ where
 impl<OP, D> ReLU<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor::new(
-            operand
-                .data()
-                .array()
-                .map(|el| if *el < 0.0 { 0.0 } else { *el }),
-        );
-        let grad = data.zeros_from();
+        let data = operand.data().map(|el| if *el < 0.0 { 0.0 } else { *el });
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -1526,7 +1508,7 @@ where
 impl<OP, D> Node for ReLU<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -1541,9 +1523,9 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| {
                 *self_data_el = if *operand_data_el > 0.0 {
                     *operand_data_el
                 } else {
@@ -1555,31 +1537,30 @@ where
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad;
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad.deref())
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.0
-                        }
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = if *operand_data_el > 0.0 {
+                        *down_grad_el
+                    } else {
+                        0.0
+                    }
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.0
-                        }
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += if *operand_data_el > 0.0 {
+                        *down_grad_el
+                    } else {
+                        0.0
+                    }
+                });
             }
         }
 
@@ -1621,16 +1602,13 @@ where
 impl<OP, D> LeakyReLU<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor::new(
-            operand
-                .data()
-                .array()
-                .map(|el| if *el < 0.0 { 0.01 * el } else { *el }),
-        );
-        let grad = data.zeros_from();
+        let data = operand
+            .data()
+            .map(|el| if *el < 0.0 { 0.01 * el } else { *el });
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -1646,7 +1624,7 @@ where
 impl<OP, D> Node for LeakyReLU<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -1661,9 +1639,9 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| {
                 *self_data_el = if *operand_data_el > 0.0 {
                     *operand_data_el
                 } else {
@@ -1675,31 +1653,30 @@ where
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad.deref();
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad)
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.01 * down_grad_el
-                        }
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = if *operand_data_el > 0.0 {
+                        *down_grad_el
+                    } else {
+                        0.01 * down_grad_el
+                    }
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += if *operand_data_el > 0.0 {
-                            *down_grad_el
-                        } else {
-                            0.01 * down_grad_el
-                        }
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += if *operand_data_el > 0.0 {
+                        *down_grad_el
+                    } else {
+                        0.01 * down_grad_el
+                    }
+                });
             }
         }
 
@@ -1729,7 +1706,7 @@ where
 #[derive(Debug)]
 pub struct Softplus<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -1741,10 +1718,10 @@ where
 impl<OP, D> Softplus<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor::new(operand.data().array().map(|el| {
+        let data = operand.data().map(|el| {
             if *el < -15.0 {
                 0.0
             } else if *el > 15.0 {
@@ -1752,8 +1729,8 @@ where
             } else {
                 (1.0 + el.exp()).ln()
             }
-        }));
-        let grad = data.zeros_from();
+        });
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -1769,7 +1746,7 @@ where
 impl<OP, D> Node for Softplus<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -1784,9 +1761,9 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| {
                 *self_data_el = if *operand_data_el < -15.0 {
                     0.0
                 } else if *operand_data_el > 15.0 {
@@ -1800,35 +1777,34 @@ where
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad.deref();
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad)
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = if *operand_data_el >= 15.0 {
-                            *down_grad_el
-                        } else if *operand_data_el <= -15.0 {
-                            0.0
-                        } else {
-                            down_grad_el / (1.0 + (-*operand_data_el).exp())
-                        }
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = if *operand_data_el >= 15.0 {
+                        *down_grad_el
+                    } else if *operand_data_el <= -15.0 {
+                        0.0
+                    } else {
+                        down_grad_el / (1.0 + (-*operand_data_el).exp())
+                    }
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += if *operand_data_el >= 15.0 {
-                            *down_grad_el
-                        } else if *operand_data_el <= -15.0 {
-                            0.0
-                        } else {
-                            down_grad_el / (1.0 + (-*operand_data_el).exp())
-                        }
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += if *operand_data_el >= 15.0 {
+                        *down_grad_el
+                    } else if *operand_data_el <= -15.0 {
+                        0.0
+                    } else {
+                        down_grad_el / (1.0 + (-*operand_data_el).exp())
+                    }
+                });
             }
         }
         if self.counter.recurse_backward() {
@@ -1857,7 +1833,7 @@ where
 #[derive(Debug)]
 pub struct Sigmoid<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -1869,10 +1845,10 @@ where
 impl<OP, D> Sigmoid<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor::new(operand.data().array().map(|el| {
+        let data = operand.data().map(|el| {
             if *el >= 15.0 {
                 1.0
             } else if *el <= -15.0 {
@@ -1880,9 +1856,9 @@ where
             } else {
                 1.0 / (1.0 + (-el).exp())
             }
-        }));
+        });
 
-        let grad = data.zeros_from();
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -1898,7 +1874,7 @@ where
 impl<OP, D> Node for Sigmoid<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -1913,9 +1889,9 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| {
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| {
                 *self_data_el = if *operand_data_el >= 15.0 {
                     1.0
                 } else if *operand_data_el <= -15.0 {
@@ -1929,23 +1905,22 @@ where
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad.deref();
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad)
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                });
             }
         }
 
@@ -1975,7 +1950,7 @@ where
 #[derive(Debug)]
 pub struct Tanh<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -1987,11 +1962,11 @@ where
 impl<OP, D> Tanh<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor::new(operand.data().array().map(|el| el.tanh()));
-        let grad = data.zeros_from();
+        let data = operand.data().map(|el| el.tanh());
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -2007,7 +1982,7 @@ where
 impl<OP, D> Node for Tanh<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -2022,31 +1997,30 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.tanh());
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| *self_data_el = operand_data_el.tanh());
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad.deref();
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad)
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * (1.0 - operand_data_el.powi(2))
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = *down_grad_el * (1.0 - operand_data_el.powi(2))
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * (1.0 - operand_data_el.powi(2))
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += *down_grad_el * (1.0 - operand_data_el.powi(2))
+                });
             }
         }
 
@@ -2076,7 +2050,7 @@ where
 #[derive(Debug)]
 pub struct Exp<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -2088,11 +2062,11 @@ where
 impl<OP, D> Exp<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = Tensor::new(operand.data().array().map(|el| el.exp()));
-        let grad = data.zeros_from();
+        let data = operand.data().map(|el| el.exp());
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -2108,7 +2082,7 @@ where
 impl<OP, D> Node for Exp<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -2123,31 +2097,30 @@ where
         let mut self_data = self.data.borrow_mut();
         let operand_data = self.operand.data();
 
-        Zip::from(self_data.array_mut())
-            .and(operand_data.array())
-            .par_apply(|self_data_el, operand_data_el| *self_data_el = operand_data_el.exp());
+        Zip::from(self_data.deref_mut())
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| *self_data_el = operand_data_el.exp());
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let mut self_grad = self.grad.borrow_mut();
         let operand_data = self.operand.data();
+        let down_grad = grad.deref();
+
+        let zip = Zip::from(self_grad.deref_mut())
+            .and(down_grad)
+            .and(operand_data.deref());
 
         match self.counter.backward_action() {
             BackwardAction::Set => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el = *down_grad_el * *operand_data_el
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el = *down_grad_el * *operand_data_el
+                });
             }
             BackwardAction::Increment => {
-                Zip::from(self_grad.array_mut())
-                    .and(grad.array())
-                    .and(operand_data.array())
-                    .par_apply(|self_grad_el, down_grad_el, operand_data_el| {
-                        *self_grad_el += *down_grad_el * *operand_data_el
-                    });
+                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                    *self_grad_el += *down_grad_el * *operand_data_el
+                });
             }
         }
 
@@ -2177,7 +2150,7 @@ where
 #[derive(Debug)]
 pub struct Softmax<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     axis: usize,
     data: RefCell<Tensor<D>>,
@@ -2191,14 +2164,27 @@ where
 impl<OP, D> Softmax<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>, axis: usize) -> Self {
         let (data, j_dim) = {
             let op_data = operand.data();
-            (op_data.softmax(axis), op_data.shape()[axis])
+            let mut data = Tensor::zeros(op_data.raw_dim());
+
+            Zip::from(op_data.lanes(Axis(axis)))
+                .and(data.lanes_mut(Axis(axis)))
+                .for_each(|lane_self, lane_new| {
+                    let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
+                    let num = &lane_self.map(|el| (el - max).exp());
+                    let den = num.sum();
+                    Zip::from(lane_new)
+                        .and(num)
+                        .for_each(|lane_new_el, num_el| *lane_new_el = *num_el / den);
+                });
+
+            (data, op_data.shape()[axis])
         };
-        let grad = data.zeros_from();
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -2216,7 +2202,7 @@ where
 impl<OP, D> Node for Softmax<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -2232,15 +2218,15 @@ where
         let operand_data = self.operand.data();
         let axis = self.axis;
 
-        Zip::from(operand_data.array().lanes(Axis(axis)))
-            .and(self_data.array_mut().lanes_mut(Axis(axis)))
-            .apply(|lane_self, lane_new| {
+        Zip::from(operand_data.lanes(Axis(axis)))
+            .and(self_data.lanes_mut(Axis(axis)))
+            .for_each(|lane_self, lane_new| {
                 let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
                 let num = &lane_self.map(|el| (el - max).exp());
                 let den = num.sum();
                 Zip::from(lane_new)
                     .and(num)
-                    .apply(|lane_new_el, num_el| *lane_new_el = *num_el / den);
+                    .for_each(|lane_new_el, num_el| *lane_new_el = *num_el / den);
             });
     }
 
@@ -2252,7 +2238,7 @@ where
 
         fn fill_jacobian(jacobian: &mut Array2<f32>, array: &ArrayView1<f32>) {
             for (row_idx, (mut row, row_val)) in jacobian
-                .genrows_mut()
+                .rows_mut()
                 .into_iter()
                 .zip(array.iter())
                 .enumerate()
@@ -2278,10 +2264,10 @@ where
             BackwardAction::Increment => 1.0,
         };
 
-        Zip::from(self_grad.array_mut().lanes_mut(Axis(axis)))
-            .and(operand_data.array().lanes(Axis(axis)))
-            .and(grad.array().lanes(Axis(axis)))
-            .apply(|mut d_g_col, data_col, grad_col| {
+        Zip::from(self_grad.lanes_mut(Axis(axis)))
+            .and(operand_data.lanes(Axis(axis)))
+            .and(grad.lanes(Axis(axis)))
+            .for_each(|mut d_g_col, data_col, grad_col| {
                 fill_jacobian(&mut jacobian, &data_col);
                 general_mat_vec_mul(1.0, &jacobian, &grad_col, beta, &mut d_g_col);
             });
@@ -2312,7 +2298,7 @@ where
 #[derive(Debug)]
 pub struct Transpose<OP, D>
 where
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     data: RefCell<Tensor<D>>,
     grad: RefCell<Tensor<D>>,
@@ -2324,11 +2310,11 @@ where
 impl<OP, D> Transpose<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = operand.data().t();
-        let grad = operand.data().zeros_from();
+        let data = operand.data().t().to_owned();
+        let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -2344,7 +2330,7 @@ where
 impl<OP, D> Node for Transpose<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Data = Tensor<D>;
     type Gradient = Tensor<D>;
@@ -2355,16 +2341,414 @@ where
         }
 
         self.operand.forward();
-        self.data
-            .borrow_mut()
-            .array_mut()
-            .assign(&self.operand.data().array().t());
+
+        let mut self_data = self.data.borrow_mut();
+        let operand_data = self.operand.data();
+
+        self_data.assign(&operand_data.t());
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let action = self.counter.backward_action();
+        let mut self_grad = self.grad.borrow_mut();
+        let down_grad = grad.deref();
 
-        accumulate(&mut self.grad.borrow_mut(), &grad.t(), 1.0, &action);
+        let zip = Zip::from(self_grad.deref_mut()).and(down_grad);
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => zip.par_for_each(|dest, src| *dest = *src),
+            BackwardAction::Increment => zip.par_for_each(|dest, src| *dest = *src),
+        };
+
+        if self.counter.recurse_backward() {
+            self.operand.backward(&self.grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.operand.clear();
+            self.counter.clear();
+        }
+    }
+}
+
+// ============================ Computational Graph Internal Component: Concatenate  ============================
+
+#[derive(Debug)]
+pub struct Concatenate<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis,
+{
+    data: RefCell<Tensor<D>>,
+    axis: usize,
+    lhs: Rc<LHS>,
+    rhs: Rc<RHS>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<D>>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<LHS, RHS, D> Concatenate<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis,
+{
+    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
+        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+        let (data, lhs_grad, rhs_grad) = {
+            let lhs_data = lhs.data();
+            let rhs_data = rhs.data();
+            (
+                concatenate(Axis(axis), &[lhs_data.view(), rhs_data.view()]).unwrap(),
+                Tensor::zeros(lhs_data.raw_dim()),
+                Tensor::zeros(rhs_data.raw_dim()),
+            )
+        };
+
+        Self {
+            data: RefCell::new(data),
+            axis,
+            lhs,
+            rhs,
+            lhs_grad: RefCell::new(lhs_grad),
+            rhs_grad: RefCell::new(rhs_grad),
+            requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<LHS, RHS, D> Node for Concatenate<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis + 'static,
+{
+    type Data = Tensor<D>;
+    type Gradient = Tensor<D>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.lhs.forward();
+        self.rhs.forward();
+
+        let mut self_data = self.data.borrow_mut();
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let axis = self.axis;
+
+        let (mut lhs_, mut rhs_) = self_data
+            .view_mut()
+            .split_at(Axis(axis), lhs_data.len_of(Axis(axis)));
+        Zip::from(lhs_data.deref())
+            .and(&mut lhs_)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(rhs_data.deref())
+            .and(&mut rhs_)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Gradient>) {
+        let mut lhs_grad = self.lhs_grad.borrow_mut();
+        let mut rhs_grad = self.rhs_grad.borrow_mut();
+        let axis = self.axis;
+
+        let (lhs_, rhs_) = grad
+            .view()
+            .split_at(Axis(axis), lhs_grad.len_of(Axis(axis)));
+
+        let zip_lhs = Zip::from(lhs_grad.deref_mut()).and(&lhs_);
+        let zip_rhs = Zip::from(rhs_grad.deref_mut()).and(&rhs_);
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                zip_lhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+                zip_rhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+            }
+            BackwardAction::Increment => {
+                zip_lhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+                zip_rhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.lhs.backward(&self.lhs_grad.borrow());
+            self.rhs.backward(&self.rhs_grad.borrow());
+        }
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.lhs.clear();
+            self.rhs.clear();
+            self.counter.clear();
+        }
+    }
+
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+}
+
+// ============================ Computational Graph Internal Component: Stack  ============================
+
+#[derive(Debug)]
+pub struct Stack<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis,
+{
+    data: RefCell<Tensor<D::Larger>>,
+    axis: usize,
+    lhs: Rc<LHS>,
+    rhs: Rc<RHS>,
+    lhs_grad: RefCell<Tensor<D>>,
+    rhs_grad: RefCell<Tensor<D>>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<LHS, RHS, D> Stack<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis,
+{
+    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
+        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+        let (data, lhs_grad, rhs_grad) = {
+            let lhs_data = lhs.data();
+            let rhs_data = rhs.data();
+            (
+                stack(Axis(axis), &[lhs_data.view(), rhs_data.view()]).unwrap(),
+                Tensor::zeros(lhs_data.raw_dim()),
+                Tensor::zeros(rhs_data.raw_dim()),
+            )
+        };
+
+        Self {
+            data: RefCell::new(data),
+            axis,
+            lhs,
+            rhs,
+            lhs_grad: RefCell::new(lhs_grad),
+            rhs_grad: RefCell::new(rhs_grad),
+            requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<LHS, RHS, D> Node for Stack<LHS, RHS, D>
+where
+    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis + 'static,
+{
+    type Data = Tensor<D::Larger>;
+    type Gradient = Tensor<D::Larger>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.lhs.forward();
+        self.rhs.forward();
+
+        let mut self_data = self.data.borrow_mut();
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let axis = self.axis;
+
+        let mut subview_iter = self_data.axis_iter_mut(Axis(axis));
+
+        let subview_left = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+        let subview_right = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+
+        Zip::from(lhs_data.deref())
+            .and(subview_left)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(rhs_data.deref())
+            .and(subview_right)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Gradient>) {
+        let mut lhs_grad = self.lhs_grad.borrow_mut();
+        let mut rhs_grad = self.rhs_grad.borrow_mut();
+        let axis = self.axis;
+
+        let mut subview_iter = grad.axis_iter(Axis(axis));
+
+        let subview_left = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+        let subview_right = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+
+        let zip_lhs = Zip::from(lhs_grad.deref_mut()).and(subview_left);
+        let zip_rhs = Zip::from(rhs_grad.deref_mut()).and(subview_right);
+
+        match self.counter.backward_action() {
+            BackwardAction::Set => {
+                zip_lhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+                zip_rhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+            }
+            BackwardAction::Increment => {
+                zip_lhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+                zip_rhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+            }
+        }
+
+        if self.counter.recurse_backward() {
+            self.lhs.backward(&self.lhs_grad.borrow());
+            self.rhs.backward(&self.rhs_grad.borrow());
+        }
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.lhs.clear();
+            self.rhs.clear();
+            self.counter.clear();
+        }
+    }
+
+    fn data(&self) -> Ref<Self::Data> {
+        self.data.borrow()
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+}
+
+// ============================ Computational Graph Internal Component: Unsqueeze  ============================
+
+#[derive(Debug)]
+pub struct Unsqueeze<OP, D>
+where
+    D: RemoveAxis,
+{
+    data: RefCell<Tensor<D::Larger>>,
+    axis: usize,
+    grad: RefCell<Tensor<D>>,
+    operand: Rc<OP>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<OP, D> Unsqueeze<OP, D>
+where
+    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis,
+{
+    pub fn new(operand: Rc<OP>, axis: usize) -> Self {
+        let requires_grad = operand.requires_grad();
+        let (data, grad) = {
+            let operand_data = operand.data();
+            (
+                operand_data.clone().insert_axis(Axis(axis)),
+                Tensor::zeros(operand_data.raw_dim()),
+            )
+        };
+
+        Self {
+            data: RefCell::new(data),
+            axis,
+            grad: RefCell::new(grad),
+            operand,
+            requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<OP, D> Node for Unsqueeze<OP, D>
+where
+    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: RemoveAxis + 'static,
+{
+    type Data = Tensor<D::Larger>;
+    type Gradient = Tensor<D::Larger>;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.operand.forward();
+
+        let mut self_data = self.data.borrow_mut();
+        let mut mut_array = self_data
+            .axis_iter_mut(Axis(self.axis))
+            .next()
+            .unwrap()
+            .into_dimensionality::<D>()
+            .unwrap();
+        let operand_data = self.operand.data();
+
+        Zip::from(&mut mut_array)
+            .and(operand_data.deref())
+            .par_for_each(|self_data_el, operand_data_el| *self_data_el = *operand_data_el);
+    }
+
+    fn backward(&self, grad: &Ref<Self::Gradient>) {
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let axis = self.axis;
+            let down_grad = grad
+                .axis_iter(Axis(axis))
+                .next()
+                .unwrap()
+                .into_dimensionality::<D>()
+                .unwrap();
+
+            let zip = Zip::from(self_grad.deref_mut()).and(&down_grad);
+
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el| *self_grad_el = *down_grad_el)
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el| *self_grad_el += *down_grad_el)
+                }
+            }
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
@@ -2389,271 +2773,266 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{accumulate, BackwardAction, Tensor};
+    use super::{accumulate, BackwardAction};
     use ndarray::array;
 
     #[test]
     fn assign_test() {
-        let mut scalar_trgt = Tensor { array: array![0.0] };
-        let mut vector_trgt = Tensor {
-            array: array![0.0, 0.0, 0.0],
-        };
-        let mut matrix_trgt = Tensor {
-            array: array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
-        };
+        let mut scalar_trgt = array![0.0];
+        let mut vector_trgt = array![0.0, 0.0, 0.0];
+        let mut matrix_trgt = array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
 
-        let scalar = Tensor { array: array![1.0] };
-        let vector = Tensor {
-            array: array![1.0, 1.0, 1.0],
-        };
-        let matrix = Tensor {
-            array: array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
-        };
+        let scalar = array![1.0];
+        let vector = array![1.0, 1.0, 1.0];
+        let matrix = array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]];
 
         // Scalar scalar assignment.
         accumulate(&mut scalar_trgt, &scalar, 1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt.array[0], scalar.array[0]);
+        assert_eq!(scalar_trgt[0], scalar[0]);
+        scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar vector.
         accumulate(&mut scalar_trgt, &vector, 1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt.array[0], 3.0);
+        assert_eq!(scalar_trgt[0], 3.0);
+        scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar matrix.
         accumulate(&mut scalar_trgt, &matrix, 1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt.array[0], 9.0);
+        assert_eq!(scalar_trgt[0], 9.0);
+        scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector scalar assignment.
         accumulate(&mut vector_trgt, &scalar, 1.0, &BackwardAction::Set);
-        assert_eq!(vector_trgt.array, array![1.0, 1.0, 1.0]);
+        assert_eq!(vector_trgt, array![1.0, 1.0, 1.0]);
+        vector_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector vector assignment.
         accumulate(&mut vector_trgt, &vector, 1.0, &BackwardAction::Set);
-        assert_eq!(vector_trgt.array, array![1.0, 1.0, 1.0]);
+        assert_eq!(vector_trgt, array![1.0, 1.0, 1.0]);
+        vector_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector matrix assignment.
         accumulate(&mut vector_trgt, &matrix, 1.0, &BackwardAction::Set);
-        assert_eq!(vector_trgt.array, array![3.0, 3.0, 3.0]);
+        assert_eq!(vector_trgt, array![3.0, 3.0, 3.0]);
+        vector_trgt.map_inplace(|el| *el = 0.0);
 
         // Matrix scalar assignment.
         accumulate(&mut matrix_trgt, &scalar, 1.0, &BackwardAction::Set);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 0.0);
 
         // Matrix vector assignment.
         accumulate(&mut matrix_trgt, &vector, 1.0, &BackwardAction::Set);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 0.0);
 
         // Matrix matrix assignment.
         accumulate(&mut matrix_trgt, &matrix, 1.0, &BackwardAction::Set);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 0.0);
     }
 
     #[test]
     fn scaled_assign_test() {
-        let mut scalar_trgt = Tensor { array: array![0.0] };
-        let mut vector_trgt = Tensor {
-            array: array![0.0, 0.0, 0.0],
-        };
-        let mut matrix_trgt = Tensor {
-            array: array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
-        };
+        let mut scalar_trgt = array![0.0];
+        let mut vector_trgt = array![0.0, 0.0, 0.0];
+        let mut matrix_trgt = array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
 
-        let scalar = Tensor { array: array![1.0] };
-        let vector = Tensor {
-            array: array![1.0, 1.0, 1.0],
-        };
-        let matrix = Tensor {
-            array: array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
-        };
+        let scalar = array![1.0];
+        let vector = array![1.0, 1.0, 1.0];
+        let matrix = array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]];
 
         // Scalar scalar assignment.
         accumulate(&mut scalar_trgt, &scalar, -1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt.array[0], -scalar.array[0]);
+        assert_eq!(scalar_trgt[0], -scalar[0]);
+        scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar vector.
         accumulate(&mut scalar_trgt, &vector, -1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt.array[0], -3.0);
+        assert_eq!(scalar_trgt[0], -3.0);
+        scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar matrix.
         accumulate(&mut scalar_trgt, &matrix, -1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt.array[0], -9.0);
+        assert_eq!(scalar_trgt[0], -9.0);
+        scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector scalar assignment.
         accumulate(&mut vector_trgt, &scalar, -1.0, &BackwardAction::Set);
-        assert_eq!(vector_trgt.array, -array![1.0, 1.0, 1.0]);
+        assert_eq!(vector_trgt, -array![1.0, 1.0, 1.0]);
+        vector_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector vector assignment.
         accumulate(&mut vector_trgt, &vector, -1.0, &BackwardAction::Set);
-        assert_eq!(vector_trgt.array, -array![1.0, 1.0, 1.0]);
+        assert_eq!(vector_trgt, -array![1.0, 1.0, 1.0]);
+        vector_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector matrix assignment.
         accumulate(&mut vector_trgt, &matrix, -1.0, &BackwardAction::Set);
-        assert_eq!(vector_trgt.array, -array![3.0, 3.0, 3.0]);
+        assert_eq!(vector_trgt, -array![3.0, 3.0, 3.0]);
+        vector_trgt.map_inplace(|el| *el = 0.0);
 
         // Matrix scalar assignment.
         accumulate(&mut matrix_trgt, &scalar, -1.0, &BackwardAction::Set);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 0.0);
 
         // Matrix vector assignment.
         accumulate(&mut matrix_trgt, &vector, -1.0, &BackwardAction::Set);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 0.0);
 
         // Matrix matrix assignment.
         accumulate(&mut matrix_trgt, &matrix, -1.0, &BackwardAction::Set);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             -array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 0.0);
     }
 
     #[test]
     fn add_assign_test() {
-        let mut scalar_trgt = Tensor { array: array![5.0] };
-        let mut vector_trgt = Tensor {
-            array: array![5.0, 5.0, 5.0],
-        };
-        let mut matrix_trgt = Tensor {
-            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
-        };
+        let mut scalar_trgt = array![5.0];
+        let mut vector_trgt = array![5.0, 5.0, 5.0];
+        let mut matrix_trgt = array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]];
 
-        let scalar = Tensor { array: array![5.0] };
-        let vector = Tensor {
-            array: array![5.0, 5.0, 5.0],
-        };
-        let matrix = Tensor {
-            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
-        };
+        let scalar = array![5.0];
+        let vector = array![5.0, 5.0, 5.0];
+        let matrix = array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]];
 
         // Scalar scalar assignment.
         accumulate(&mut scalar_trgt, &scalar, 1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt.array[0], 10.0);
+        assert_eq!(scalar_trgt[0], 10.0);
+        scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar vector.
         accumulate(&mut scalar_trgt, &vector, 1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt.array[0], 25.0);
+        assert_eq!(scalar_trgt[0], 20.0);
+        scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar matrix.
         accumulate(&mut scalar_trgt, &matrix, 1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt.array[0], 70.0);
+        assert_eq!(scalar_trgt[0], 50.0);
+        scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector scalar assignment.
         accumulate(&mut vector_trgt, &scalar, 1.0, &BackwardAction::Increment);
-        assert_eq!(vector_trgt.array, array![10.0, 10.0, 10.0]);
+        assert_eq!(vector_trgt, array![10.0, 10.0, 10.0]);
+        vector_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector vector assignment.
         accumulate(&mut vector_trgt, &vector, 1.0, &BackwardAction::Increment);
-        assert_eq!(vector_trgt.array, array![15.0, 15.0, 15.0]);
+        assert_eq!(vector_trgt, array![10.0, 10.0, 10.0]);
+        vector_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector matrix assignment.
         accumulate(&mut vector_trgt, &matrix, 1.0, &BackwardAction::Increment);
-        assert_eq!(vector_trgt.array, array![30.0, 30.0, 30.0]);
+        assert_eq!(vector_trgt, array![20.0, 20.0, 20.0]);
+        vector_trgt.map_inplace(|el| *el = 5.0);
 
         // Matrix scalar assignment.
         accumulate(&mut matrix_trgt, &scalar, 1.0, &BackwardAction::Increment);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             array![[10.0, 10.0, 10.0], [10.0, 10.0, 10.0], [10.0, 10.0, 10.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 5.0);
 
         // Matrix vector assignment.
         accumulate(&mut matrix_trgt, &vector, 1.0, &BackwardAction::Increment);
         assert_eq!(
-            matrix_trgt.array,
-            array![[15.0, 15.0, 15.0], [15.0, 15.0, 15.0], [15.0, 15.0, 15.0]]
+            matrix_trgt,
+            array![[10.0, 10.0, 10.0], [10.0, 10.0, 10.0], [10.0, 10.0, 10.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 5.0);
 
         // Matrix matrix assignment.
         accumulate(&mut matrix_trgt, &matrix, 1.0, &BackwardAction::Increment);
         assert_eq!(
-            matrix_trgt.array,
-            array![[20.0, 20.0, 20.0], [20.0, 20.0, 20.0], [20.0, 20.0, 20.0]]
+            matrix_trgt,
+            array![[10.0, 10.0, 10.0], [10.0, 10.0, 10.0], [10.0, 10.0, 10.0]]
         );
+        matrix_trgt.map_inplace(|el| *el = 5.0);
     }
 
     #[test]
     fn scaled_add_assign_test() {
-        let mut scalar_trgt = Tensor { array: array![5.0] };
-        let mut vector_trgt = Tensor {
-            array: array![5.0, 5.0, 5.0],
-        };
-        let mut matrix_trgt = Tensor {
-            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
-        };
+        let mut scalar_trgt = array![5.0];
+        let mut vector_trgt = array![5.0, 5.0, 5.0];
+        let mut matrix_trgt = array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]];
 
-        let scalar = Tensor { array: array![5.0] };
-        let vector = Tensor {
-            array: array![5.0, 5.0, 5.0],
-        };
-        let matrix = Tensor {
-            array: array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
-        };
+        let scalar = array![5.0];
+        let vector = array![5.0, 5.0, 5.0];
+        let matrix = array![[5.0, 5.0, 5.0], [5.0, 5.0, 5.0], [5.0, 5.0, 5.0]];
 
         // Scalar scalar assignment.
-        &mut accumulate(&mut scalar_trgt, &scalar, -1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt.array[0], 0.0);
-        scalar_trgt.set_zero();
+        accumulate(&mut scalar_trgt, &scalar, -1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt[0], 0.0);
+        scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar vector.
-        &mut accumulate(&mut scalar_trgt, &vector, -1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt.array[0], -15.0);
-        scalar_trgt.set_zero();
+        accumulate(&mut scalar_trgt, &vector, -1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt[0], -10.0);
+        scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar matrix.
-        &mut accumulate(&mut scalar_trgt, &matrix, -1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt.array[0], -45.0);
-        scalar_trgt.set_zero();
+        accumulate(&mut scalar_trgt, &matrix, -1.0, &BackwardAction::Increment);
+        assert_eq!(scalar_trgt[0], -40.0);
+        scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector scalar assignment.
-        &mut accumulate(&mut vector_trgt, &scalar, -1.0, &BackwardAction::Increment);
-        assert_eq!(vector_trgt.array, array![0.0, 0.0, 0.0]);
-        vector_trgt.set_zero();
+        accumulate(&mut vector_trgt, &scalar, -1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt, array![0.0, 0.0, 0.0]);
+        vector_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector vector assignment.
-        &mut accumulate(&mut vector_trgt, &vector, -1.0, &BackwardAction::Increment);
-        assert_eq!(vector_trgt.array, array![-5.0, -5.0, -5.0]);
-        vector_trgt.set_zero();
+        accumulate(&mut vector_trgt, &vector, -1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt, array![-0.0, -0.0, -0.0]);
+        vector_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector matrix assignment.
-        &mut accumulate(&mut vector_trgt, &matrix, -1.0, &BackwardAction::Increment);
-        assert_eq!(vector_trgt.array, array![-15.0, -15.0, -15.0]);
-        vector_trgt.set_zero();
+        accumulate(&mut vector_trgt, &matrix, -1.0, &BackwardAction::Increment);
+        assert_eq!(vector_trgt, array![-10.0, -10.0, -10.0]);
+        vector_trgt.map_inplace(|el| *el = 5.0);
 
         // Matrix scalar assignment.
-        &mut accumulate(&mut matrix_trgt, &scalar, -1.0, &BackwardAction::Increment);
+        accumulate(&mut matrix_trgt, &scalar, -1.0, &BackwardAction::Increment);
         assert_eq!(
-            matrix_trgt.array,
+            matrix_trgt,
             array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
         );
-        matrix_trgt.set_zero();
+        matrix_trgt.map_inplace(|el| *el = 5.0);
 
         // Matrix vector assignment.
-        &mut accumulate(&mut matrix_trgt, &vector, -1.0, &BackwardAction::Increment);
+        accumulate(&mut matrix_trgt, &vector, -1.0, &BackwardAction::Increment);
         assert_eq!(
-            matrix_trgt.array,
-            array![[-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0]]
+            matrix_trgt,
+            array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
         );
-        matrix_trgt.set_zero();
+        matrix_trgt.map_inplace(|el| *el = 5.0);
 
         // Matrix matrix assignment.
-        &mut accumulate(&mut matrix_trgt, &matrix, -1.0, &BackwardAction::Increment);
+        accumulate(&mut matrix_trgt, &matrix, -1.0, &BackwardAction::Increment);
         assert_eq!(
-            matrix_trgt.array,
-            array![[-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0], [-5.0, -5.0, -5.0]]
+            matrix_trgt,
+            array![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
         );
-        matrix_trgt.set_zero();
+        matrix_trgt.map_inplace(|el| *el = 5.0);
     }
 }

@@ -1,18 +1,21 @@
 pub(crate) mod node;
-pub(super) mod numeric;
 
 use itertools::Itertools;
-use ndarray::{Dimension, Ix1, Ix2, RemoveAxis};
+use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, RemoveAxis};
 use node::{
-    Addition, Division, Dot, Exp, LeakyReLU, Logn, Multiplication, Negation, Node, Parameter,
-    Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Subtraction, Summation, Tanh,
-    Transpose, VectorDot,
+    Addition, Concatenate, Division, Dot, Exp, LeakyReLU, Logn, Multiplication, Negation, Node,
+    Parameter, Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction,
+    Sum, Tanh, Transpose, Unsqueeze, VectorDot,
 };
-use numeric::{Broadcast, Broadcasted, Tensor};
-use std::cell::{Ref, RefCell};
-use std::fmt::Debug;
-use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
-use std::rc::Rc;
+use std::{
+    cell::{Ref, RefCell},
+    fmt::Debug,
+    ops::{Add, Deref, Div, Mul, Neg, Sub},
+    rc::Rc,
+};
+
+pub(crate) type Tensor<D> = Array<f32, D>;
+pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 
 pub trait TrackableClone {
     fn clone_box(&self) -> Box<dyn Trackable>;
@@ -26,7 +29,7 @@ pub trait Trackable: Debug + TrackableClone {
 
 impl<D> TrackableClone for GraphBuilder<Parameter<D>, D>
 where
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     fn clone_box(&self) -> Box<dyn Trackable> {
         Box::new(self.clone())
@@ -35,7 +38,7 @@ where
 
 impl<D> Trackable for GraphBuilder<Parameter<D>, D>
 where
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     fn zero_grad(&mut self) {
         self.repr.zero_grad()
@@ -61,7 +64,7 @@ impl Clone for Box<dyn Trackable> {
 pub struct GraphBuilder<T, D>
 where
     T: Node,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     repr: Rc<T>,
     grad: Option<RefCell<Tensor<D>>>,
@@ -71,7 +74,7 @@ where
 impl<T, D> Clone for GraphBuilder<T, D>
 where
     T: Node,
-    D: Dimension + RemoveAxis,
+    D: Dimension,
 {
     fn clone(&self) -> Self {
         GraphBuilder {
@@ -84,7 +87,7 @@ where
 
 impl<D> GraphBuilder<Parameter<D>, D>
 where
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     pub fn grad(&self) -> Ref<Tensor<D>> {
         self.repr.deref().grad.borrow()
@@ -140,8 +143,8 @@ where
 impl<T, D, E> GraphBuilder<T, E>
 where
     T: Node<Data = Tensor<D>, Gradient = Tensor<E>>,
-    D: Dimension + RemoveAxis + 'static,
-    E: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
+    E: Dimension + 'static,
 {
     pub(super) fn new(repr: Rc<T>, upstream: Vec<Box<dyn Trackable>>) -> Self {
         GraphBuilder {
@@ -155,7 +158,7 @@ where
 impl<T, D> GraphBuilder<T, D>
 where
     T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     pub fn data(&self) -> Ref<T::Data> {
         self.repr.data()
@@ -186,9 +189,8 @@ where
     pub fn backward(&mut self, seed: f32) {
         let data_ref: &Tensor<D> = &self.repr.data();
         self.grad
-            .get_or_insert_with(|| RefCell::new(Tensor::new(data_ref.array().map(|_| seed))))
+            .get_or_insert_with(|| RefCell::new(data_ref.map(|_| seed)))
             .borrow_mut()
-            .array_mut()
             .map_inplace(|el| *el = seed);
 
         if let Some(ref grad) = self.grad {
@@ -196,9 +198,9 @@ where
         }
     }
 
-    pub fn sum(&self) -> GraphBuilder<Summation<T, D>, D> {
+    pub fn sum(&self) -> GraphBuilder<Sum<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(Summation::new(Rc::clone(&self.repr))),
+            Rc::new(Sum::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
@@ -246,10 +248,7 @@ where
         )
     }
 
-    pub fn ln(&self) -> GraphBuilder<Logn<T, D>, D>
-    where
-        D: Broadcast<D>,
-    {
+    pub fn ln(&self) -> GraphBuilder<Logn<T, D>, D> {
         GraphBuilder::new(
             Rc::new(Logn::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
@@ -278,6 +277,47 @@ where
     }
 }
 
+impl<D, T> GraphBuilder<T, D>
+where
+    D: RemoveAxis + 'static,
+    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+{
+    pub fn unsqueeze(&self, axis: usize) -> GraphBuilder<Unsqueeze<T, D>, D::Larger> {
+        GraphBuilder::new(
+            Rc::new(Unsqueeze::new(Rc::clone(&self.repr), axis)),
+            self.upstream.clone(),
+        )
+    }
+
+    pub fn cat<U>(
+        self,
+        other: GraphBuilder<U, D>,
+        axis: usize,
+    ) -> GraphBuilder<Concatenate<T, U, D>, D>
+    where
+        U: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    {
+        GraphBuilder::new(
+            Rc::new(Concatenate::new(self.repr, other.repr, axis)),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+
+    pub fn stack<U>(
+        self,
+        other: GraphBuilder<U, D>,
+        axis: usize,
+    ) -> GraphBuilder<Stack<T, U, D>, D::Larger>
+    where
+        U: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    {
+        GraphBuilder::new(
+            Rc::new(Stack::new(self.repr, other.repr, axis)),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+}
+
 pub fn track_upstream(
     lhs_up: &[Box<dyn Trackable>],
     rhs_up: &[Box<dyn Trackable>],
@@ -302,8 +342,8 @@ macro_rules! impl_node_arithmetic_ops {
         where
             LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
             RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-            D: Dimension + RemoveAxis + Broadcast<E> + 'static,
-            E: Dimension + RemoveAxis + 'static,
+            D: Dimension + DimMax<E> + 'static,
+            E: Dimension + 'static,
         {
             type Output = GraphBuilder<$repr<LHS, RHS, D, E>, Broadcasted<D, E>>;
 
@@ -325,7 +365,7 @@ impl_node_arithmetic_ops!(Div, div, Division);
 impl<T, D> Neg for GraphBuilder<T, D>
 where
     T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + RemoveAxis + 'static,
+    D: Dimension + 'static,
 {
     type Output = GraphBuilder<Negation<T, D>, D>;
     fn neg(self) -> Self::Output {

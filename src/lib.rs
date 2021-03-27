@@ -1,71 +1,97 @@
 mod graph;
 pub mod nn;
 pub use graph::node::{Input, Parameter};
-pub use graph::numeric::Tensor; // Pub for now // Same
-
-pub use ndarray; // Used in macro export
+pub use ndarray;
 
 #[macro_export]
 macro_rules! tensor {
     ([$([$([$($x:expr),* $(,)*]),+ $(,)*]),+ $(,)*]; true) => {{
-        let t = Tensor::new($crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]));
-        Parameter::new(t)
+        let new = $crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]);
+        $crate::Parameter::new(new)
     }};
     ([$([$([$($x:expr),* $(,)*]),+ $(,)*]),+ $(,)*]; false) => {{
-        let t = Tensor::new($crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]));
-        Input::new(t)
+        let new = $crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]);
+        $crate::Input::new(new)
     }};
     ([$([$($x:expr),* $(,)*]),+ $(,)*]; true) => {{
-        let t = Tensor::new($crate::ndarray::Array2::from(vec![$([$($x,)*],)*]));
-        Parameter::new(t)
+        let new = $crate::ndarray::Array2::from(vec![$([$($x,)*],)*]);
+        $crate::Parameter::new(new)
     }};
     ([$([$($x:expr),* $(,)*]),+ $(,)*]; false) => {{
-        let t = Tensor::new($crate::ndarray::Array2::from(vec![$([$($x,)*],)*]));
-        Input::new(t)
+        let new = $crate::ndarray::Array2::from(vec![$([$($x,)*],)*]);
+        $crate::Input::new(new)
     }};
     ([$($x:expr),* $(,)*]; true) => {{
-        let t = Tensor::new($crate::ndarray::Array1::from(vec![$($x,)*]));
-        Parameter::new(t)
+        let new = $crate::ndarray::Array1::from(vec![$($x,)*]);
+        $crate::Parameter::new(new)
     }};
 
     ([$($x:expr),* $(,)*]; false) => {{
-        let t = Tensor::new($crate::ndarray::Array1::from(vec![$($x,)*]));
-        Input::new(t)
+        let new = Tensor::new($crate::ndarray::Array1::from(vec![$($x,)*]));
+        Input::new(new)
     }};
 }
 
 #[macro_export]
 macro_rules! zeros {
     ($sh:expr; true) => {{
-        let t = Tensor::new($crate::ndarray::Array::from_elem($sh, 0.0));
-        Parameter::new(t)
+        let new = $crate::ndarray::Array::from_elem($sh, 0.0);
+        $crate::Parameter::new(new)
     }};
     ($sh:expr; false) => {{
-        let t = Tensor::new($crate::ndarray::Array::from_elem($sh, 0.0));
-        Input::new(t)
+        let new = $crate::ndarray::Array::from_elem($sh, 0.0);
+        $crate::Input::new(new)
     }};
 }
 
 #[macro_export]
 macro_rules! ones {
     ($sh:expr; true) => {{
-        let t = Tensor::new($crate::ndarray::Array::from_elem($sh, 1.0));
-        Parameter::new(t)
+        let new = $crate::ndarray::Array::from_elem($sh, 1.0);
+        $crate::Parameter::new(new)
     }};
     ($sh:expr; false) => {{
-        let t = Tensor::new($crate::ndarray::Array::from_elem($sh, 1.0));
-        Input::new(t)
+        let new = $crate::ndarray::Array::from_elem($sh, 1.0);
+        $crate::Input::new(new)
     }};
 }
 
 #[macro_export]
 macro_rules! full {
     ($sh:expr, $el:expr; true) => {{
-        let t = Tensor::new($crate::ndarray::Array::from_elem($sh, $el));
-        Parameter::new(t)
+        let new = $crate::ndarray::Array::from_elem($sh, $el);
+        $crate::Parameter::new(new)
     }};
     ($sh:expr, $el:expr; false) => {{
-        let t = Tensor::new($crate::ndarray::Array::from_elem($sh, $el));
-        Input::new(t)
+        let new = $crate::ndarray::Array::from_elem($sh, $el);
+        $crate::Input::new(new)
     }};
+}
+
+#[macro_export]
+macro_rules! cat {
+    ($axis:expr, [$a:ident, $b:ident])=>{
+        {
+            $a.cat($b, $axis)
+        }
+    };
+    ($axis:expr, [$a:ident, $($b:ident),*])=>{
+       {
+           $a.cat($crate::cat!($axis, [$($b),*]), $axis)
+       }
+    }
+}
+
+#[macro_export]
+macro_rules! stack {
+    ($axis:expr, [$a:ident, $b:ident])=>{
+        {
+            $a.unsqueeze($axis).cat($b.unsqueeze($axis), $axis)
+        }
+    };
+    ($axis:expr, [$a:ident, $($b:ident),*])=>{
+       {
+           $a.unsqueeze($axis).cat($crate::stack!($axis, [$($b),*]), $axis)
+       }
+    }
 }
