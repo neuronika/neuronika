@@ -4,8 +4,8 @@ use itertools::Itertools;
 use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, RemoveAxis};
 use node::{
     Addition, Concatenate, Division, Dot, Exp, LeakyReLU, Logn, Multiplication, Negation, Node,
-    Parameter, Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction,
-    Sum, Tanh, Transpose, Unsqueeze, VectorDot,
+    Parameter, Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction, Sum,
+    Tanh, Transpose, Unsqueeze, VectorDot,
 };
 use std::{
     cell::{Ref, RefCell},
