@@ -195,7 +195,7 @@ where
             data: RefCell::new(data),
             grad: RefCell::new(grad),
         });
-        let upstream = vec![GraphBuilder::new(Rc::clone(&node), Vec::new()).as_trackable()];
+        let upstream = vec![GraphBuilder::new(Rc::clone(&node), Vec::new()).into_trackable()];
 
         GraphBuilder::new(node, upstream)
     }
@@ -1472,7 +1472,7 @@ where
 // ============================ Computational Graph Internal Component: ReLU  ============================
 
 #[derive(Debug)]
-pub struct ReLU<OP, D>
+pub struct Relu<OP, D>
 where
     D: Dimension,
 {
@@ -1483,7 +1483,7 @@ where
     counter: PassCounter,
 }
 
-impl<OP, D> ReLU<OP, D>
+impl<OP, D> Relu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension,
@@ -1503,7 +1503,7 @@ where
     }
 }
 
-impl<OP, D> Node for ReLU<OP, D>
+impl<OP, D> Node for Relu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + 'static,
@@ -1586,7 +1586,7 @@ where
 // ============================ Computational Graph Internal Component: LeakyReLU  ============================
 
 #[derive(Debug)]
-pub struct LeakyReLU<OP, D>
+pub struct LeakyRelu<OP, D>
 where
     D: Dimension,
 {
@@ -1597,7 +1597,7 @@ where
     counter: PassCounter,
 }
 
-impl<OP, D> LeakyReLU<OP, D>
+impl<OP, D> LeakyRelu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension,
@@ -1619,7 +1619,7 @@ where
     }
 }
 
-impl<OP, D> Node for LeakyReLU<OP, D>
+impl<OP, D> Node for LeakyRelu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + 'static,
