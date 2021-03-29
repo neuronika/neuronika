@@ -120,7 +120,15 @@ where
         dyn_rhs.index_axis_inplace(axis, 0);
     }
 
-    let (mut done, static_rhs) = { (false, dyn_rhs.into_dimensionality::<D>().unwrap()) };
+    let (mut done, static_rhs) = {
+        (
+            false,
+            dyn_rhs
+                .as_standard_layout()
+                .into_dimensionality::<D>()
+                .unwrap(),
+        )
+    };
     for i in 0..static_rhs.ndim() {
         let axis = Axis(i);
         if lhs.len_of(axis) == 1 {

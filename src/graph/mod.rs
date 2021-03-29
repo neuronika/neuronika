@@ -176,6 +176,10 @@ where
         &self.upstream[..]
     }
 
+    pub fn requires_grad(&self) -> bool {
+        self.repr.requires_grad()
+    }
+
     pub fn zero_gradient(&mut self) {
         for param in self.upstream_mut() {
             param.zero_grad();

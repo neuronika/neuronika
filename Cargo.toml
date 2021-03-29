@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 ndarray = {version = "0.15.0", features = ["rayon"]}
-num-traits = "0.2"
 itertools = "0.10.0"
 rand = "0.8.3"
 rand_distr = "0.4.0"
