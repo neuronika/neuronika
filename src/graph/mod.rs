@@ -3,9 +3,9 @@ pub(crate) mod node;
 use itertools::Itertools;
 use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, RemoveAxis};
 use node::{
-    Addition, Concatenate, Division, Dot, Exp, LeakyReLU, Logn, Multiplication, Negation, Node,
-    Parameter, Power, ReLU, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction,
-    Sum, Tanh, Transpose, Unsqueeze, VectorDot,
+    Addition, Concatenate, Division, Dot, Exp, LeakyRelu, Logn, Multiplication, Negation, Node,
+    Parameter, Power, Relu, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction, Sum,
+    Tanh, Transpose, Unsqueeze, VectorDot,
 };
 use std::{
     cell::{Ref, RefCell},
@@ -23,7 +23,7 @@ pub trait TrackableClone {
 
 pub trait Trackable: Debug + TrackableClone {
     fn zero_grad(&mut self);
-    fn as_trackable(self) -> Box<dyn Trackable>;
+    fn into_trackable(self) -> Box<dyn Trackable>;
     fn get_id(&self) -> usize;
 }
 
@@ -44,7 +44,7 @@ where
         self.repr.zero_grad()
     }
 
-    fn as_trackable(self) -> Box<dyn Trackable> {
+    fn into_trackable(self) -> Box<dyn Trackable> {
         Box::new(self)
     }
 
@@ -176,6 +176,10 @@ where
         &self.upstream[..]
     }
 
+    pub fn requires_grad(&self) -> bool {
+        self.repr.requires_grad()
+    }
+
     pub fn zero_gradient(&mut self) {
         for param in self.upstream_mut() {
             param.zero_grad();
@@ -213,16 +217,16 @@ where
         }
     }
 
-    pub fn relu(&self) -> GraphBuilder<ReLU<T, D>, D> {
+    pub fn relu(&self) -> GraphBuilder<Relu<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(ReLU::new(Rc::clone(&self.repr))),
+            Rc::new(Relu::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn leaky_relu(&self) -> GraphBuilder<LeakyReLU<T, D>, D> {
+    pub fn leaky_relu(&self) -> GraphBuilder<LeakyRelu<T, D>, D> {
         GraphBuilder::new(
-            Rc::new(LeakyReLU::new(Rc::clone(&self.repr))),
+            Rc::new(LeakyRelu::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }

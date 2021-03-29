@@ -120,7 +120,15 @@ where
         dyn_rhs.index_axis_inplace(axis, 0);
     }
 
-    let (mut done, static_rhs) = { (false, dyn_rhs.clone().into_dimensionality::<D>().unwrap()) };
+    let (mut done, static_rhs) = {
+        (
+            false,
+            dyn_rhs
+                .as_standard_layout()
+                .into_dimensionality::<D>()
+                .unwrap(),
+        )
+    };
     for i in 0..static_rhs.ndim() {
         let axis = Axis(i);
         if lhs.len_of(axis) == 1 {
@@ -146,8 +154,6 @@ where
             BackwardAction::Set => zip.for_each(|lhs_el, rhs_el| *lhs_el = rhs_el * scale),
             BackwardAction::Increment => zip.for_each(|lhs_el, rhs_el| *lhs_el += rhs_el * scale),
         }
-    } else {
-        return;
     }
 }
 
@@ -197,7 +203,7 @@ where
             data: RefCell::new(data),
             grad: RefCell::new(grad),
         });
-        let upstream = vec![GraphBuilder::new(Rc::clone(&node), Vec::new()).as_trackable()];
+        let upstream = vec![GraphBuilder::new(Rc::clone(&node), Vec::new()).into_trackable()];
 
         GraphBuilder::new(node, upstream)
     }
@@ -1474,7 +1480,7 @@ where
 // ============================ Computational Graph Internal Component: ReLU  ============================
 
 #[derive(Debug)]
-pub struct ReLU<OP, D>
+pub struct Relu<OP, D>
 where
     D: Dimension,
 {
@@ -1485,7 +1491,7 @@ where
     counter: PassCounter,
 }
 
-impl<OP, D> ReLU<OP, D>
+impl<OP, D> Relu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension,
@@ -1505,7 +1511,7 @@ where
     }
 }
 
-impl<OP, D> Node for ReLU<OP, D>
+impl<OP, D> Node for Relu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + 'static,
@@ -1588,7 +1594,7 @@ where
 // ============================ Computational Graph Internal Component: LeakyReLU  ============================
 
 #[derive(Debug)]
-pub struct LeakyReLU<OP, D>
+pub struct LeakyRelu<OP, D>
 where
     D: Dimension,
 {
@@ -1599,7 +1605,7 @@ where
     counter: PassCounter,
 }
 
-impl<OP, D> LeakyReLU<OP, D>
+impl<OP, D> LeakyRelu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension,
@@ -1621,7 +1627,7 @@ where
     }
 }
 
-impl<OP, D> Node for LeakyReLU<OP, D>
+impl<OP, D> Node for LeakyRelu<OP, D>
 where
     OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + 'static,
@@ -2788,17 +2794,17 @@ mod tests {
 
         // Scalar scalar assignment.
         accumulate(&mut scalar_trgt, &scalar, 1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt[0], scalar[0]);
+        assert!(scalar_trgt[0] - scalar[0] <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar vector.
         accumulate(&mut scalar_trgt, &vector, 1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt[0], 3.0);
+        assert!(scalar_trgt[0] - 3.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar matrix.
         accumulate(&mut scalar_trgt, &matrix, 1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt[0], 9.0);
+        assert!(scalar_trgt[0] - 9.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector scalar assignment.
@@ -2853,17 +2859,17 @@ mod tests {
 
         // Scalar scalar assignment.
         accumulate(&mut scalar_trgt, &scalar, -1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt[0], -scalar[0]);
+        assert!(scalar_trgt[0] - scalar[0] <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar vector.
         accumulate(&mut scalar_trgt, &vector, -1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt[0], -3.0);
+        assert!(scalar_trgt[0] - 3.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Scalar scalar matrix.
         accumulate(&mut scalar_trgt, &matrix, -1.0, &BackwardAction::Set);
-        assert_eq!(scalar_trgt[0], -9.0);
+        assert!(scalar_trgt[0] - 9.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 0.0);
 
         // Vector scalar assignment.
@@ -2918,17 +2924,17 @@ mod tests {
 
         // Scalar scalar assignment.
         accumulate(&mut scalar_trgt, &scalar, 1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt[0], 10.0);
+        assert!(scalar_trgt[0] - 10.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar vector.
         accumulate(&mut scalar_trgt, &vector, 1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt[0], 20.0);
+        assert!(scalar_trgt[0] - 20.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar matrix.
         accumulate(&mut scalar_trgt, &matrix, 1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt[0], 50.0);
+        assert!(scalar_trgt[0] - 50.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector scalar assignment.
@@ -2983,17 +2989,17 @@ mod tests {
 
         // Scalar scalar assignment.
         accumulate(&mut scalar_trgt, &scalar, -1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt[0], 0.0);
+        assert!(scalar_trgt[0] - 0.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar vector.
         accumulate(&mut scalar_trgt, &vector, -1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt[0], -10.0);
+        assert!(scalar_trgt[0] - 10.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Scalar scalar matrix.
         accumulate(&mut scalar_trgt, &matrix, -1.0, &BackwardAction::Increment);
-        assert_eq!(scalar_trgt[0], -40.0);
+        assert!(scalar_trgt[0] - 40.0 <= f32::EPSILON);
         scalar_trgt.map_inplace(|el| *el = 5.0);
 
         // Vector scalar assignment.

@@ -1,4 +1,3 @@
-use neuronika;
 use ndarray::{arr1, Array, Array1};
 
 #[test]
@@ -718,7 +717,7 @@ fn upstream_test() {
     let y = neuronika::full!((2, 2), 5.0; true);
     let z = neuronika::full!((1, 1), 1.0; true);
 
-    let w = x.clone() + y.clone() + z.clone() + x.clone();
+    let w = x.clone() + y + z + x;
 
     assert_eq!(w.upstream().len(), 3);
 }
