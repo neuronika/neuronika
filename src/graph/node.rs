@@ -1,4 +1,4 @@
-use super::{Broadcasted, GraphBuilder, Tensor, Trackable};
+use super::{Broadcasted, GraphBuilder, Parameters, Tensor};
 use ndarray::{
     concatenate, linalg::general_mat_mul, linalg::general_mat_vec_mul, stack, Array2, ArrayView1,
     Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
@@ -7,9 +7,6 @@ use std::cell::{Cell, Ref, RefCell};
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-static PARAM_ID: AtomicUsize = AtomicUsize::new(0); // TODO: remove me
 
 // ===================================== Computational Graph Aux. Components =====================================
 
@@ -187,7 +184,6 @@ pub struct Parameter<D>
 where
     D: Dimension,
 {
-    pub(crate) id: usize,
     pub(crate) data: RefCell<Tensor<D>>,
     pub(crate) grad: RefCell<Tensor<D>>,
 }
@@ -199,12 +195,10 @@ where
     pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
         let grad = Tensor::zeros(data.raw_dim());
         let node = Rc::new(Parameter {
-            id: PARAM_ID.fetch_add(1, Ordering::SeqCst),
             data: RefCell::new(data),
             grad: RefCell::new(grad),
         });
-        let upstream = vec![GraphBuilder::new(Rc::clone(&node), Vec::new()).into_trackable()];
-
+        let mut upstream = Parameters::new(); // <---- how to insert a copy of `Self` here?
         GraphBuilder::new(node, upstream)
     }
 
@@ -269,7 +263,7 @@ where
             Rc::new(Input {
                 data: RefCell::new(data),
             }),
-            Vec::new(),
+            Parameters::new(),
         )
     }
 }

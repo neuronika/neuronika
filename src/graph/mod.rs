@@ -1,7 +1,7 @@
 pub(crate) mod node;
 
 use itertools::Itertools;
-use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, RemoveAxis};
+use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
 use node::{
     Addition, Concatenate, Division, Dot, Exp, LeakyRelu, Logn, Multiplication, Negation, Node,
     Parameter, Power, Relu, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction, Sum,
@@ -17,45 +17,46 @@ use std::{
 pub(crate) type Tensor<D> = Array<f32, D>;
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 
-pub trait TrackableClone {
-    fn clone_box(&self) -> Box<dyn Trackable>;
+#[derive(Debug, Clone)]
+/// Containse the learnable ancestors of the node.
+pub struct Parameters {
+    // Contains the one dimensional learnable ancestors
+    oned_params: Vec<GraphBuilder<Parameter<Ix1>, Ix1>>,
+    // Contains the two dimensional learnable ancestors
+    twod_params: Vec<GraphBuilder<Parameter<Ix2>, Ix2>>,
+    // Contains the three dimensional learnable ancestors
+    threed_params: Vec<GraphBuilder<Parameter<Ix3>, Ix3>>,
+    // Contains the four dimensional learnable ancestors
+    fourd_params: Vec<GraphBuilder<Parameter<Ix4>, Ix4>>,
+    // Contains the five dimensional learnable ancestors
+    fived_params: Vec<GraphBuilder<Parameter<Ix5>, Ix5>>,
+    // Contains the six dimensional learnable ancestors
+    sixd_params: Vec<GraphBuilder<Parameter<Ix6>, Ix6>>,
+    // Contains the dynamic dimensional learnable ancestors
+    dynd_params: Vec<GraphBuilder<Parameter<IxDyn>, IxDyn>>,
 }
 
-pub trait Trackable: Debug + TrackableClone {
-    fn zero_grad(&mut self);
-    fn into_trackable(self) -> Box<dyn Trackable>;
-    fn get_id(&self) -> usize;
-}
-
-impl<D> TrackableClone for GraphBuilder<Parameter<D>, D>
-where
-    D: Dimension + 'static,
-{
-    fn clone_box(&self) -> Box<dyn Trackable> {
-        Box::new(self.clone())
-    }
-}
-
-impl<D> Trackable for GraphBuilder<Parameter<D>, D>
-where
-    D: Dimension + 'static,
-{
-    fn zero_grad(&mut self) {
-        self.repr.zero_grad()
+impl Parameters {
+    fn new() -> Parameters {
+        Parameters {
+            oned_params: Vec::new(),
+            twod_params: Vec::new(),
+            threed_params: Vec::new(),
+            fourd_params: Vec::new(),
+            fived_params: Vec::new(),
+            sixd_params: Vec::new(),
+            dynd_params: Vec::new(),
+        }
     }
 
-    fn into_trackable(self) -> Box<dyn Trackable> {
-        Box::new(self)
-    }
-
-    fn get_id(&self) -> usize {
-        self.repr.id
-    }
-}
-
-impl Clone for Box<dyn Trackable> {
-    fn clone(&self) -> Box<dyn Trackable> {
-        self.clone_box()
+    pub fn len(&self) -> usize {
+        self.oned_params.len()
+            + self.twod_params.len()
+            + self.threed_params.len()
+            + self.fourd_params.len()
+            + self.fived_params.len()
+            + self.sixd_params.len()
+            + self.dynd_params.len()
     }
 }
 
@@ -68,7 +69,7 @@ where
 {
     repr: Rc<T>,
     grad: Option<RefCell<Tensor<D>>>,
-    upstream: Vec<Box<dyn Trackable>>,
+    upstream: Parameters,
 }
 
 impl<T, D> Clone for GraphBuilder<T, D>
@@ -91,6 +92,13 @@ where
 {
     pub fn grad(&self) -> Ref<Tensor<D>> {
         self.repr.deref().grad.borrow()
+    }
+
+    fn as_ptr(&self) -> *const Parameter<D> {
+        self.repr.deref() as *const Parameter<D>
+    }
+    fn zero_grad(&mut self) {
+        self.repr.zero_grad()
     }
 }
 
@@ -146,7 +154,7 @@ where
     D: Dimension + 'static,
     E: Dimension + 'static,
 {
-    pub(super) fn new(repr: Rc<T>, upstream: Vec<Box<dyn Trackable>>) -> Self {
+    pub(super) fn new(repr: Rc<T>, upstream: Parameters) -> Self {
         GraphBuilder {
             repr,
             grad: None,
@@ -172,22 +180,27 @@ where
         self.repr.clear();
     }
 
-    pub fn upstream(&self) -> &[Box<dyn Trackable>] {
-        &self.upstream[..]
-    }
-
     pub fn requires_grad(&self) -> bool {
         self.repr.requires_grad()
     }
 
     pub fn zero_gradient(&mut self) {
-        for param in self.upstream_mut() {
+        for param in &mut self.upstream.oned_params[..] {
+            param.zero_grad();
+        }
+        for param in &mut self.upstream.twod_params[..] {
+            param.zero_grad();
+        }
+        for param in &mut self.upstream.threed_params[..] {
+            param.zero_grad();
+        }
+        for param in &mut self.upstream.fourd_params[..] {
             param.zero_grad();
         }
     }
 
-    pub fn upstream_mut(&mut self) -> &mut [Box<dyn Trackable>] {
-        &mut self.upstream[..]
+    pub fn upstream(&self) -> &Parameters {
+        &self.upstream
     }
 
     pub fn backward(&mut self, seed: f32) {
@@ -322,14 +335,29 @@ where
     }
 }
 
-pub fn track_upstream(
-    lhs_up: &[Box<dyn Trackable>],
-    rhs_up: &[Box<dyn Trackable>],
-) -> Vec<Box<dyn Trackable>> {
+fn track_upstream(lhs_params: &Parameters, rhs_params: &Parameters) -> Parameters {
+    Parameters {
+        oned_params: track_ancestors(&lhs_params.oned_params[..], &rhs_params.oned_params[..]),
+        twod_params: track_ancestors(&lhs_params.twod_params[..], &rhs_params.twod_params[..]),
+        threed_params: track_ancestors(
+            &lhs_params.threed_params[..],
+            &rhs_params.threed_params[..],
+        ),
+        fourd_params: track_ancestors(&lhs_params.fourd_params[..], &rhs_params.fourd_params[..]),
+        fived_params: track_ancestors(&lhs_params.fived_params[..], &rhs_params.fived_params[..]),
+        sixd_params: track_ancestors(&lhs_params.sixd_params[..], &rhs_params.sixd_params[..]),
+        dynd_params: track_ancestors(&lhs_params.dynd_params[..], &rhs_params.dynd_params[..]),
+    }
+}
+
+fn track_ancestors<D: Dimension + 'static>(
+    lhs_up: &[GraphBuilder<Parameter<D>, D>],
+    rhs_up: &[GraphBuilder<Parameter<D>, D>],
+) -> Vec<GraphBuilder<Parameter<D>, D>> {
     lhs_up
         .iter()
         .merge_join_by(rhs_up.iter(), |lhs_par, rhs_par| {
-            (lhs_par.get_id()).cmp(&rhs_par.get_id())
+            lhs_par.as_ptr().cmp(&rhs_par.as_ptr())
         })
         .map(|choice| match choice {
             itertools::EitherOrBoth::Left(lhs_par) => lhs_par,
