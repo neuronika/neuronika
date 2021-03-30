@@ -1,4 +1,4 @@
-use super::{Broadcasted, GraphBuilder, Parameters, Tensor};
+use super::{Ancestor, Broadcasted, GraphBuilder, Parameters, Tensor};
 use ndarray::{
     concatenate, linalg::general_mat_mul, linalg::general_mat_vec_mul, stack, Array2, ArrayView1,
     Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
@@ -198,7 +198,10 @@ where
             data: RefCell::new(data),
             grad: RefCell::new(grad),
         });
-        let mut upstream = Parameters::new(); // <---- how to insert a copy of `Self` here?
+
+        let ancestor = GraphBuilder::new(Rc::clone(&node), Parameters::new());
+        let mut upstream = Parameters::new();
+        ancestor.insert(upstream);
         GraphBuilder::new(node, upstream)
     }
 

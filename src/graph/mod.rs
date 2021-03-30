@@ -1,7 +1,7 @@
 pub(crate) mod node;
 
 use itertools::Itertools;
-use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
+use ndarray::{Array, Dim, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
 use node::{
     Addition, Concatenate, Division, Dot, Exp, LeakyRelu, Logn, Multiplication, Negation, Node,
     Parameter, Power, Relu, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction, Sum,
@@ -70,6 +70,52 @@ where
     repr: Rc<T>,
     grad: Option<RefCell<Tensor<D>>>,
     upstream: Parameters,
+}
+
+pub trait Ancestor {
+    fn insert(self, dest: &mut Parameters);
+}
+
+impl Ancestor for GraphBuilder<Parameter<Ix1>, Ix1> {
+    fn insert(self, dest: &mut Parameters) {
+        dest.oned_params.push(self);
+    }
+}
+
+impl Ancestor for GraphBuilder<Parameter<Ix2>, Ix2> {
+    fn insert(self, dest: &mut Parameters) {
+        dest.twod_params.push(self);
+    }
+}
+
+impl Ancestor for GraphBuilder<Parameter<Ix3>, Ix3> {
+    fn insert(self, dest: &mut Parameters) {
+        dest.threed_params.push(self);
+    }
+}
+
+impl Ancestor for GraphBuilder<Parameter<Ix4>, Ix4> {
+    fn insert(self, dest: &mut Parameters) {
+        dest.fourd_params.push(self);
+    }
+}
+
+impl Ancestor for GraphBuilder<Parameter<Ix5>, Ix5> {
+    fn insert(self, dest: &mut Parameters) {
+        dest.fived_params.push(self);
+    }
+}
+
+impl Ancestor for GraphBuilder<Parameter<Ix6>, Ix6> {
+    fn insert(self, dest: &mut Parameters) {
+        dest.sixd_params.push(self);
+    }
+}
+
+impl Ancestor for GraphBuilder<Parameter<IxDyn>, IxDyn> {
+    fn insert(self, dest: &mut Parameters) {
+        dest.dynd_params.push(self);
+    }
 }
 
 impl<T, D> Clone for GraphBuilder<T, D>
