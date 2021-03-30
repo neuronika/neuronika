@@ -31,29 +31,23 @@ pub use ndarray;
 #[macro_export]
 macro_rules! tensor {
     ([$([$([$($x:expr),* $(,)*]),+ $(,)*]),+ $(,)*]; true) => {{
-        let new = $crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]);
-        $crate::Parameter::new(new)
+        $crate::Parameter::new($crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]))
     }};
     ([$([$([$($x:expr),* $(,)*]),+ $(,)*]),+ $(,)*]; false) => {{
-        let new = $crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]);
-        $crate::Input::new(new)
+        $crate::Input::new($crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]))
     }};
     ([$([$($x:expr),* $(,)*]),+ $(,)*]; true) => {{
-        let new = $crate::ndarray::Array2::from(vec![$([$($x,)*],)*]);
-        $crate::Parameter::new(new)
+        $crate::Parameter::new($crate::ndarray::Array2::from(vec![$([$($x,)*],)*]))
     }};
     ([$([$($x:expr),* $(,)*]),+ $(,)*]; false) => {{
-        let new = $crate::ndarray::Array2::from(vec![$([$($x,)*],)*]);
-        $crate::Input::new(new)
+        $crate::Input::new($crate::ndarray::Array2::from(vec![$([$($x,)*],)*]))
     }};
     ([$($x:expr),* $(,)*]; true) => {{
-        let new = $crate::ndarray::Array1::from(vec![$($x,)*]);
-        $crate::Parameter::new(new)
+        $crate::Parameter::new($crate::ndarray::Array1::from(vec![$($x,)*]))
     }};
 
     ([$($x:expr),* $(,)*]; false) => {{
-        let new = $crate::ndarray::Array1::from(vec![$($x,)*]);
-        $crate::Input::new(new)
+        $crate::Input::new($crate::ndarray::Array1::from(vec![$($x,)*]))
     }};
 }
 
@@ -62,7 +56,7 @@ macro_rules! tensor {
 ///
 /// The return type and its differentiability depend on the `bool` passed after the shape.
 ///
-/// The shape is of type `ndarray::ShapeBuilder`. 
+/// The shape is of type `ndarray::ShapeBuilder`.
 ///
 /// # Examples
 ///
@@ -85,12 +79,10 @@ macro_rules! tensor {
 #[macro_export]
 macro_rules! zeros {
     ($sh:expr; true) => {{
-        let new = $crate::ndarray::Array::from_elem($sh, 0.0);
-        $crate::Parameter::new(new)
+        $crate::Parameter::new($crate::ndarray::Array::from_elem($sh, 0.0))
     }};
     ($sh:expr; false) => {{
-        let new = $crate::ndarray::Array::from_elem($sh, 0.0);
-        $crate::Input::new(new)
+        $crate::Input::new($crate::ndarray::Array::from_elem($sh, 0.0))
     }};
 }
 
@@ -122,12 +114,10 @@ macro_rules! zeros {
 #[macro_export]
 macro_rules! ones {
     ($sh:expr; true) => {{
-        let new = $crate::ndarray::Array::from_elem($sh, 1.0);
-        $crate::Parameter::new(new)
+        $crate::Parameter::new($crate::ndarray::Array::from_elem($sh, 1.0))
     }};
     ($sh:expr; false) => {{
-        let new = $crate::ndarray::Array::from_elem($sh, 1.0);
-        $crate::Input::new(new)
+        $crate::Input::new($crate::ndarray::Array::from_elem($sh, 1.0))
     }};
 }
 
@@ -159,12 +149,10 @@ macro_rules! ones {
 #[macro_export]
 macro_rules! full {
     ($sh:expr, $el:expr; true) => {{
-        let new = $crate::ndarray::Array::from_elem($sh, $el);
-        $crate::Parameter::new(new)
+        $crate::Parameter::new($crate::ndarray::Array::from_elem($sh, $el))
     }};
     ($sh:expr, $el:expr; false) => {{
-        let new = $crate::ndarray::Array::from_elem($sh, $el);
-        $crate::Input::new(new)
+        $crate::Input::new($crate::ndarray::Array::from_elem($sh, $el))
     }};
 }
 
