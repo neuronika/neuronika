@@ -1,7 +1,7 @@
 pub(crate) mod node;
 
 use itertools::Itertools;
-use ndarray::{Array, Dim, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
+use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
 use node::{
     Addition, Concatenate, Division, Dot, Exp, LeakyRelu, Logn, Multiplication, Negation, Node,
     Parameter, Power, Relu, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction, Sum,
@@ -17,8 +17,54 @@ use std::{
 pub(crate) type Tensor<D> = Array<f32, D>;
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 
+pub trait Ancestor: Dimension + 'static {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters);
+}
+
+impl Ancestor for Ix1 {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+        dest.oned_params.push(item);
+    }
+}
+
+impl Ancestor for Ix2 {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+        dest.twod_params.push(item);
+    }
+}
+
+impl Ancestor for Ix3 {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+        dest.threed_params.push(item);
+    }
+}
+
+impl Ancestor for Ix4 {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+        dest.fourd_params.push(item);
+    }
+}
+
+impl Ancestor for Ix5 {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+        dest.fived_params.push(item);
+    }
+}
+
+impl Ancestor for Ix6 {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+        dest.sixd_params.push(item);
+    }
+}
+
+impl Ancestor for IxDyn {
+    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+        dest.dynd_params.push(item);
+    }
+}
+
 #[derive(Debug, Clone)]
-/// Containse the learnable ancestors of the node.
+/// Contains the learnable ancestors of the node.
 pub struct Parameters {
     // Contains the one dimensional learnable ancestors
     oned_params: Vec<GraphBuilder<Parameter<Ix1>, Ix1>>,
@@ -72,52 +118,6 @@ where
     upstream: Parameters,
 }
 
-pub trait Ancestor {
-    fn insert(self, dest: &mut Parameters);
-}
-
-impl Ancestor for GraphBuilder<Parameter<Ix1>, Ix1> {
-    fn insert(self, dest: &mut Parameters) {
-        dest.oned_params.push(self);
-    }
-}
-
-impl Ancestor for GraphBuilder<Parameter<Ix2>, Ix2> {
-    fn insert(self, dest: &mut Parameters) {
-        dest.twod_params.push(self);
-    }
-}
-
-impl Ancestor for GraphBuilder<Parameter<Ix3>, Ix3> {
-    fn insert(self, dest: &mut Parameters) {
-        dest.threed_params.push(self);
-    }
-}
-
-impl Ancestor for GraphBuilder<Parameter<Ix4>, Ix4> {
-    fn insert(self, dest: &mut Parameters) {
-        dest.fourd_params.push(self);
-    }
-}
-
-impl Ancestor for GraphBuilder<Parameter<Ix5>, Ix5> {
-    fn insert(self, dest: &mut Parameters) {
-        dest.fived_params.push(self);
-    }
-}
-
-impl Ancestor for GraphBuilder<Parameter<Ix6>, Ix6> {
-    fn insert(self, dest: &mut Parameters) {
-        dest.sixd_params.push(self);
-    }
-}
-
-impl Ancestor for GraphBuilder<Parameter<IxDyn>, IxDyn> {
-    fn insert(self, dest: &mut Parameters) {
-        dest.dynd_params.push(self);
-    }
-}
-
 impl<T, D> Clone for GraphBuilder<T, D>
 where
     T: Node,
@@ -134,7 +134,7 @@ where
 
 impl<D> GraphBuilder<Parameter<D>, D>
 where
-    D: Dimension + 'static,
+    D: Ancestor,
 {
     pub fn grad(&self) -> Ref<Tensor<D>> {
         self.repr.deref().grad.borrow()
@@ -396,7 +396,7 @@ fn track_upstream(lhs_params: &Parameters, rhs_params: &Parameters) -> Parameter
     }
 }
 
-fn track_ancestors<D: Dimension + 'static>(
+fn track_ancestors<D: Ancestor>(
     lhs_up: &[GraphBuilder<Parameter<D>, D>],
     rhs_up: &[GraphBuilder<Parameter<D>, D>],
 ) -> Vec<GraphBuilder<Parameter<D>, D>> {

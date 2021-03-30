@@ -190,7 +190,7 @@ where
 
 impl<D> Parameter<D>
 where
-    D: Dimension + 'static,
+    D: Ancestor,
 {
     pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
         let grad = Tensor::zeros(data.raw_dim());
@@ -198,10 +198,11 @@ where
             data: RefCell::new(data),
             grad: RefCell::new(grad),
         });
-
-        let ancestor = GraphBuilder::new(Rc::clone(&node), Parameters::new());
         let mut upstream = Parameters::new();
-        ancestor.insert(upstream);
+        D::insert(
+            GraphBuilder::new(Rc::clone(&node), Parameters::new()),
+            &mut upstream,
+        );
         GraphBuilder::new(node, upstream)
     }
 
