@@ -156,6 +156,129 @@ macro_rules! full {
     }};
 }
 
+/// Creates an identity matrix of size `n` (a square 2D matrix).
+///
+/// If `true` is passed after the size the `grad` field will be
+/// pupulated during the backward pass.
+///
+/// # Panics
+///
+/// If `n * n` would overflow `isize`.
+#[macro_export]
+macro_rules! eye {
+    ($sh:expr; true) => {{
+        $crate::Parameter::new($crate::ndarray::Array2::eye($sh))
+    }};
+    ($sh:expr; false) => {{
+        $crate::Input::new($crate::ndarray::Array2::eye($sh))
+    }};
+}
+
+/// Create a one-dimensional array with `n` evenly spaced elements from `start` to `end`
+/// (exclusive). The elements must be `f32`.
+///
+/// If `true` is passed the `grad` field will be
+/// pupulated during the backward pass.
+///
+/// # Panics
+///
+/// If the length is greater than `isize::MAX`.
+///
+/// # Examples
+///
+/// ```rust
+/// use neuronika;
+/// use ndarray::arr1;
+///
+/// let tensor = neuronika::linspace!(0., 1., 5; true);
+/// assert!(*tensor.data() == arr1(&[0.0, 0.25, 0.5, 0.75, 1.0]))
+/// ```
+#[macro_export]
+macro_rules! linspace {
+    ($start:expr, $end:expr, $n:expr; true) => {{
+        $crate::Parameter::new($crate::ndarray::Array::linspace($start, $end, $n))
+    }};
+    ($start:expr, $end:expr, $n:expr; false) => {{
+        $crate::Input::new($crate::ndarray::Array::linspace($start, $end, $n))
+    }};
+}
+
+/// Create a one-dimensional array with `n` logarithmically spaced
+/// elements, with the starting value being `base.powf(start)` and the
+/// final one being `base.powf(end)`. Elements must be `f32`.
+///
+/// If `true` is passed the `grad` field will be
+/// pupulated during the backward pass.
+///
+/// If `base` is negative, all values will be negative.
+///
+/// # Panics
+//
+/// If `n` is greater than `isize::MAX` or if converting `n - 1`
+/// to type `f32` fails.
+#[macro_export]
+macro_rules! logspace {
+    ($base:expr, $start:expr, $end:expr, $n:expr; true) => {{
+        $crate::Parameter::new($crate::ndarray::Array::logspace($base, $start, $end, $n))
+    }};
+    ($base:expr, $start:expr, $end:expr, $n:expr; false) => {{
+        $crate::Input::new($crate::ndarray::Array::logspace($base, $start, $end, $n))
+    }};
+}
+
+/// Create a one-dimensional array with `n` geometrically spaced elements
+/// from `start` to `end` (inclusive). Elements must be `f32`.
+///
+/// If `true` is passed after the size the `grad` field will be
+/// pupulated during the backward pass.
+///
+/// Returns `None` if `start` and `end` have different signs or if either
+/// one is zero. Conceptually, this means that in order to obtain a `Some`
+/// result, `end / start` must be positive.
+///
+/// # Panics
+/// If `n` is greater than `isize::MAX` or if converting `n - 1`
+/// to type `f32` fails.
+#[macro_export]
+macro_rules! geomspace {
+    ($start:expr, $end:expr, $n:expr; true) => {{
+        match $crate::ndarray::Array::geomspace($start, $end, $n) {
+            None => None,
+            Some(array) => Some($crate::Parameter::new(array)),
+        }
+    }};
+    ($start:expr, $end:expr, $n:expr; false) => {{
+        match $crate::ndarray::Array::geomspace($start, $end, $n) {
+            None => None,
+            Some(array) => Some($crate::Input::new(array)),
+        }
+    }};
+}
+
+/// Create a one-dimensional array with elements from `start` to `end`
+/// (exclusive), incrementing by `step`. Elemetns must be a `f32`.
+///
+/// # Panics
+///
+/// If the length is greater than `isize::MAX`.
+///
+/// ```rust
+/// use neuronika;
+/// use ndarray::arr1;
+///
+/// let tensor = neuronika::range!(0., 5., 1.; true);
+/// assert!(*tensor.data() == arr1(&[0., 1., 2., 3., 4.]))
+/// ```
+#[macro_export]
+macro_rules! range {
+    ($start:expr, $end:expr, $step:expr; true) => {{
+        $crate::Parameter::new($crate::ndarray::Array::range($start, $end, $step))
+    }};
+    ($start:expr, $end:expr, $step:expr; false) => {{
+        $crate::Input::new($crate::ndarray::Array::range($start, $end, $step))
+    }};
+}
+
 #[macro_export]
 macro_rules! cat {
     ($axis:expr, [$a:ident, $b:ident])=>{
