@@ -1,4 +1,4 @@
-use super::{Ancestor, Broadcasted, GraphBuilder, Parameters, Tensor};
+use super::{Broadcasted, GraphBuilder, ParamDim, Parameters, Tensor};
 use ndarray::{
     concatenate, linalg::general_mat_mul, linalg::general_mat_vec_mul, stack, Array2, ArrayView1,
     Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
@@ -190,7 +190,7 @@ where
 
 impl<D> Parameter<D>
 where
-    D: Ancestor,
+    D: ParamDim,
 {
     pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
         let grad = Tensor::zeros(data.raw_dim());

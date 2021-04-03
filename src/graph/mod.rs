@@ -8,7 +8,7 @@ use node::{
     Tanh, Transpose, Unsqueeze, VectorDot,
 };
 use std::{
-    cell::{Ref, RefCell},
+    cell::{Ref, RefCell, RefMut},
     fmt::Debug,
     ops::{Add, Deref, Div, Mul, Neg, Sub},
     rc::Rc,
@@ -17,47 +17,47 @@ use std::{
 pub(crate) type Tensor<D> = Array<f32, D>;
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 
-pub trait Ancestor: Dimension + 'static {
+pub trait ParamDim: Dimension + 'static {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters);
 }
 
-impl Ancestor for Ix1 {
+impl ParamDim for Ix1 {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
         dest.oned_params.push(item);
     }
 }
 
-impl Ancestor for Ix2 {
+impl ParamDim for Ix2 {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
         dest.twod_params.push(item);
     }
 }
 
-impl Ancestor for Ix3 {
+impl ParamDim for Ix3 {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
         dest.threed_params.push(item);
     }
 }
 
-impl Ancestor for Ix4 {
+impl ParamDim for Ix4 {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
         dest.fourd_params.push(item);
     }
 }
 
-impl Ancestor for Ix5 {
+impl ParamDim for Ix5 {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
         dest.fived_params.push(item);
     }
 }
 
-impl Ancestor for Ix6 {
+impl ParamDim for Ix6 {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
         dest.sixd_params.push(item);
     }
 }
 
-impl Ancestor for IxDyn {
+impl ParamDim for IxDyn {
     fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
         dest.dynd_params.push(item);
     }
@@ -134,10 +134,14 @@ where
 
 impl<D> GraphBuilder<Parameter<D>, D>
 where
-    D: Ancestor,
+    D: ParamDim,
 {
     pub fn grad(&self) -> Ref<Tensor<D>> {
         self.repr.deref().grad.borrow()
+    }
+
+    pub(crate) fn data_mut(&mut self) -> RefMut<Tensor<D>> {
+        self.repr.data.borrow_mut()
     }
 
     fn as_ptr(&self) -> *const Parameter<D> {
@@ -396,7 +400,7 @@ fn track_upstream(lhs_params: &Parameters, rhs_params: &Parameters) -> Parameter
     }
 }
 
-fn track_ancestors<D: Ancestor>(
+fn track_ancestors<D: ParamDim>(
     lhs_up: &[GraphBuilder<Parameter<D>, D>],
     rhs_up: &[GraphBuilder<Parameter<D>, D>],
 ) -> Vec<GraphBuilder<Parameter<D>, D>> {
