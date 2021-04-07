@@ -388,9 +388,6 @@ where
 
 // ============================================== Computational Graph Internal Component: Addition ==============================================
 
-/// The `add
-///
-///
 #[derive(Debug)]
 pub struct Addition<Lhs, Rhs, D, E>
 where
@@ -1291,10 +1288,12 @@ where
 #[derive(Debug)]
 pub struct Sum<OP, D>
 where
+    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension,
 {
     data: RefCell<Tensor<Ix1>>,
-    grad: RefCell<Tensor<D>>,
+    grad: RefCell<Tensor<Ix1>>,
+    op_grad: RefCell<Tensor<D>>,
     operand: Rc<OP>,
     requires_grad: bool,
     counter: PassCounter,
@@ -1302,15 +1301,16 @@ where
 
 impl<OP, D> Sum<OP, D>
 where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension,
+    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
 {
     pub fn new(operand: Rc<OP>) -> Self {
         let requires_grad = operand.requires_grad();
-        let (data, grad) = {
+        let (data, grad, op_grad) = {
             let operand_data = operand.data();
             (
                 Tensor::<Ix1>::from(vec![operand_data.sum()]),
+                Tensor::zeros(1),
                 Tensor::zeros(operand_data.raw_dim()),
             )
         };
@@ -1318,6 +1318,7 @@ where
         Self {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
+            op_grad: RefCell::new(op_grad),
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -1327,11 +1328,11 @@ where
 
 impl<OP, D> Node for Sum<OP, D>
 where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + 'static,
+    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
 {
     type Data = Tensor<Ix1>;
-    type Gradient = Tensor<D>;
+    type Gradient = Tensor<Ix1>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1348,14 +1349,16 @@ where
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let mut op_grad = self.op_grad.borrow_mut();
+            let down_grad = grad.deref();
 
-        let mut self_grad = self.grad.borrow_mut();
-        let down_grad = grad.deref();
-
-        accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
-
+            accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
+            accumulate(op_grad.deref_mut(), self_grad.deref(), 1.0, &action);
+        }
         if self.counter.recurse_backward() {
-            self.operand.backward(&self.grad.borrow());
+            self.operand.backward(&self.op_grad.borrow());
         }
     }
 
