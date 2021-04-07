@@ -118,11 +118,10 @@ where
     upstream: Parameters,
 }
 
-impl<T, D, E> Clone for GraphBuilder<T, E>
+impl<T, D> Clone for GraphBuilder<T, D>
 where
-    T: Node<Data = Tensor<D>, Gradient = Tensor<E>>,
+    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension,
-    E: Dimension,
 {
     fn clone(&self) -> Self {
         GraphBuilder {
@@ -157,7 +156,10 @@ impl<T> GraphBuilder<T, Ix1>
 where
     T: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
 {
-    pub fn dot<U>(&self, other: &GraphBuilder<U, Ix1>) -> GraphBuilder<ScalarProduct<T, U>, Ix1>
+    pub fn dot<U>(
+        &self,
+        other: &GraphBuilder<U, Ix1>,
+    ) -> GraphBuilder<impl Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>, Ix1>
     where
         U: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
     {
@@ -175,7 +177,10 @@ impl<T> GraphBuilder<T, Ix2>
 where
     T: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
 {
-    pub fn mm<U>(&self, other: &GraphBuilder<U, Ix2>) -> GraphBuilder<Dot<T, U>, Ix2>
+    pub fn mm<U>(
+        &self,
+        other: &GraphBuilder<U, Ix2>,
+    ) -> GraphBuilder<impl Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>, Ix2>
     where
         U: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
     {
@@ -185,7 +190,10 @@ where
         )
     }
 
-    pub fn mv_mul<U>(&self, other: &GraphBuilder<U, Ix1>) -> GraphBuilder<VectorDot<T, U>, Ix1>
+    pub fn mv_mul<U>(
+        &self,
+        other: &GraphBuilder<U, Ix1>,
+    ) -> GraphBuilder<impl Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>, Ix1>
     where
         U: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
     {
@@ -199,11 +207,10 @@ where
     }
 }
 
-impl<T, D, E> GraphBuilder<T, E>
+impl<T, D> GraphBuilder<T, D>
 where
-    T: Node<Data = Tensor<D>, Gradient = Tensor<E>>,
+    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
     D: Dimension + 'static,
-    E: Dimension + 'static,
 {
     pub(super) fn new(repr: Rc<T>, upstream: Parameters) -> Self {
         GraphBuilder {
@@ -216,9 +223,7 @@ where
     pub fn backward(&mut self, seed: f32) {
         let data_ref: &Tensor<D> = &self.repr.data();
         self.grad
-            .get_or_insert_with(|| {
-                RefCell::new(data_ref.map(|_| seed).into_dimensionality::<E>().unwrap())
-            })
+            .get_or_insert_with(|| RefCell::new(data_ref.map(|_| seed)))
             .borrow_mut()
             .map_inplace(|el| *el = seed);
 
@@ -260,13 +265,7 @@ where
     pub fn upstream(&self) -> &Parameters {
         &self.upstream
     }
-}
 
-impl<T, D> GraphBuilder<T, D>
-where
-    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
     pub fn sum(&self) -> GraphBuilder<impl Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>, Ix1> {
         GraphBuilder::new(
             Rc::new(Sum::new(Rc::clone(&self.repr))),

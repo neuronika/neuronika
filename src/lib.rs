@@ -2,6 +2,8 @@ mod graph;
 pub mod nn;
 pub use graph::node::{Input, Parameter};
 pub use ndarray;
+pub use ndarray_rand::rand_distr::Uniform;
+pub use ndarray_rand::RandomExt;
 
 /// Creates either a [**`Parameter`**](type.Paramater.html) or an [**`Input`**](type.Paramater.html)
 /// node with one, two or three dimensions.
@@ -153,6 +155,28 @@ macro_rules! full {
     }};
     ($sh:expr, $el:expr; false) => {{
         $crate::Input::new($crate::ndarray::Array::from_elem($sh, $el))
+    }};
+}
+
+/// Returns either a `Parameter` or an `Input` filled with random numbers
+/// sampled from a uniform distribution on the interval **[0,1)**.
+///    
+/// The shape is of type `ndarray::ShapeBuilder`.
+#[macro_export]
+macro_rules! rand {
+    ($sh:expr; true) => {{
+        use $crate::RandomExt;
+        $crate::Parameter::new($crate::ndarray::Array::rand(
+            $sh,
+            $crate::Uniform::new(0., 1.),
+        ))
+    }};
+    ($sh:expr; false) => {{
+        use $crate::RandomExt;
+        $crate::Input::new($crate::ndarray::Array::random(
+            $sh,
+            $crate::Uniform::new(0., 1.),
+        ))
     }};
 }
 
