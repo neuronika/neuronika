@@ -1028,27 +1028,29 @@ where
         accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
 
         if self.counter.recurse_backward() {
-            let lhs_data = self.lhs.data();
-            let mut lhs_grad = self.lhs_grad.borrow_mut();
-            let rhs_data = self.rhs.data();
-            let mut rhs_grad = self.rhs_grad.borrow_mut();
-            let grad = self.grad.borrow();
+            {
+                let lhs_data = self.lhs.data();
+                let mut lhs_grad = self.lhs_grad.borrow_mut();
+                let rhs_data = self.rhs.data();
+                let mut rhs_grad = self.rhs_grad.borrow_mut();
+                let grad = self.grad.borrow();
 
-            Zip::from(lhs_grad.rows_mut())
-                .and(grad.deref())
-                .for_each(|row, grad_el| {
-                    Zip::from(row)
-                        .and(rhs_data.deref())
-                        .for_each(|row_el, rhs_data_el| *row_el = *rhs_data_el * *grad_el);
-                });
+                Zip::from(lhs_grad.rows_mut())
+                    .and(grad.deref())
+                    .for_each(|row, grad_el| {
+                        Zip::from(row)
+                            .and(rhs_data.deref())
+                            .for_each(|row_el, rhs_data_el| *row_el = *rhs_data_el * *grad_el);
+                    });
 
-            general_mat_vec_mul(
-                1.0,
-                &lhs_data.deref().t(),
-                grad.deref(),
-                0.0,
-                rhs_grad.deref_mut(),
-            );
+                general_mat_vec_mul(
+                    1.0,
+                    &lhs_data.deref().t(),
+                    grad.deref(),
+                    0.0,
+                    rhs_grad.deref_mut(),
+                );
+            }
 
             self.lhs.backward(&self.lhs_grad.borrow());
             self.rhs.backward(&self.rhs_grad.borrow());
@@ -1140,24 +1142,26 @@ where
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
 
-        let lhs_data = self.lhs.data();
-        let mut lhs_grad = self.lhs_grad.borrow_mut();
-        let rhs_data = self.rhs.data();
-        let mut rhs_grad = self.rhs_grad.borrow_mut();
-        let down_grad = grad.deref();
+        {
+            let lhs_data = self.lhs.data();
+            let mut lhs_grad = self.lhs_grad.borrow_mut();
+            let rhs_data = self.rhs.data();
+            let mut rhs_grad = self.rhs_grad.borrow_mut();
+            let down_grad = grad.deref();
 
-        accumulate(
-            lhs_grad.deref_mut(),
-            rhs_data.deref(),
-            down_grad[0],
-            &action,
-        );
-        accumulate(
-            rhs_grad.deref_mut(),
-            lhs_data.deref(),
-            down_grad[0],
-            &action,
-        );
+            accumulate(
+                lhs_grad.deref_mut(),
+                rhs_data.deref(),
+                down_grad[0],
+                &action,
+            );
+            accumulate(
+                rhs_grad.deref_mut(),
+                lhs_data.deref(),
+                down_grad[0],
+                &action,
+            );
+        }
 
         if self.counter.recurse_backward() {
             self.lhs.backward(&self.lhs_grad.borrow());
@@ -1244,25 +1248,27 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad.deref();
-        let exp = self.exp;
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad.deref();
+            let exp = self.exp;
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad)
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad)
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
-                });
-            }
-            BackwardAction::Increment => {
-                zip.for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * operand_data_el.powi(exp - 1) * exp as f32
+                    });
+                }
             }
         }
 
@@ -1440,24 +1446,26 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad.deref();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad.deref();
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad.deref())
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad.deref())
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = *down_grad_el / *operand_data_el
-                });
-            }
-            BackwardAction::Increment => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += *down_grad_el / *operand_data_el
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el / *operand_data_el
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el / *operand_data_el
+                    });
+                }
             }
         }
 
@@ -1546,32 +1554,34 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad;
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad;
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad.deref())
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad.deref())
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = if *operand_data_el > 0.0 {
-                        *down_grad_el
-                    } else {
-                        0.0
-                    }
-                });
-            }
-            BackwardAction::Increment => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += if *operand_data_el > 0.0 {
-                        *down_grad_el
-                    } else {
-                        0.0
-                    }
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.0
+                        }
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.0
+                        }
+                    });
+                }
             }
         }
 
@@ -1662,32 +1672,34 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad.deref();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad.deref();
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad)
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad)
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = if *operand_data_el > 0.0 {
-                        *down_grad_el
-                    } else {
-                        0.01 * down_grad_el
-                    }
-                });
-            }
-            BackwardAction::Increment => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += if *operand_data_el > 0.0 {
-                        *down_grad_el
-                    } else {
-                        0.01 * down_grad_el
-                    }
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.01 * down_grad_el
+                        }
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += if *operand_data_el > 0.0 {
+                            *down_grad_el
+                        } else {
+                            0.01 * down_grad_el
+                        }
+                    });
+                }
             }
         }
 
@@ -1786,36 +1798,38 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad.deref();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad.deref();
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad)
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad)
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = if *operand_data_el >= 15.0 {
-                        *down_grad_el
-                    } else if *operand_data_el <= -15.0 {
-                        0.0
-                    } else {
-                        down_grad_el / (1.0 + (-*operand_data_el).exp())
-                    }
-                });
-            }
-            BackwardAction::Increment => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += if *operand_data_el >= 15.0 {
-                        *down_grad_el
-                    } else if *operand_data_el <= -15.0 {
-                        0.0
-                    } else {
-                        down_grad_el / (1.0 + (-*operand_data_el).exp())
-                    }
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = if *operand_data_el >= 15.0 {
+                            *down_grad_el
+                        } else if *operand_data_el <= -15.0 {
+                            0.0
+                        } else {
+                            down_grad_el / (1.0 + (-*operand_data_el).exp())
+                        }
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += if *operand_data_el >= 15.0 {
+                            *down_grad_el
+                        } else if *operand_data_el <= -15.0 {
+                            0.0
+                        } else {
+                            down_grad_el / (1.0 + (-*operand_data_el).exp())
+                        }
+                    });
+                }
             }
         }
         if self.counter.recurse_backward() {
@@ -1914,24 +1928,26 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad.deref();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad.deref();
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad)
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad)
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
-                });
-            }
-            BackwardAction::Increment => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * *operand_data_el * (1.0 - *operand_data_el)
+                    });
+                }
             }
         }
 
@@ -2014,24 +2030,26 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad.deref();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad.deref();
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad)
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad)
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = *down_grad_el * (1.0 - operand_data_el.powi(2))
-                });
-            }
-            BackwardAction::Increment => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += *down_grad_el * (1.0 - operand_data_el.powi(2))
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * (1.0 - operand_data_el.powi(2))
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * (1.0 - operand_data_el.powi(2))
+                    });
+                }
             }
         }
 
@@ -2114,24 +2132,26 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let down_grad = grad.deref();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let down_grad = grad.deref();
 
-        let zip = Zip::from(self_grad.deref_mut())
-            .and(down_grad)
-            .and(operand_data.deref());
+            let zip = Zip::from(self_grad.deref_mut())
+                .and(down_grad)
+                .and(operand_data.deref());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el = *down_grad_el * *operand_data_el
-                });
-            }
-            BackwardAction::Increment => {
-                zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
-                    *self_grad_el += *down_grad_el * *operand_data_el
-                });
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el = *down_grad_el * *operand_data_el
+                    });
+                }
+                BackwardAction::Increment => {
+                    zip.par_for_each(|self_grad_el, down_grad_el, operand_data_el| {
+                        *self_grad_el += *down_grad_el * *operand_data_el
+                    });
+                }
             }
         }
 
@@ -2242,46 +2262,48 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let operand_data = self.operand.data();
-        let mut jacobian = self.jacobian.borrow_mut();
-        let axis = self.axis;
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let operand_data = self.operand.data();
+            let mut jacobian = self.jacobian.borrow_mut();
+            let axis = self.axis;
 
-        fn fill_jacobian(jacobian: &mut Array2<f32>, array: &ArrayView1<f32>) {
-            for (row_idx, (mut row, row_val)) in jacobian
-                .rows_mut()
-                .into_iter()
-                .zip(array.iter())
-                .enumerate()
-            {
-                for (col_idx, (grad, col_val)) in row
-                    .as_slice_mut()
-                    .unwrap()
-                    .iter_mut()
+            fn fill_jacobian(jacobian: &mut Array2<f32>, array: &ArrayView1<f32>) {
+                for (row_idx, (mut row, row_val)) in jacobian
+                    .rows_mut()
+                    .into_iter()
                     .zip(array.iter())
                     .enumerate()
                 {
-                    if row_idx == col_idx {
-                        *grad = row_val * (1.0 - col_val);
-                    } else {
-                        *grad = -row_val * col_val;
+                    for (col_idx, (grad, col_val)) in row
+                        .as_slice_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .zip(array.iter())
+                        .enumerate()
+                    {
+                        if row_idx == col_idx {
+                            *grad = row_val * (1.0 - col_val);
+                        } else {
+                            *grad = -row_val * col_val;
+                        }
                     }
                 }
             }
+
+            let beta = match self.counter.backward_action() {
+                BackwardAction::Set => 0.0,
+                BackwardAction::Increment => 1.0,
+            };
+
+            Zip::from(self_grad.lanes_mut(Axis(axis)))
+                .and(operand_data.lanes(Axis(axis)))
+                .and(grad.lanes(Axis(axis)))
+                .for_each(|mut d_g_col, data_col, grad_col| {
+                    fill_jacobian(&mut jacobian, &data_col);
+                    general_mat_vec_mul(1.0, &jacobian, &grad_col, beta, &mut d_g_col);
+                });
         }
-
-        let beta = match self.counter.backward_action() {
-            BackwardAction::Set => 0.0,
-            BackwardAction::Increment => 1.0,
-        };
-
-        Zip::from(self_grad.lanes_mut(Axis(axis)))
-            .and(operand_data.lanes(Axis(axis)))
-            .and(grad.lanes(Axis(axis)))
-            .for_each(|mut d_g_col, data_col, grad_col| {
-                fill_jacobian(&mut jacobian, &data_col);
-                general_mat_vec_mul(1.0, &jacobian, &grad_col, beta, &mut d_g_col);
-            });
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
@@ -2482,25 +2504,27 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut lhs_grad = self.lhs_grad.borrow_mut();
-        let mut rhs_grad = self.rhs_grad.borrow_mut();
-        let axis = self.axis;
+        {
+            let mut lhs_grad = self.lhs_grad.borrow_mut();
+            let mut rhs_grad = self.rhs_grad.borrow_mut();
+            let axis = self.axis;
 
-        let (lhs_, rhs_) = grad
-            .view()
-            .split_at(Axis(axis), lhs_grad.len_of(Axis(axis)));
+            let (lhs_, rhs_) = grad
+                .view()
+                .split_at(Axis(axis), lhs_grad.len_of(Axis(axis)));
 
-        let zip_lhs = Zip::from(lhs_grad.deref_mut()).and(&lhs_);
-        let zip_rhs = Zip::from(rhs_grad.deref_mut()).and(&rhs_);
+            let zip_lhs = Zip::from(lhs_grad.deref_mut()).and(&lhs_);
+            let zip_rhs = Zip::from(rhs_grad.deref_mut()).and(&rhs_);
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip_lhs.for_each(|single_el, fused_el| *single_el = *fused_el);
-                zip_rhs.for_each(|single_el, fused_el| *single_el = *fused_el);
-            }
-            BackwardAction::Increment => {
-                zip_lhs.for_each(|single_el, fused_el| *single_el += *fused_el);
-                zip_rhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip_lhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+                    zip_rhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+                }
+                BackwardAction::Increment => {
+                    zip_lhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+                    zip_rhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+                }
             }
         }
 
@@ -2621,34 +2645,36 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut lhs_grad = self.lhs_grad.borrow_mut();
-        let mut rhs_grad = self.rhs_grad.borrow_mut();
-        let axis = self.axis;
+        {
+            let mut lhs_grad = self.lhs_grad.borrow_mut();
+            let mut rhs_grad = self.rhs_grad.borrow_mut();
+            let axis = self.axis;
 
-        let mut subview_iter = grad.axis_iter(Axis(axis));
+            let mut subview_iter = grad.axis_iter(Axis(axis));
 
-        let subview_left = subview_iter
-            .next()
-            .unwrap()
-            .into_dimensionality::<D>()
-            .unwrap();
-        let subview_right = subview_iter
-            .next()
-            .unwrap()
-            .into_dimensionality::<D>()
-            .unwrap();
+            let subview_left = subview_iter
+                .next()
+                .unwrap()
+                .into_dimensionality::<D>()
+                .unwrap();
+            let subview_right = subview_iter
+                .next()
+                .unwrap()
+                .into_dimensionality::<D>()
+                .unwrap();
 
-        let zip_lhs = Zip::from(lhs_grad.deref_mut()).and(subview_left);
-        let zip_rhs = Zip::from(rhs_grad.deref_mut()).and(subview_right);
+            let zip_lhs = Zip::from(lhs_grad.deref_mut()).and(subview_left);
+            let zip_rhs = Zip::from(rhs_grad.deref_mut()).and(subview_right);
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => {
-                zip_lhs.for_each(|single_el, fused_el| *single_el = *fused_el);
-                zip_rhs.for_each(|single_el, fused_el| *single_el = *fused_el);
-            }
-            BackwardAction::Increment => {
-                zip_lhs.for_each(|single_el, fused_el| *single_el += *fused_el);
-                zip_rhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+            match self.counter.backward_action() {
+                BackwardAction::Set => {
+                    zip_lhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+                    zip_rhs.for_each(|single_el, fused_el| *single_el = *fused_el);
+                }
+                BackwardAction::Increment => {
+                    zip_lhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+                    zip_rhs.for_each(|single_el, fused_el| *single_el += *fused_el);
+                }
             }
         }
 
@@ -2747,23 +2773,24 @@ where
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
         {
-            let mut self_grad = self.grad.borrow_mut();
-            let axis = self.axis;
-            let down_grad = grad
-                .axis_iter(Axis(axis))
-                .next()
-                .unwrap()
-                .into_dimensionality::<D>()
-                .unwrap();
+            {
+                let mut self_grad = self.grad.borrow_mut();
+                let axis = self.axis;
+                let down_grad = grad
+                    .axis_iter(Axis(axis))
+                    .next()
+                    .unwrap()
+                    .into_dimensionality::<D>()
+                    .unwrap();
 
-            let zip = Zip::from(self_grad.deref_mut()).and(&down_grad);
+                let zip = Zip::from(self_grad.deref_mut()).and(&down_grad);
 
-            match self.counter.backward_action() {
-                BackwardAction::Set => {
-                    zip.par_for_each(|self_grad_el, down_grad_el| *self_grad_el = *down_grad_el)
-                }
-                BackwardAction::Increment => {
-                    zip.par_for_each(|self_grad_el, down_grad_el| *self_grad_el += *down_grad_el)
+                match self.counter.backward_action() {
+                    BackwardAction::Set => {
+                        zip.par_for_each(|self_grad_el, down_grad_el| *self_grad_el = *down_grad_el)
+                    }
+                    BackwardAction::Increment => zip
+                        .par_for_each(|self_grad_el, down_grad_el| *self_grad_el += *down_grad_el),
                 }
             }
         }
