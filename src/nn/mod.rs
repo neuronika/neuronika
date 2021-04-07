@@ -73,18 +73,20 @@ pub mod init {
     /// the uniform distribution U(low, high).
     pub fn uniform<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>, low: f32, high: f32) {
         let unif_dstr = Uniform::new(low, high);
+        let mut t_rng = thread_rng();
         param
             .data_mut()
-            .map_inplace(|el| *el = unif_dstr.sample(&mut thread_rng()));
+            .map_inplace(|el| *el = unif_dstr.sample(&mut t_rng));
     }
 
     /// Fills the input `Parameter` with elements drawn from
     /// the normal distribution N(mean, std^2).
     pub fn normal<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>, mean: f32, std: f32) {
         let norm_dstr = Normal::new(mean, std).unwrap();
+        let mut t_rng = thread_rng();
         param
             .data_mut()
-            .map_inplace(|el| *el = norm_dstr.sample(&mut thread_rng()));
+            .map_inplace(|el| *el = norm_dstr.sample(&mut t_rng));
     }
 
     /// Fills the input `Parameter` with values according to the method
@@ -96,9 +98,10 @@ pub mod init {
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let a = 3.0_f32.sqrt() * std;
         let unif_distr = Uniform::new(-a, a);
+        let mut t_rng = thread_rng();
         param
             .data_mut()
-            .map_inplace(|el| *el = unif_distr.sample(&mut thread_rng()));
+            .map_inplace(|el| *el = unif_distr.sample(&mut t_rng));
     }
 
     /// Fills the input `Parameter` with values according to the method
@@ -111,8 +114,9 @@ pub mod init {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let norm_distr = Normal::new(0., std).unwrap();
+        let mut t_rng = thread_rng();
         param
             .data_mut()
-            .map_inplace(|el| *el = norm_distr.sample(&mut thread_rng()));
+            .map_inplace(|el| *el = norm_distr.sample(&mut t_rng));
     }
 }

@@ -118,10 +118,11 @@ where
     upstream: Parameters,
 }
 
-impl<T, D> Clone for GraphBuilder<T, D>
+impl<T, D, E> Clone for GraphBuilder<T, E>
 where
-    T: Node,
+    T: Node<Data = Tensor<D>, Gradient = Tensor<E>>,
     D: Dimension,
+    E: Dimension,
 {
     fn clone(&self) -> Self {
         GraphBuilder {
@@ -211,17 +212,24 @@ where
             upstream,
         }
     }
-}
 
-impl<T, D> GraphBuilder<T, D>
-where
-    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
+    pub fn backward(&mut self, seed: f32) {
+        let data_ref: &Tensor<D> = &self.repr.data();
+        self.grad
+            .get_or_insert_with(|| {
+                RefCell::new(data_ref.map(|_| seed).into_dimensionality::<E>().unwrap())
+            })
+            .borrow_mut()
+            .map_inplace(|el| *el = seed);
+
+        if let Some(ref grad) = self.grad {
+            self.repr.backward(&grad.borrow());
+        }
+    }
+
     pub fn data(&self) -> Ref<T::Data> {
         self.repr.data()
     }
-
     pub fn forward(&self) {
         self.repr.forward()
     }
@@ -252,27 +260,24 @@ where
     pub fn upstream(&self) -> &Parameters {
         &self.upstream
     }
+}
 
-    pub fn backward(&mut self, seed: f32) {
-        let data_ref: &Tensor<D> = &self.repr.data();
-        self.grad
-            .get_or_insert_with(|| RefCell::new(data_ref.map(|_| seed)))
-            .borrow_mut()
-            .map_inplace(|el| *el = seed);
-
-        if let Some(ref grad) = self.grad {
-            self.repr.backward(&grad.borrow());
-        }
-    }
-
-    pub fn sum(&self) -> GraphBuilder<Sum<T, D>, D> {
+impl<T, D> GraphBuilder<T, D>
+where
+    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    D: Dimension + 'static,
+{
+    pub fn sum(&self) -> GraphBuilder<impl Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>, Ix1> {
         GraphBuilder::new(
             Rc::new(Sum::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn pow(&self, exp: i32) -> GraphBuilder<Power<T, D>, D> {
+    pub fn pow(
+        &self,
+        exp: i32,
+    ) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder {
             repr: Rc::new(Power::new(Rc::clone(&self.repr), exp)),
             grad: None,
@@ -280,63 +285,66 @@ where
         }
     }
 
-    pub fn relu(&self) -> GraphBuilder<Relu<T, D>, D> {
+    pub fn relu(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Relu::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn leaky_relu(&self) -> GraphBuilder<LeakyRelu<T, D>, D> {
+    pub fn leaky_relu(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(LeakyRelu::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softplus(&self) -> GraphBuilder<Softplus<T, D>, D> {
+    pub fn softplus(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Softplus::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn sigmoid(&self) -> GraphBuilder<Sigmoid<T, D>, D> {
+    pub fn sigmoid(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Sigmoid::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn tanh(&self) -> GraphBuilder<Tanh<T, D>, D> {
+    pub fn tanh(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Tanh::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn ln(&self) -> GraphBuilder<Logn<T, D>, D> {
+    pub fn ln(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Logn::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn exp(&self) -> GraphBuilder<Exp<T, D>, D> {
+    pub fn exp(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Exp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softmax(&self, axis: usize) -> GraphBuilder<Softmax<T, D>, D> {
+    pub fn softmax(
+        &self,
+        axis: usize,
+    ) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Softmax::new(Rc::clone(&self.repr), axis)),
             self.upstream.clone(),
         )
     }
 
-    pub fn t(&self) -> GraphBuilder<Transpose<T, D>, D> {
+    pub fn t(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Transpose::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
@@ -349,34 +357,33 @@ where
     D: RemoveAxis + 'static,
     T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
 {
-    pub fn unsqueeze(&self, axis: usize) -> GraphBuilder<Unsqueeze<T, D>, D::Larger> {
+    pub fn unsqueeze(
+        &self,
+        axis: usize,
+    ) -> GraphBuilder<impl Node<Data = Tensor<D::Larger>, Gradient = Tensor<D::Larger>>, D::Larger>
+    {
         GraphBuilder::new(
             Rc::new(Unsqueeze::new(Rc::clone(&self.repr), axis)),
             self.upstream.clone(),
         )
     }
 
-    pub fn cat<U>(
+    pub fn cat(
         self,
-        other: GraphBuilder<U, D>,
+        other: GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D>,
         axis: usize,
-    ) -> GraphBuilder<Concatenate<T, U, D>, D>
-    where
-        U: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    {
+    ) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
         GraphBuilder::new(
             Rc::new(Concatenate::new(self.repr, other.repr, axis)),
             track_upstream(&self.upstream, &other.upstream),
         )
     }
 
-    pub fn stack<U>(
+    pub fn stack(
         self,
-        other: GraphBuilder<U, D>,
+        other: GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D>,
         axis: usize,
-    ) -> GraphBuilder<Stack<T, U, D>, D::Larger>
-    where
-        U: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    ) -> GraphBuilder<impl Node<Data = Tensor<D::Larger>, Gradient = Tensor<D::Larger>>, D::Larger>
     {
         GraphBuilder::new(
             Rc::new(Stack::new(self.repr, other.repr, axis)),
