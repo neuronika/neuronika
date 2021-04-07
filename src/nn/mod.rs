@@ -1,3 +1,7 @@
+use super::Parameter;
+use crate::graph::{node::Node, GraphBuilder, Tensor};
+use ndarray::{Ix1, Ix2};
+
 pub mod init {
     use super::super::{graph::GraphBuilder, graph::ParamDim, Parameter};
     use ndarray::{Axis, Ix2};
@@ -118,5 +122,45 @@ pub mod init {
         param
             .data_mut()
             .map_inplace(|el| *el = norm_distr.sample(&mut t_rng));
+    }
+}
+/// Applies a linear transformation to the incoming data.
+///
+/// **y = xA^T + b**
+pub struct Linear {
+    pub weight: GraphBuilder<Parameter<Ix2>, Ix2>,
+    pub bias: GraphBuilder<Parameter<Ix1>, Ix1>,
+}
+
+impl Linear {
+    /// Creates a linear layer.
+    ///
+    /// `in_features` – size of each input sample.
+    ///
+    /// `out_features` – size of each output sample.
+    ///
+    /// The learnable weight of the layer is of shape `(out_features, in_features)`. The values
+    /// are initialised from **U(-k, k)** where `k = 1. /(in_features as f32).sqrt()`.
+    ///
+    /// The learnable bias of the layer is of shape `out_features`. The values
+    /// are initialised from **U(-k, k)** where `k = 1. /(in_features as f32).sqrt()`.
+    pub fn new(in_features: usize, out_features: usize) -> Self {
+        let mut weight = Parameter::new(Tensor::zeros((out_features, in_features)));
+        let mut bias = Parameter::new(Tensor::zeros(out_features));
+        let k = (1. / (in_features as f32)).sqrt();
+        init::uniform(&mut weight, -k, k);
+        init::uniform(&mut bias, -k, k);
+
+        Self { weight, bias }
+    }
+
+    /// Applies the linear transformation **y = xA^T + b** to the incoming data.
+    ///
+    /// `data` - `(N, in_features)`, the output will be `(N, out_features)`.
+    pub fn forward(
+        &self,
+        input: &GraphBuilder<impl Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>, Ix2>,
+    ) -> GraphBuilder<impl Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>, Ix2> {
+        input.mm(&self.weight.t()) + self.bias.clone()
     }
 }

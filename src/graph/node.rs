@@ -108,8 +108,8 @@ where
     }
 
     let mut dyn_rhs = rhs.clone().into_dyn();
-    for i in (lhs.ndim()..rhs.ndim()).rev() {
-        let axis = Axis(i);
+    for _ in (lhs.ndim()..rhs.ndim()).rev() {
+        let axis = Axis(0);
         let (first, rest) = dyn_rhs.view_mut().split_at(axis, 1);
         Zip::from(first.remove_axis(axis))
             .and(rest.lanes(axis))
@@ -126,6 +126,7 @@ where
                 .unwrap(),
         )
     };
+
     for i in 0..static_rhs.ndim() {
         let axis = Axis(i);
         if lhs.len_of(axis) == 1 {
@@ -889,34 +890,37 @@ where
 
     fn backward(&self, input_grad: &Ref<Self::Gradient>) {
         let action = self.counter.backward_action();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let down_grad = input_grad.deref();
 
-        let mut self_grad = self.grad.borrow_mut();
-        let down_grad = input_grad.deref();
-
-        accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
+            accumulate(self_grad.deref_mut(), down_grad, 1.0, &action);
+        }
 
         if self.counter.recurse_backward() {
-            let lhs_data = self.lhs.data();
-            let mut lhs_grad = self.lhs_grad.borrow_mut();
-            let rhs_data = self.rhs.data();
-            let mut rhs_grad = self.rhs_grad.borrow_mut();
-            let grad = self.grad.borrow();
+            {
+                let lhs_data = self.lhs.data();
+                let mut lhs_grad = self.lhs_grad.borrow_mut();
+                let rhs_data = self.rhs.data();
+                let mut rhs_grad = self.rhs_grad.borrow_mut();
 
-            general_mat_mul(
-                1.0,
-                grad.deref(),
-                &rhs_data.deref().t(),
-                0.0,
-                lhs_grad.deref_mut(),
-            );
-            general_mat_mul(
-                1.0,
-                &lhs_data.deref().t(),
-                grad.deref(),
-                0.0,
-                rhs_grad.deref_mut(),
-            );
+                let grad = self.grad.borrow();
 
+                general_mat_mul(
+                    1.0,
+                    grad.deref(),
+                    &rhs_data.deref().t(),
+                    0.0,
+                    lhs_grad.deref_mut(),
+                );
+                general_mat_mul(
+                    1.0,
+                    &lhs_data.deref().t(),
+                    grad.deref(),
+                    0.0,
+                    rhs_grad.deref_mut(),
+                );
+            }
             self.lhs.backward(&self.lhs_grad.borrow());
             self.rhs.backward(&self.rhs_grad.borrow());
         }
@@ -2320,8 +2324,13 @@ where
     D: Dimension,
 {
     pub fn new(operand: Rc<OP>) -> Self {
-        let data = operand.data().t().to_owned();
-        let grad = Tensor::zeros(data.raw_dim());
+        let (data, grad) = {
+            let operand_data = operand.data();
+            (
+                operand_data.t().to_owned(),
+                Tensor::zeros(operand_data.raw_dim()),
+            )
+        };
         let requires_grad = operand.requires_grad();
 
         Self {
@@ -2356,15 +2365,17 @@ where
     }
 
     fn backward(&self, grad: &Ref<Self::Gradient>) {
-        let mut self_grad = self.grad.borrow_mut();
-        let down_grad = grad.deref();
+        {
+            let mut self_grad = self.grad.borrow_mut();
+            let down_grad = grad.deref();
 
-        let zip = Zip::from(self_grad.deref_mut()).and(down_grad);
+            let zip = Zip::from(self_grad.deref_mut()).and(down_grad.t());
 
-        match self.counter.backward_action() {
-            BackwardAction::Set => zip.par_for_each(|dest, src| *dest = *src),
-            BackwardAction::Increment => zip.par_for_each(|dest, src| *dest = *src),
-        };
+            match self.counter.backward_action() {
+                BackwardAction::Set => zip.par_for_each(|dest, src| *dest = *src),
+                BackwardAction::Increment => zip.par_for_each(|dest, src| *dest = *src),
+            };
+        }
 
         if self.counter.recurse_backward() {
             self.operand.backward(&self.grad.borrow());
