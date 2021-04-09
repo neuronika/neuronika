@@ -5,7 +5,7 @@
 <hr/>
 
 <p align="center">
-<a href="https://app.codecov.io/gh/neuronika/neuronika/">
+<a href="https://app.circleci.com/pipelines/github/neuronika">
   <img src="https://circleci.com/gh/neuronika/neuronika.svg?style=svg&circle-token=a4dc29e597fde3872a02c582dc42c058f41f7869"/>
 </a>
 
