@@ -1,0 +1,25 @@
+version: 2.1
+
+orbs:
+  codecov: codecov/codecov@1.1.3
+  
+jobs:
+  build:
+    machine: true
+    steps:
+      - checkout
+
+      - run:
+          name: Pull xd009642/tarpaulin
+          command: docker pull xd009642/tarpaulin
+
+      - run:
+          name: Run test and generate coverage report
+          command: >-
+            docker run --security-opt seccomp=unconfined
+            -v $PWD:/volume xd009642/tarpaulin
+            cargo tarpaulin --out Xml --all-features --ignore-tests
+
+      - codecov/upload:
+          file: cobertura.xml
+          
