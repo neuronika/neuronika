@@ -23,7 +23,7 @@ pub mod init {
     /// inputs and outputs to an hidden unit of the layer.
     /// For CNNs however, the number of input feature maps and
     /// the size of the receptive field must be taken into account .
-    fn calculate_fan_in_fan_out<D: ParamDim>(param: &GraphBuilder<Parameter<D>, D>) -> (f32, f32) {
+    fn calculate_fan_in_fan_out<D: ParamDim>(param: &GraphBuilder<Parameter<D>>) -> (f32, f32) {
         let data = param.data();
         let shape = data.shape();
 
@@ -46,24 +46,24 @@ pub mod init {
     }
 
     /// Fills the input `Parameter` with `value`.
-    pub fn constant<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>, value: f32) {
+    pub fn constant<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>>, value: f32) {
         param.data_mut().map_inplace(|el| *el = value);
     }
 
     /// Fills the input `Parameter` with `0.0`.
-    pub fn zeros<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>) {
+    pub fn zeros<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>>) {
         param.data_mut().map_inplace(|el| *el = 0.);
     }
 
     /// Fills the input `Parameter` with `1.0`.
-    pub fn ones<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>) {
+    pub fn ones<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>>) {
         param.data_mut().map_inplace(|el| *el = 1.0);
     }
 
     /// Fills the 2-dimensional input `Parameter` with the identity matrix.
     /// Preserves the identity of the inputs in Linear layers, where as
     /// many inputs are preserved as possible.
-    pub fn eye(param: &mut GraphBuilder<Parameter<Ix2>, Ix2>) {
+    pub fn eye(param: &mut GraphBuilder<Parameter<Ix2>>) {
         for ((x, y), el) in param.data_mut().indexed_iter_mut() {
             if x == y {
                 *el = 1.
@@ -75,7 +75,7 @@ pub mod init {
 
     /// Fills the input `Parameter` with elements drawn from
     /// the uniform distribution U(low, high).
-    pub fn uniform<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>, low: f32, high: f32) {
+    pub fn uniform<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>>, low: f32, high: f32) {
         let unif_dstr = Uniform::new(low, high);
         let mut t_rng = thread_rng();
         param
@@ -85,7 +85,7 @@ pub mod init {
 
     /// Fills the input `Parameter` with elements drawn from
     /// the normal distribution N(mean, std^2).
-    pub fn normal<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>, mean: f32, std: f32) {
+    pub fn normal<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>>, mean: f32, std: f32) {
         let norm_dstr = Normal::new(mean, std).unwrap();
         let mut t_rng = thread_rng();
         param
@@ -97,7 +97,7 @@ pub mod init {
     /// described in Understanding the difficulty of training deep feedforward
     /// neural networks - Glorot, X. & Bengio, Y. (2010), using a uniform
     /// distribution.
-    pub fn xavier_uniform<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>, gain: f32) {
+    pub fn xavier_uniform<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>>, gain: f32) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let a = 3.0_f32.sqrt() * std;
@@ -114,7 +114,7 @@ pub mod init {
     /// distribution.
     ///
     /// Also known as Glorot initialization.
-    pub fn xavier_normal<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>, D>, gain: f32) {
+    pub fn xavier_normal<D: ParamDim>(param: &mut GraphBuilder<Parameter<D>>, gain: f32) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let norm_distr = Normal::new(0., std).unwrap();
@@ -128,8 +128,8 @@ pub mod init {
 ///
 /// **y = xA^T + b**
 pub struct Linear {
-    pub weight: GraphBuilder<Parameter<Ix2>, Ix2>,
-    pub bias: GraphBuilder<Parameter<Ix1>, Ix1>,
+    pub weight: GraphBuilder<Parameter<Ix2>>,
+    pub bias: GraphBuilder<Parameter<Ix1>>,
 }
 
 impl Linear {
@@ -159,8 +159,8 @@ impl Linear {
     /// `data` - `(N, in_features)`, the output will be `(N, out_features)`.
     pub fn forward(
         &self,
-        input: &GraphBuilder<impl Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>, Ix2>,
-    ) -> GraphBuilder<impl Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>, Ix2> {
+        input: &GraphBuilder<impl Node<Dim = Ix2>>,
+    ) -> GraphBuilder<impl Node<Dim = Ix2>> {
         input.mm(&self.weight.t()) + self.bias.clone()
     }
 }

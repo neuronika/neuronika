@@ -16,49 +16,50 @@ use std::{
 
 pub(crate) type Tensor<D> = Array<f32, D>;
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
+pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 
 pub trait ParamDim: Dimension + 'static {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters);
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters);
 }
 
 impl ParamDim for Ix1 {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.oned_params.push(item);
     }
 }
 
 impl ParamDim for Ix2 {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.twod_params.push(item);
     }
 }
 
 impl ParamDim for Ix3 {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.threed_params.push(item);
     }
 }
 
 impl ParamDim for Ix4 {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.fourd_params.push(item);
     }
 }
 
 impl ParamDim for Ix5 {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.fived_params.push(item);
     }
 }
 
 impl ParamDim for Ix6 {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.sixd_params.push(item);
     }
 }
 
 impl ParamDim for IxDyn {
-    fn insert(item: GraphBuilder<Parameter<Self>, Self>, dest: &mut Parameters) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.dynd_params.push(item);
     }
 }
@@ -67,19 +68,19 @@ impl ParamDim for IxDyn {
 /// Contains the learnable ancestors of the node.
 pub struct Parameters {
     // Contains the one dimensional learnable ancestors
-    oned_params: Vec<GraphBuilder<Parameter<Ix1>, Ix1>>,
+    oned_params: Vec<GraphBuilder<Parameter<Ix1>>>,
     // Contains the two dimensional learnable ancestors
-    twod_params: Vec<GraphBuilder<Parameter<Ix2>, Ix2>>,
+    twod_params: Vec<GraphBuilder<Parameter<Ix2>>>,
     // Contains the three dimensional learnable ancestors
-    threed_params: Vec<GraphBuilder<Parameter<Ix3>, Ix3>>,
+    threed_params: Vec<GraphBuilder<Parameter<Ix3>>>,
     // Contains the four dimensional learnable ancestors
-    fourd_params: Vec<GraphBuilder<Parameter<Ix4>, Ix4>>,
+    fourd_params: Vec<GraphBuilder<Parameter<Ix4>>>,
     // Contains the five dimensional learnable ancestors
-    fived_params: Vec<GraphBuilder<Parameter<Ix5>, Ix5>>,
+    fived_params: Vec<GraphBuilder<Parameter<Ix5>>>,
     // Contains the six dimensional learnable ancestors
-    sixd_params: Vec<GraphBuilder<Parameter<Ix6>, Ix6>>,
+    sixd_params: Vec<GraphBuilder<Parameter<Ix6>>>,
     // Contains the dynamic dimensional learnable ancestors
-    dynd_params: Vec<GraphBuilder<Parameter<IxDyn>, IxDyn>>,
+    dynd_params: Vec<GraphBuilder<Parameter<IxDyn>>>,
 }
 
 impl Parameters {
@@ -108,21 +109,13 @@ impl Parameters {
 
 // A pointer to a node in the computational graph.
 #[derive(Debug)]
-pub struct GraphBuilder<T, D>
-where
-    T: Node,
-    D: Dimension,
-{
+pub struct GraphBuilder<T: Node> {
     repr: Rc<T>,
-    grad: Option<RefCell<Tensor<D>>>,
+    grad: Option<RefCell<Tensor<T::Dim>>>,
     upstream: Parameters,
 }
 
-impl<T, D> Clone for GraphBuilder<T, D>
-where
-    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
+impl<T: Node> Clone for GraphBuilder<T> {
     fn clone(&self) -> Self {
         GraphBuilder {
             repr: Rc::clone(&self.repr),
@@ -132,7 +125,7 @@ where
     }
 }
 
-impl<D> GraphBuilder<Parameter<D>, D>
+impl<D> GraphBuilder<Parameter<D>>
 where
     D: ParamDim,
 {
@@ -152,16 +145,13 @@ where
     }
 }
 
-impl<T> GraphBuilder<T, Ix1>
+impl<T> GraphBuilder<T>
 where
-    T: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
+    T: Node<Dim = Ix1>,
 {
-    pub fn dot<U>(
-        &self,
-        other: &GraphBuilder<U, Ix1>,
-    ) -> GraphBuilder<impl Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>, Ix1>
+    pub fn dot<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
     where
-        U: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
+        U: Node<Dim = Ix1>,
     {
         GraphBuilder::new(
             Rc::new(ScalarProduct::new(
@@ -173,16 +163,13 @@ where
     }
 }
 
-impl<T> GraphBuilder<T, Ix2>
+impl<T> GraphBuilder<T>
 where
-    T: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
+    T: Node<Dim = Ix2>,
 {
-    pub fn mm<U>(
-        &self,
-        other: &GraphBuilder<U, Ix2>,
-    ) -> GraphBuilder<impl Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>, Ix2>
+    pub fn mm<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix2>>
     where
-        U: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
+        U: Node<Dim = Ix2>,
     {
         GraphBuilder::new(
             Rc::new(Dot::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
@@ -190,12 +177,9 @@ where
         )
     }
 
-    pub fn mv_mul<U>(
-        &self,
-        other: &GraphBuilder<U, Ix1>,
-    ) -> GraphBuilder<impl Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>, Ix1>
+    pub fn mv_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
     where
-        U: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
+        U: Node<Dim = Ix1>,
     {
         GraphBuilder::new(
             Rc::new(VectorDot::new(
@@ -207,11 +191,7 @@ where
     }
 }
 
-impl<T, D> GraphBuilder<T, D>
-where
-    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
+impl<T: Node> GraphBuilder<T> {
     pub(super) fn new(repr: Rc<T>, upstream: Parameters) -> Self {
         GraphBuilder {
             repr,
@@ -221,7 +201,7 @@ where
     }
 
     pub fn backward(&mut self, seed: f32) {
-        let data_ref: &Tensor<D> = &self.repr.data();
+        let data_ref: &Tensor<T::Dim> = &self.repr.data();
         self.grad
             .get_or_insert_with(|| RefCell::new(data_ref.map(|_| seed)))
             .borrow_mut()
@@ -232,7 +212,7 @@ where
         }
     }
 
-    pub fn data(&self) -> Ref<T::Data> {
+    pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.repr.data()
     }
     pub fn forward(&self) {
@@ -266,17 +246,14 @@ where
         &self.upstream
     }
 
-    pub fn sum(&self) -> GraphBuilder<impl Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>, Ix1> {
+    pub fn sum(&self) -> GraphBuilder<impl Node<Dim = Ix1>> {
         GraphBuilder::new(
             Rc::new(Sum::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn pow(
-        &self,
-        exp: i32,
-    ) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn pow(&self, exp: i32) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder {
             repr: Rc::new(Power::new(Rc::clone(&self.repr), exp)),
             grad: None,
@@ -284,66 +261,63 @@ where
         }
     }
 
-    pub fn relu(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn relu(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Relu::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn leaky_relu(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn leaky_relu(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(LeakyRelu::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softplus(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn softplus(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Softplus::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn sigmoid(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn sigmoid(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Sigmoid::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn tanh(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn tanh(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Tanh::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn ln(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn ln(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Logn::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn exp(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn exp(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Exp::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
         )
     }
 
-    pub fn softmax(
-        &self,
-        axis: usize,
-    ) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn softmax(&self, axis: usize) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Softmax::new(Rc::clone(&self.repr), axis)),
             self.upstream.clone(),
         )
     }
 
-    pub fn t(&self) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    pub fn t(&self) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Transpose::new(Rc::clone(&self.repr))),
             self.upstream.clone(),
@@ -351,16 +325,15 @@ where
     }
 }
 
-impl<D, T> GraphBuilder<T, D>
+impl<T> GraphBuilder<T>
 where
-    D: RemoveAxis + 'static,
-    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
+    T: Node,
+    T::Dim: RemoveAxis + 'static,
 {
     pub fn unsqueeze(
         &self,
         axis: usize,
-    ) -> GraphBuilder<impl Node<Data = Tensor<D::Larger>, Gradient = Tensor<D::Larger>>, D::Larger>
-    {
+    ) -> GraphBuilder<impl Node<Dim = <T::Dim as Dimension>::Larger>> {
         GraphBuilder::new(
             Rc::new(Unsqueeze::new(Rc::clone(&self.repr), axis)),
             self.upstream.clone(),
@@ -369,9 +342,9 @@ where
 
     pub fn cat(
         self,
-        other: GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D>,
+        other: GraphBuilder<impl Node<Dim = T::Dim>>,
         axis: usize,
-    ) -> GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D> {
+    ) -> GraphBuilder<impl Node<Dim = T::Dim>> {
         GraphBuilder::new(
             Rc::new(Concatenate::new(self.repr, other.repr, axis)),
             track_upstream(&self.upstream, &other.upstream),
@@ -380,10 +353,9 @@ where
 
     pub fn stack(
         self,
-        other: GraphBuilder<impl Node<Data = Tensor<D>, Gradient = Tensor<D>>, D>,
+        other: GraphBuilder<impl Node<Dim = T::Dim>>,
         axis: usize,
-    ) -> GraphBuilder<impl Node<Data = Tensor<D::Larger>, Gradient = Tensor<D::Larger>>, D::Larger>
-    {
+    ) -> GraphBuilder<impl Node<Dim = <T::Dim as Dimension>::Larger>> {
         GraphBuilder::new(
             Rc::new(Stack::new(self.repr, other.repr, axis)),
             track_upstream(&self.upstream, &other.upstream),
@@ -407,9 +379,9 @@ fn track_upstream(lhs_params: &Parameters, rhs_params: &Parameters) -> Parameter
 }
 
 fn track_ancestors<D: ParamDim>(
-    lhs_up: &[GraphBuilder<Parameter<D>, D>],
-    rhs_up: &[GraphBuilder<Parameter<D>, D>],
-) -> Vec<GraphBuilder<Parameter<D>, D>> {
+    lhs_up: &[GraphBuilder<Parameter<D>>],
+    rhs_up: &[GraphBuilder<Parameter<D>>],
+) -> Vec<GraphBuilder<Parameter<D>>> {
     lhs_up
         .iter()
         .merge_join_by(rhs_up.iter(), |lhs_par, rhs_par| {
@@ -426,16 +398,15 @@ fn track_ancestors<D: ParamDim>(
 
 macro_rules! impl_node_arithmetic_ops {
     ($trait:ident, $fun:ident, $repr:ident) => {
-        impl<LHS, RHS, D, E> $trait<GraphBuilder<RHS, E>> for GraphBuilder<LHS, D>
+        impl<Lhs, Rhs> $trait<GraphBuilder<Rhs>> for GraphBuilder<Lhs>
         where
-            LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-            RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-            D: Dimension + DimMax<E> + 'static,
-            E: Dimension + 'static,
+            Lhs: Node,
+            Rhs: Node,
+            Lhs::Dim: DimMax<Rhs::Dim> + 'static,
         {
-            type Output = GraphBuilder<$repr<LHS, RHS, D, E>, Broadcasted<D, E>>;
+            type Output = GraphBuilder<$repr<Lhs, Rhs>>;
 
-            fn $fun(self, other: GraphBuilder<RHS, E>) -> Self::Output {
+            fn $fun(self, other: GraphBuilder<Rhs>) -> Self::Output {
                 GraphBuilder::new(
                     Rc::new($repr::new(self.repr, other.repr)),
                     track_upstream(&self.upstream, &other.upstream),
@@ -450,13 +421,10 @@ impl_node_arithmetic_ops!(Sub, sub, Subtraction);
 impl_node_arithmetic_ops!(Mul, mul, Multiplication);
 impl_node_arithmetic_ops!(Div, div, Division);
 
-impl<T, D> Neg for GraphBuilder<T, D>
-where
-    T: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Output = GraphBuilder<Negation<T, D>, D>;
+impl<T: Node> Neg for GraphBuilder<T> {
+    type Output = GraphBuilder<Negation<T>>;
+
     fn neg(self) -> Self::Output {
-        GraphBuilder::new(Rc::new(Negation::new(self.repr)), self.upstream.clone())
+        GraphBuilder::new(Rc::new(Negation::new(self.repr)), self.upstream)
     }
 }
