@@ -1,4 +1,4 @@
-use super::{Broadcasted, GraphBuilder, ParamDim, Parameters, Tensor};
+use super::{BroadTensor, Broadcasted, GraphBuilder, ParamDim, Parameters, Tensor};
 use ndarray::{
     concatenate, linalg::general_mat_mul, linalg::general_mat_vec_mul, stack, Array2, ArrayView1,
     Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
@@ -159,17 +159,16 @@ where
 
 /// Node of a computational graph.
 pub trait Node: Debug + 'static {
-    type Data;
-    type Gradient;
+    type Dim: Dimension;
 
     /// Computes the forward signal of the node, possibly using the one propagated by its parents.
     fn forward(&self);
 
     /// Computes the backward signal of the node, using the one provided.
-    fn backward(&self, grad: &Ref<Self::Gradient>);
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>);
 
     /// Returns the data of the node.
-    fn data(&self) -> Ref<Self::Data>;
+    fn data(&self) -> Ref<Tensor<Self::Dim>>;
 
     /// Checks wether the node requires the computation of the gradient.
     fn requires_grad(&self) -> bool;
@@ -193,7 +192,7 @@ impl<D> Parameter<D>
 where
     D: ParamDim,
 {
-    pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
+    pub fn new(data: Tensor<D>) -> GraphBuilder<Self> {
         let grad = Tensor::zeros(data.raw_dim());
         let node = Rc::new(Parameter {
             data: RefCell::new(data),
@@ -220,14 +219,13 @@ impl<D> Node for Parameter<D>
 where
     D: Dimension + 'static,
 {
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+    type Dim = D;
 
     fn forward(&self) {
         // Nothing
     }
 
-    fn backward(&self, gradient: &Ref<Self::Gradient>) {
+    fn backward(&self, gradient: &Ref<Tensor<Self::Dim>>) {
         accumulate(
             &mut self.grad.borrow_mut(),
             gradient,
@@ -236,7 +234,7 @@ where
         );
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -259,11 +257,8 @@ where
     pub(crate) data: RefCell<Tensor<D>>,
 }
 
-impl<D> Input<D>
-where
-    D: Dimension + 'static,
-{
-    pub fn new(data: Tensor<D>) -> GraphBuilder<Self, D> {
+impl<D: Dimension + 'static> Input<D> {
+    pub fn new(data: Tensor<D>) -> GraphBuilder<Self> {
         GraphBuilder::new(
             Rc::new(Input {
                 data: RefCell::new(data),
@@ -273,22 +268,18 @@ where
     }
 }
 
-impl<D> Node for Input<D>
-where
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<D: Dimension + 'static> Node for Input<D> {
+    type Dim = D;
 
     fn forward(&self) {
         // Nothing
     }
 
-    fn backward(&self, _: &Ref<Self::Gradient>) {
+    fn backward(&self, _: &Ref<Tensor<Self::Dim>>) {
         // Nothing
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -304,23 +295,16 @@ where
 // ============================================ Computational Graph Internal Component: Negation  ============================================
 
 #[derive(Debug)]
-pub struct Negation<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Negation<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Negation<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Negation<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = -operand.data().deref();
         let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
@@ -335,13 +319,8 @@ where
     }
 }
 
-impl<OP, D> Node for Negation<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Negation<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -358,7 +337,7 @@ where
             .par_for_each(|self_data_el, operand_data_el| *self_data_el = -operand_data_el);
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         accumulate(
             &mut self.grad.borrow_mut(),
             grad,
@@ -371,7 +350,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -390,26 +369,26 @@ where
 // ============================================== Computational Graph Internal Component: Addition ==============================================
 
 #[derive(Debug)]
-pub struct Addition<Lhs, Rhs, D, E>
+pub struct Addition<Lhs, Rhs>
 where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    data: RefCell<Tensor<Broadcasted<D, E>>>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<E>>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    lhs_grad: RefCell<Tensor<Lhs::Dim>>,
+    rhs_grad: RefCell<Tensor<Rhs::Dim>>,
     lhs: Rc<Lhs>,
     rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<Lhs, Rhs, D, E> Addition<Lhs, Rhs, D, E>
+impl<Lhs, Rhs> Addition<Lhs, Rhs>
 where
-    Lhs: Node<Data = Tensor<D>>,
-    Rhs: Node<Data = Tensor<E>>,
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
@@ -429,15 +408,13 @@ where
     }
 }
 
-impl<Lhs, Rhs, D, E> Node for Addition<Lhs, Rhs, D, E>
+impl<Lhs, Rhs> Node for Addition<Lhs, Rhs>
 where
-    Lhs: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    Rhs: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + DimMax<E> + 'static,
-    E: Dimension + 'static,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    type Data = Tensor<Broadcasted<D, E>>;
-    type Gradient = Tensor<Broadcasted<D, E>>;
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -459,7 +436,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
 
         accumulate(&mut self.lhs_grad.borrow_mut(), grad.deref(), 1.0, &action);
@@ -479,7 +456,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -491,28 +468,28 @@ where
 // ========================================= Computational Graph Internal Component: Subtraction  =========================================
 
 #[derive(Debug)]
-pub struct Subtraction<LHS, RHS, D, E>
+pub struct Subtraction<Lhs, Rhs>
 where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    data: RefCell<Tensor<Broadcasted<D, E>>>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<E>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    lhs_grad: RefCell<Tensor<Lhs::Dim>>,
+    rhs_grad: RefCell<Tensor<Rhs::Dim>>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS, D, E> Subtraction<LHS, RHS, D, E>
+impl<Lhs, Rhs> Subtraction<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>>,
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() - rhs.data().deref();
         let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
@@ -530,15 +507,13 @@ where
     }
 }
 
-impl<LHS, RHS, D, E> Node for Subtraction<LHS, RHS, D, E>
+impl<Lhs, Rhs> Node for Subtraction<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + DimMax<E> + 'static,
-    E: Dimension + 'static,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    type Data = Tensor<Broadcasted<D, E>>;
-    type Gradient = Tensor<Broadcasted<D, E>>;
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -560,7 +535,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
 
         accumulate(&mut self.lhs_grad.borrow_mut(), grad.deref(), 1.0, &action);
@@ -580,7 +555,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -592,28 +567,28 @@ where
 // ========================================= Computational Graph Internal Component: Multiplication  =========================================
 
 #[derive(Debug)]
-pub struct Multiplication<LHS, RHS, D, E>
+pub struct Multiplication<Lhs, Rhs>
 where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    data: RefCell<Tensor<Broadcasted<D, E>>>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<E>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    lhs_grad: RefCell<Tensor<Lhs::Dim>>,
+    rhs_grad: RefCell<Tensor<Rhs::Dim>>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS, D, E> Multiplication<LHS, RHS, D, E>
+impl<Lhs, Rhs> Multiplication<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>>,
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() * rhs.data().deref();
         let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
@@ -631,15 +606,13 @@ where
     }
 }
 
-impl<LHS, RHS, D, E> Node for Multiplication<LHS, RHS, D, E>
+impl<Lhs, Rhs> Node for Multiplication<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + DimMax<E> + 'static,
-    E: Dimension + 'static,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    type Data = Tensor<Broadcasted<D, E>>;
-    type Gradient = Tensor<Broadcasted<D, E>>;
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -661,7 +634,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
         let rhs_data = self.rhs.data();
         let lhs_data = self.lhs.data();
@@ -694,7 +667,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -706,28 +679,28 @@ where
 // =========================================== Computational Graph Internal Component: Division  ===========================================
 
 #[derive(Debug)]
-pub struct Division<LHS, RHS, D, E>
+pub struct Division<Lhs, Rhs>
 where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    data: RefCell<Tensor<Broadcasted<D, E>>>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<E>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    lhs_grad: RefCell<Tensor<Lhs::Dim>>,
+    rhs_grad: RefCell<Tensor<Rhs::Dim>>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS, D, E> Division<LHS, RHS, D, E>
+impl<Lhs, Rhs> Division<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>>,
-    D: Dimension + DimMax<E>,
-    E: Dimension,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let data = lhs.data().deref() / rhs.data().deref();
         let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
@@ -745,15 +718,13 @@ where
     }
 }
 
-impl<LHS, RHS, D, E> Node for Division<LHS, RHS, D, E>
+impl<Lhs, Rhs> Node for Division<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<E>, Gradient = Tensor<E>>,
-    D: Dimension + DimMax<E> + 'static,
-    E: Dimension + 'static,
+    Lhs: Node,
+    Rhs: Node,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    type Data = Tensor<Broadcasted<D, E>>;
-    type Gradient = Tensor<Broadcasted<D, E>>;
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -775,7 +746,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
         let rhs_data = self.rhs.data();
         let lhs_data = self.lhs.data();
@@ -809,7 +780,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -821,23 +792,27 @@ where
 // ============================ Computational Graph Internal Component: Matrix Mult.  ============================
 
 #[derive(Debug)]
-pub struct Dot<LHS, RHS> {
+pub struct Dot<Lhs, Rhs>
+where
+    Lhs: Node<Dim = Ix2>,
+    Rhs: Node<Dim = Ix2>,
+{
     data: RefCell<Tensor<Ix2>>,
     grad: RefCell<Tensor<Ix2>>,
     lhs_grad: RefCell<Tensor<Ix2>>,
     rhs_grad: RefCell<Tensor<Ix2>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS> Dot<LHS, RHS>
+impl<Lhs, Rhs> Dot<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<Ix2>>,
-    RHS: Node<Data = Tensor<Ix2>>,
+    Lhs: Node<Dim = Ix2>,
+    Rhs: Node<Dim = Ix2>,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
         let data = lhs.data().dot(rhs.data().deref());
@@ -859,13 +834,12 @@ where
     }
 }
 
-impl<LHS, RHS> Node for Dot<LHS, RHS>
+impl<Lhs, Rhs> Node for Dot<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
-    RHS: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
+    Lhs: Node<Dim = Ix2>,
+    Rhs: Node<Dim = Ix2>,
 {
-    type Data = Tensor<Ix2>;
-    type Gradient = Tensor<Ix2>;
+    type Dim = Ix2;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -888,7 +862,7 @@ where
         );
     }
 
-    fn backward(&self, input_grad: &Ref<Self::Gradient>) {
+    fn backward(&self, input_grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
         {
             let mut self_grad = self.grad.borrow_mut();
@@ -926,7 +900,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -945,23 +919,27 @@ where
 // ============================ Computational Graph Internal Component: Mat. Vec. Prod.  ============================
 
 #[derive(Debug)]
-pub struct VectorDot<LHS, RHS> {
+pub struct VectorDot<Lhs, Rhs>
+where
+    Lhs: Node<Dim = Ix2>,
+    Rhs: Node<Dim = Ix1>,
+{
     data: RefCell<Tensor<Ix1>>,
     grad: RefCell<Tensor<Ix1>>,
-    lhs_grad: RefCell<Tensor<Ix2>>,
+    lhs_grad: RefCell<Tensor<Ix2>>, // Todo: All these nodes must be replaced with `Dot` by using the `ndarray::Dot`(::Output) trait
     rhs_grad: RefCell<Tensor<Ix1>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS> VectorDot<LHS, RHS>
+impl<Lhs, Rhs> VectorDot<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<Ix2>>,
-    RHS: Node<Data = Tensor<Ix1>>,
+    Lhs: Node<Dim = Ix2>,
+    Rhs: Node<Dim = Ix1>,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
         let (data, grad, lhs_grad, rhs_grad) = {
@@ -990,13 +968,12 @@ where
     }
 }
 
-impl<LHS, RHS> Node for VectorDot<LHS, RHS>
+impl<Lhs, Rhs> Node for VectorDot<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<Ix2>, Gradient = Tensor<Ix2>>,
-    RHS: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
+    Lhs: Node<Dim = Ix2>,
+    Rhs: Node<Dim = Ix1>,
 {
-    type Data = Tensor<Ix1>;
-    type Gradient = Tensor<Ix1>;
+    type Dim = Ix1;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1019,7 +996,7 @@ where
         );
     }
 
-    fn backward(&self, input_grad: &Ref<Self::Gradient>) {
+    fn backward(&self, input_grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
 
         let mut self_grad = self.grad.borrow_mut();
@@ -1057,7 +1034,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1077,22 +1054,26 @@ where
 // ============================ Computational Graph Internal Component: Inner Prod.  ============================
 
 #[derive(Debug)]
-pub struct ScalarProduct<LHS, RHS> {
+pub struct ScalarProduct<Lhs, Rhs>
+where
+    Lhs: Node<Dim = Ix1>,
+    Rhs: Node<Dim = Ix1>,
+{
     data: RefCell<Tensor<Ix1>>,
     lhs_grad: RefCell<Tensor<Ix1>>,
     rhs_grad: RefCell<Tensor<Ix1>>,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS> ScalarProduct<LHS, RHS>
+impl<Lhs, Rhs> ScalarProduct<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<Ix1>>,
-    RHS: Node<Data = Tensor<Ix1>>,
+    Lhs: Node<Dim = Ix1>,
+    Rhs: Node<Dim = Ix1>,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let (data, lhs_grad, rhs_grad) = {
             let lhs_data = lhs.data();
@@ -1116,13 +1097,12 @@ where
     }
 }
 
-impl<LHS, RHS> Node for ScalarProduct<LHS, RHS>
+impl<Lhs, Rhs> Node for ScalarProduct<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
-    RHS: Node<Data = Tensor<Ix1>, Gradient = Tensor<Ix1>>,
+    Lhs: Node<Dim = Ix1>,
+    Rhs: Node<Dim = Ix1>,
 {
-    type Data = Tensor<Ix1>;
-    type Gradient = Tensor<Ix1>;
+    type Dim = Ix1;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1139,7 +1119,7 @@ where
         self_data[0] = lhs_data.dot(rhs_data.deref());
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
 
         {
@@ -1169,7 +1149,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1189,24 +1169,17 @@ where
 // ============================ Computational Graph Internal Component: Power  ============================
 
 #[derive(Debug)]
-pub struct Power<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Power<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     exp: i32,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Power<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>, exp: i32) -> Self {
+impl<T: Node> Power<T> {
+    pub fn new(operand: Rc<T>, exp: i32) -> Self {
         let data = operand.data().map(|el| el.powi(exp));
         let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
@@ -1222,13 +1195,8 @@ where
     }
 }
 
-impl<OP, D> Node for Power<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Power<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1247,7 +1215,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -1277,7 +1245,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1296,25 +1264,17 @@ where
 // ============================ Computational Graph Internal Component: Sum Reduction  ============================
 
 #[derive(Debug)]
-pub struct Sum<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
+pub struct Sum<T: Node> {
     data: RefCell<Tensor<Ix1>>,
     grad: RefCell<Tensor<Ix1>>,
-    op_grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+    op_grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Sum<OP, D>
-where
-    D: Dimension,
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Sum<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let requires_grad = operand.requires_grad();
         let (data, grad, op_grad) = {
             let operand_data = operand.data();
@@ -1336,13 +1296,8 @@ where
     }
 }
 
-impl<OP, D> Node for Sum<OP, D>
-where
-    D: Dimension + 'static,
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-{
-    type Data = Tensor<Ix1>;
-    type Gradient = Tensor<Ix1>;
+impl<T: Node> Node for Sum<T> {
+    type Dim = Ix1;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1357,7 +1312,7 @@ where
         self_data[0] = operand_data.sum();
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         let action = self.counter.backward_action();
         {
             let mut self_grad = self.grad.borrow_mut();
@@ -1372,7 +1327,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1391,23 +1346,16 @@ where
 // ============================ Computational Graph Internal Component: Natural Log.  ============================
 
 #[derive(Debug)]
-pub struct Logn<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Logn<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Logn<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Logn<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = operand.data().map(|el| el.ln());
         let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
@@ -1422,13 +1370,8 @@ where
     }
 }
 
-impl<OP, D> Node for Logn<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Logn<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1445,7 +1388,7 @@ where
             .par_for_each(|self_data_el, operand_data_el| *self_data_el = operand_data_el.ln());
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -1474,7 +1417,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1493,23 +1436,16 @@ where
 // ============================ Computational Graph Internal Component: ReLU  ============================
 
 #[derive(Debug)]
-pub struct Relu<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Relu<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Relu<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Relu<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = operand.data().map(|el| if *el < 0.0 { 0.0 } else { *el });
         let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
@@ -1524,13 +1460,8 @@ where
     }
 }
 
-impl<OP, D> Node for Relu<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Relu<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1553,7 +1484,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -1590,7 +1521,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1609,23 +1540,16 @@ where
 // ============================ Computational Graph Internal Component: LeakyReLU  ============================
 
 #[derive(Debug)]
-pub struct LeakyRelu<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct LeakyRelu<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> LeakyRelu<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> LeakyRelu<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = operand
             .data()
             .map(|el| if *el < 0.0 { 0.01 * el } else { *el });
@@ -1642,13 +1566,8 @@ where
     }
 }
 
-impl<OP, D> Node for LeakyRelu<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for LeakyRelu<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1671,7 +1590,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -1708,7 +1627,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1727,23 +1646,16 @@ where
 // ============================ Computational Graph Internal Component: Softplus  ============================
 
 #[derive(Debug)]
-pub struct Softplus<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Softplus<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Softplus<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Softplus<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = operand.data().map(|el| {
             if *el < -15.0 {
                 0.0
@@ -1766,13 +1678,8 @@ where
     }
 }
 
-impl<OP, D> Node for Softplus<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Softplus<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1797,7 +1704,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -1837,7 +1744,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1856,23 +1763,16 @@ where
 // ============================ Computational Graph Internal Component: Sigmoid  ============================
 
 #[derive(Debug)]
-pub struct Sigmoid<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Sigmoid<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Sigmoid<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Sigmoid<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = operand.data().map(|el| {
             if *el >= 15.0 {
                 1.0
@@ -1896,13 +1796,8 @@ where
     }
 }
 
-impl<OP, D> Node for Sigmoid<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Sigmoid<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -1927,7 +1822,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -1956,7 +1851,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -1975,23 +1870,16 @@ where
 // ============================ Computational Graph Internal Component: Hyper. Tangent  ============================
 
 #[derive(Debug)]
-pub struct Tanh<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Tanh<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Tanh<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Tanh<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = operand.data().map(|el| el.tanh());
         let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
@@ -2006,13 +1894,8 @@ where
     }
 }
 
-impl<OP, D> Node for Tanh<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Tanh<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -2029,7 +1912,7 @@ where
             .par_for_each(|self_data_el, operand_data_el| *self_data_el = operand_data_el.tanh());
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -2058,7 +1941,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -2077,23 +1960,16 @@ where
 // ============================ Computational Graph Internal Component: Exponential  ============================
 
 #[derive(Debug)]
-pub struct Exp<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Exp<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Exp<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Exp<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = operand.data().map(|el| el.exp());
         let grad = Tensor::zeros(data.raw_dim());
         let requires_grad = operand.requires_grad();
@@ -2108,13 +1984,8 @@ where
     }
 }
 
-impl<OP, D> Node for Exp<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Exp<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -2131,7 +2002,7 @@ where
             .par_for_each(|self_data_el, operand_data_el| *self_data_el = operand_data_el.exp());
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -2160,7 +2031,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -2179,25 +2050,18 @@ where
 // ============================ Computational Graph Internal Component: Softmax  ============================
 
 #[derive(Debug)]
-pub struct Softmax<OP, D>
-where
-    D: Dimension,
-{
+pub struct Softmax<T: Node> {
     axis: usize,
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
     jacobian: RefCell<Array2<f32>>,
-    operand: Rc<OP>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Softmax<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>, axis: usize) -> Self {
+impl<T: Node> Softmax<T> {
+    pub fn new(operand: Rc<T>, axis: usize) -> Self {
         let (data, j_dim) = {
             let op_data = operand.data();
             let mut data = Tensor::zeros(op_data.raw_dim());
@@ -2230,13 +2094,8 @@ where
     }
 }
 
-impl<OP, D> Node for Softmax<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Softmax<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -2261,7 +2120,7 @@ where
             });
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let operand_data = self.operand.data();
@@ -2310,7 +2169,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -2329,23 +2188,16 @@ where
 // ============================ Computational Graph Internal Component: Transposition  ============================
 
 #[derive(Debug)]
-pub struct Transpose<OP, D>
-where
-    D: Dimension,
-{
-    data: RefCell<Tensor<D>>,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+pub struct Transpose<T: Node> {
+    data: RefCell<Tensor<T::Dim>>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Transpose<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension,
-{
-    pub fn new(operand: Rc<OP>) -> Self {
+impl<T: Node> Transpose<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let (data, grad) = {
             let operand_data = operand.data();
             (
@@ -2365,13 +2217,8 @@ where
     }
 }
 
-impl<OP, D> Node for Transpose<OP, D>
-where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: Dimension + 'static,
-{
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+impl<T: Node> Node for Transpose<T> {
+    type Dim = T::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -2386,7 +2233,7 @@ where
         self_data.assign(&operand_data.t());
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut self_grad = self.grad.borrow_mut();
             let down_grad = grad.deref();
@@ -2404,7 +2251,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -2423,29 +2270,29 @@ where
 // ============================ Computational Graph Internal Component: Concatenate  ============================
 
 #[derive(Debug)]
-pub struct Concatenate<LHS, RHS, D>
+pub struct Concatenate<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis,
+    Lhs: Node,
+    Rhs: Node<Dim = Lhs::Dim>,
+    Lhs::Dim: RemoveAxis,
 {
-    data: RefCell<Tensor<D>>,
+    data: RefCell<Tensor<Lhs::Dim>>,
     axis: usize,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<D>>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
+    lhs_grad: RefCell<Tensor<Lhs::Dim>>,
+    rhs_grad: RefCell<Tensor<Lhs::Dim>>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS, D> Concatenate<LHS, RHS, D>
+impl<Lhs, Rhs> Concatenate<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis,
+    Lhs: Node,
+    Rhs: Node<Dim = Lhs::Dim>,
+    Lhs::Dim: RemoveAxis,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>, axis: usize) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let (data, lhs_grad, rhs_grad) = {
             let lhs_data = lhs.data();
@@ -2470,14 +2317,13 @@ where
     }
 }
 
-impl<LHS, RHS, D> Node for Concatenate<LHS, RHS, D>
+impl<Lhs, Rhs> Node for Concatenate<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis + 'static,
+    Lhs: Node,
+    Rhs: Node<Dim = Lhs::Dim>,
+    Lhs::Dim: RemoveAxis,
 {
-    type Data = Tensor<D>;
-    type Gradient = Tensor<D>;
+    type Dim = Lhs::Dim;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -2503,7 +2349,7 @@ where
             .for_each(|single_el, fused_el| *fused_el = *single_el);
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut lhs_grad = self.lhs_grad.borrow_mut();
             let mut rhs_grad = self.rhs_grad.borrow_mut();
@@ -2542,7 +2388,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -2554,29 +2400,29 @@ where
 // ============================ Computational Graph Internal Component: Stack  ============================
 
 #[derive(Debug)]
-pub struct Stack<LHS, RHS, D>
+pub struct Stack<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis,
+    Lhs: Node,
+    Rhs: Node<Dim = Lhs::Dim>,
+    Lhs::Dim: RemoveAxis,
 {
-    data: RefCell<Tensor<D::Larger>>,
+    data: RefCell<Tensor<<Lhs::Dim as Dimension>::Larger>>,
     axis: usize,
-    lhs: Rc<LHS>,
-    rhs: Rc<RHS>,
-    lhs_grad: RefCell<Tensor<D>>,
-    rhs_grad: RefCell<Tensor<D>>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
+    lhs_grad: RefCell<Tensor<Lhs::Dim>>,
+    rhs_grad: RefCell<Tensor<Lhs::Dim>>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<LHS, RHS, D> Stack<LHS, RHS, D>
+impl<Lhs, Rhs> Stack<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis,
+    Lhs: Node,
+    Rhs: Node<Dim = Lhs::Dim>,
+    Lhs::Dim: RemoveAxis,
 {
-    pub fn new(lhs: Rc<LHS>, rhs: Rc<RHS>, axis: usize) -> Self {
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>, axis: usize) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
         let (data, lhs_grad, rhs_grad) = {
             let lhs_data = lhs.data();
@@ -2601,14 +2447,13 @@ where
     }
 }
 
-impl<LHS, RHS, D> Node for Stack<LHS, RHS, D>
+impl<Lhs, Rhs> Node for Stack<Lhs, Rhs>
 where
-    LHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    RHS: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis + 'static,
+    Lhs: Node,
+    Rhs: Node<Dim = Lhs::Dim>,
+    Lhs::Dim: RemoveAxis,
 {
-    type Data = Tensor<D::Larger>;
-    type Gradient = Tensor<D::Larger>;
+    type Dim = <Lhs::Dim as Dimension>::Larger;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -2628,12 +2473,12 @@ where
         let subview_left = subview_iter
             .next()
             .unwrap()
-            .into_dimensionality::<D>()
+            .into_dimensionality::<Lhs::Dim>()
             .unwrap();
         let subview_right = subview_iter
             .next()
             .unwrap()
-            .into_dimensionality::<D>()
+            .into_dimensionality::<Lhs::Dim>()
             .unwrap();
 
         Zip::from(lhs_data.deref())
@@ -2644,7 +2489,7 @@ where
             .for_each(|single_el, fused_el| *fused_el = *single_el);
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             let mut lhs_grad = self.lhs_grad.borrow_mut();
             let mut rhs_grad = self.rhs_grad.borrow_mut();
@@ -2655,12 +2500,12 @@ where
             let subview_left = subview_iter
                 .next()
                 .unwrap()
-                .into_dimensionality::<D>()
+                .into_dimensionality::<Lhs::Dim>()
                 .unwrap();
             let subview_right = subview_iter
                 .next()
                 .unwrap()
-                .into_dimensionality::<D>()
+                .into_dimensionality::<Lhs::Dim>()
                 .unwrap();
 
             let zip_lhs = Zip::from(lhs_grad.deref_mut()).and(subview_left);
@@ -2692,7 +2537,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
@@ -2704,24 +2549,25 @@ where
 // ============================ Computational Graph Internal Component: Unsqueeze  ============================
 
 #[derive(Debug)]
-pub struct Unsqueeze<OP, D>
+pub struct Unsqueeze<T>
 where
-    D: RemoveAxis,
+    T: Node,
+    T::Dim: RemoveAxis,
 {
-    data: RefCell<Tensor<D::Larger>>,
+    data: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
     axis: usize,
-    grad: RefCell<Tensor<D>>,
-    operand: Rc<OP>,
+    grad: RefCell<Tensor<T::Dim>>,
+    operand: Rc<T>,
     requires_grad: bool,
     counter: PassCounter,
 }
 
-impl<OP, D> Unsqueeze<OP, D>
+impl<T> Unsqueeze<T>
 where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis,
+    T: Node,
+    T::Dim: RemoveAxis,
 {
-    pub fn new(operand: Rc<OP>, axis: usize) -> Self {
+    pub fn new(operand: Rc<T>, axis: usize) -> Self {
         let requires_grad = operand.requires_grad();
         let (data, grad) = {
             let operand_data = operand.data();
@@ -2742,13 +2588,12 @@ where
     }
 }
 
-impl<OP, D> Node for Unsqueeze<OP, D>
+impl<T> Node for Unsqueeze<T>
 where
-    OP: Node<Data = Tensor<D>, Gradient = Tensor<D>>,
-    D: RemoveAxis + 'static,
+    T: Node,
+    T::Dim: RemoveAxis,
 {
-    type Data = Tensor<D::Larger>;
-    type Gradient = Tensor<D::Larger>;
+    type Dim = <T::Dim as Dimension>::Larger;
 
     fn forward(&self) {
         if self.counter.forward_action() == ForwardAction::Cached {
@@ -2762,7 +2607,7 @@ where
             .axis_iter_mut(Axis(self.axis))
             .next()
             .unwrap()
-            .into_dimensionality::<D>()
+            .into_dimensionality::<T::Dim>()
             .unwrap();
         let operand_data = self.operand.data();
 
@@ -2771,7 +2616,7 @@ where
             .par_for_each(|self_data_el, operand_data_el| *self_data_el = *operand_data_el);
     }
 
-    fn backward(&self, grad: &Ref<Self::Gradient>) {
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
         {
             {
                 let mut self_grad = self.grad.borrow_mut();
@@ -2780,7 +2625,7 @@ where
                     .axis_iter(Axis(axis))
                     .next()
                     .unwrap()
-                    .into_dimensionality::<D>()
+                    .into_dimensionality::<T::Dim>()
                     .unwrap();
 
                 let zip = Zip::from(self_grad.deref_mut()).and(&down_grad);
@@ -2800,7 +2645,7 @@ where
         }
     }
 
-    fn data(&self) -> Ref<Self::Data> {
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
 
