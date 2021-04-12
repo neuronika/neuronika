@@ -33,11 +33,6 @@ fn check_conv_args(
         dilation,
         conv_dim
     );
-    assert_eq!(
-        kernel_shape[1], input_shape[1],
-        "error: found {} kernel's in_channels and {} input's in_channels.",
-        kernel_shape[1], input_shape[1]
-    )
 }
 
 /// Computes the shape of the array resulting from the **n**-dimensional convolution
