@@ -9,6 +9,9 @@ fn check_conv_args(
     stride: &[usize],
     dilation: &[usize],
 ) {
+    // The type of convolution can be derived by
+    // considering the number of input's dimension
+    // skipping the batch size and input channels.
     // First two axes of input are always for batch size
     // and input channels.
     let conv_dim = input_shape.len() - 2;
@@ -198,7 +201,6 @@ pub fn as_windows<'a, D: Dimension>(
         .iter_mut()
         .zip(win_indices_shape.slice().iter().chain(window_shape.iter()))
         .for_each(|(ns, _s)| *ns = *_s as usize);
-
     strides
         .slice_mut()
         .iter_mut()
@@ -217,30 +219,27 @@ pub fn im2col<D: Dimension>(
     dilation: &[usize],
 ) -> Array<f32, Ix2> {
     let i_shape = input.shape();
-    // The type of convolution can be derived by
-    // considering the number of input's dimension
-    // skipping the batch size and input channels.
-    let conv_dim = input.ndim() - 2;
-
+    // Clone the window shape and set the output channels to one.
+    // Output channels are not relevant for the computation of im2col.
+    let mut w_shape: Vec<usize> = window_shape.iter().cloned().collect();
+    w_shape[0] = 1;
     // Checks the argument correctness.
-    check_conv_args(i_shape, window_shape, padding, stride, dilation);
+    check_conv_args(i_shape, &w_shape, padding, stride, dilation);
 
     // Computes the shape of the convolution result.
-    let o_shape = conv_out_shape::<D>(input.shape(), window_shape, padding, stride, dilation);
+    let o_shape = conv_out_shape::<D>(input.shape(), &w_shape, padding, stride, dilation);
     // Computes the matrix height and width.
     let (im2col_h, im2col_w): (usize, usize) = {
         (
-            // Multiply all the components of the kernel
-            // but the number of the output channels.
-            window_shape.iter().skip(1).product(),
+            // Multiply all the components of the kernel.
+            w_shape.iter().product(),
             // Multiply all the components
-            // of the output shape except for
-            // the channels.
-            o_shape.slice().iter().rev().take(conv_dim).product(),
+            // of the output shape.
+            o_shape.slice().iter().product(),
         )
     };
     // Axes must be swapped.
-    as_windows(&input, window_shape, padding, stride, dilation)
+    as_windows(&input, &w_shape, padding, stride, dilation)
         .into_owned()
         .into_shape((im2col_w, im2col_h))
         .unwrap()
