@@ -33,6 +33,13 @@ fn check_conv_args(
         dilation,
         conv_dim
     );
+    assert_eq!(
+        kernel_shape.len(),
+        input_shape.len(),
+        "error: invalid kernel's shape: {:?} for {}d conv",
+        &kernel_shape,
+        conv_dim
+    )
 }
 
 /// Computes the shape of the array resulting from the **n**-dimensional convolution
