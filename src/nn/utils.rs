@@ -2,7 +2,7 @@ use ndarray::{Array, ArrayView, Dimension, Ix2, IxDyn, ShapeBuilder, Slice};
 
 /// Checks that the arguments are correct
 /// for the given convolution.
-fn check_conv_args(
+pub fn check_conv_args(
     input_shape: &[usize],
     kernel_shape: &[usize],
     padding: &[usize],
@@ -15,34 +15,27 @@ fn check_conv_args(
     // First two axes of input are always for batch size
     // and input channels.
     let conv_dim = input_shape.len() - 2;
-    assert_eq!(
-        conv_dim,
-        padding.len(),
-        "error: invalid padding: {:?} for {}d conv.",
-        padding,
-        conv_dim
-    );
-    assert_eq!(
-        conv_dim,
-        stride.len(),
-        "error: invalid stride: {:?} for {}d conv.",
-        stride,
-        conv_dim
-    );
-    assert_eq!(
-        conv_dim,
-        dilation.len(),
-        "error: invalid dilation: {:?} for {}d conv.",
-        dilation,
-        conv_dim
-    );
-    assert_eq!(
-        kernel_shape.len(),
-        input_shape.len(),
-        "error: invalid kernel's shape: {:?} for {}d conv",
-        &kernel_shape,
-        conv_dim
-    )
+    if conv_dim != padding.len() {
+        panic!(
+            "error: invalid padding {:?} for {}d conv.",
+            padding, conv_dim
+        );
+    }
+    if conv_dim != stride.len() {
+        panic!("error: invalid stride {:?} for {}d conv.", stride, conv_dim);
+    }
+    if conv_dim != dilation.len() {
+        panic!(
+            "error: invalid dilation {:?} for {}d conv.",
+            dilation, conv_dim
+        );
+    }
+    if kernel_shape.len() != input_shape.len() {
+        panic!(
+            "error: invalid kernel's shape {:?} for {}d conv",
+            &kernel_shape, conv_dim
+        );
+    }
 }
 
 /// Computes the shape of the array resulting from the **n**-dimensional convolution
@@ -137,27 +130,25 @@ pub fn conv_out_shape<D: Dimension>(
 
 /// Returns a **rolling window view** of the input array.
 ///
-/// `input` - input array
+/// # Arguments
 ///
-/// `window_shape` - the shape of each of the windows
+/// * `input` - input array
 ///
-/// `padding` - the padding around `input`
+/// * `window_shape` - the shape of each of the windows
 ///
-/// `stride` - the stride
+/// * `win_indices_shape` - the number of rolling windows.
 ///
-/// `dilation` - the spacing between each element of the windows
+/// * `stride` - the stride
+///
+/// * `dilation` - the spacing between each element of the windows
 pub fn as_windows<'a, D: Dimension>(
     input: &Array<f32, D>,
     window_shape: &[usize],
-    padding: &[usize],
+    win_indices_shape: D,
     stride: &[usize],
     dilation: &[usize],
 ) -> ArrayView<'a, f32, IxDyn> {
-    let ndim = input.ndim();
-    let input_shape = input.shape();
-
-    let mut indexing_strides = vec![0; ndim];
-    {
+    let indexing_strides: Vec<isize> = {
         let view = input.slice_each_axis(|ax| {
             let axis_index = ax.axis.index();
             if axis_index == 0 || axis_index == 1 {
@@ -167,79 +158,64 @@ pub fn as_windows<'a, D: Dimension>(
             }
         });
         let view_strides: &[isize] = view.strides();
-        indexing_strides
-            .iter_mut()
-            .zip(view_strides)
-            .for_each(|(is, vs)| *is = *vs);
-    }
+        view_strides.iter().cloned().collect()
+    };
+    // Number of in channels doesn't count for the window's strides,
+    // it must be left unchanged.
+    let window_strides: Vec<isize> = input
+        .strides()
+        .iter()
+        .skip(1) // Skip out channels
+        .enumerate()
+        .map(|(i, is)| {
+            if i < 1 {
+                *is
+            } else {
+                *is * (dilation[i - 1] as isize)
+            }
+        })
+        .collect();
 
-    let mut window_strides = vec![0; window_shape.len()];
-    // Number of out channels and in channels
-    // don't count for the window's strides, they
-    // must be left unchanged.
-    window_strides
-        .iter_mut()
-        .take(2)
-        .zip(input.strides().iter().take(2))
-        .for_each(|(ws, is)| *ws = *is);
-
-    itertools::izip!(
-        window_strides.iter_mut().skip(2), // Skip the out and in channels stride.
-        input.strides().iter().skip(2),    // Again, we skip the batch size and in channels.
-        dilation
-    )
-    .for_each(|(ws, is, dil)| *ws = *is * (*dil as isize));
-
-    let win_indices_shape =
-        conv_out_shape::<D>(input_shape, window_shape, padding, stride, dilation);
-
-    let mut new_shape = IxDyn::zeros(win_indices_shape.ndim() + window_shape.len());
-    let mut strides = IxDyn::zeros(win_indices_shape.ndim() + window_shape.len());
-
-    new_shape
-        .slice_mut()
-        .iter_mut()
-        .zip(win_indices_shape.slice().iter().chain(window_shape.iter()))
-        .for_each(|(ns, _s)| *ns = *_s as usize);
-    strides
-        .slice_mut()
-        .iter_mut()
-        .zip(indexing_strides.iter().chain(window_strides.iter()))
-        .for_each(|(s, _s)| *s = *_s as usize);
+    let new_shape: Vec<usize> = win_indices_shape
+        .slice()
+        .iter()
+        .chain(window_shape.iter().skip(1))
+        .cloned()
+        .collect();
+    let strides: Vec<usize> = indexing_strides
+        .iter()
+        .chain(window_strides.iter())
+        .map(|s| *s as usize)
+        .collect();
 
     unsafe { ArrayView::from_shape_ptr(new_shape.strides(strides), input.as_ptr()) }
 }
 
 /// Computes **im2col**.
+///
+/// # Arguments
+///
+/// * `input` - input array.
+/// * `window_shape` - the shape of the kernel
+/// * `padding` - the padding to be applied to `input`
+/// * `stride` - the stride.
+/// * `dilation` - the dilation.
 pub fn im2col<D: Dimension>(
     input: &Array<f32, D>,
-    window_shape: &[usize],
+    kernel_shape: &[usize],
     padding: &[usize],
     stride: &[usize],
     dilation: &[usize],
 ) -> Array<f32, Ix2> {
-    let i_shape = input.shape();
-    // Clone the window shape and set the output channels to one.
-    // Output channels are not relevant for the computation of im2col.
-    let mut w_shape: Vec<usize> = window_shape.iter().cloned().collect();
-    w_shape[0] = 1;
-    // Checks the argument correctness.
-    check_conv_args(i_shape, &w_shape, padding, stride, dilation);
-
-    // Computes the shape of the convolution result.
-    let o_shape = conv_out_shape::<D>(input.shape(), &w_shape, padding, stride, dilation);
-    // Computes the matrix height and width.
+    let mut o_shape = conv_out_shape::<D>(input.shape(), kernel_shape, padding, stride, dilation);
+    o_shape[1] = 1;
     let (im2col_h, im2col_w): (usize, usize) = {
         (
-            // Multiply all the components of the kernel.
-            w_shape.iter().product(),
-            // Multiply all the components
-            // of the output shape.
+            kernel_shape.iter().skip(1).product(),
             o_shape.slice().iter().product(),
         )
     };
-    // Axes must be swapped.
-    as_windows(&input, &w_shape, padding, stride, dilation)
+    as_windows(&input, kernel_shape, o_shape, stride, dilation)
         .into_owned()
         .into_shape((im2col_w, im2col_h))
         .unwrap()
@@ -272,7 +248,7 @@ mod tests {
         ];
         // We must reshape the input, consider it as a bidimensional signal
         // with 3 channels each of 4 x 4.
-        let d = input.into_shape((1, 3, 4, 4)).unwrap();
+        let d = input.clone().into_shape((1, 3, 4, 4)).unwrap();
 
         let im2col = ndarray::array![
             [0.0, 1.0, 4.0, 5.0],
@@ -307,5 +283,36 @@ mod tests {
             im2col,
             super::im2col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
         );
+
+        // Now let's increase the batch size by 1.
+        let input_batch = ndarray::stack(ndarray::Axis(0), &[input.view(), input.view()]).unwrap();
+        // We must reshape the input, consider it as 2 bidimensional signals
+        // with 3 channels each of 4 x 4.
+        let d = input_batch.into_shape((2, 3, 4, 4)).unwrap();
+
+        // The im2col's result. Note that the im2col of signals
+        // from the batch are concatenated along the columns.
+        assert_eq!(
+            ndarray::concatenate(ndarray::Axis(1), &[im2col.view(), im2col.view()]).unwrap(),
+            super::im2col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
+        );
+        // The nice thing about im2col is that it works for 1d, 2d, and 3d convolutions.
+    }
+
+    #[test]
+    fn conv_args_ok() {
+        // This is the input of a two dimensional convolution.
+        // It is formed by 1 signal having 2 channels each of 4 x 4.
+        let conv_input = ndarray::Array::<f32, _>::zeros((1, 2, 4, 4));
+        super::check_conv_args(conv_input.shape(), &[1, 2, 2, 2], &[0, 0], &[1, 1], &[1, 1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "error: invalid kernel's shape [1, 2, 2] for 2d conv")]
+    fn conv_args_invalid_kernel() {
+        // This is the input of a two dimensional convolution.
+        // It is formed by 1 signal having 2 channels each of 4 x 4.
+        let conv_input = ndarray::Array::<f32, _>::zeros((1, 2, 4, 4));
+        super::check_conv_args(conv_input.shape(), &[1, 2, 2], &[0, 0], &[1, 1], &[1, 1]);
     }
 }
