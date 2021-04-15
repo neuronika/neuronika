@@ -191,7 +191,7 @@ pub fn as_windows<'a, D: Dimension>(
     unsafe { ArrayView::from_shape_ptr(new_shape.strides(strides), input.as_ptr()) }
 }
 
-/// Computes **im2col**.
+/// Computes **sig2col**, **im2col** and **vol2col**.
 ///
 /// # Arguments
 ///
@@ -200,7 +200,7 @@ pub fn as_windows<'a, D: Dimension>(
 /// * `padding` - the padding to be applied to `input`
 /// * `stride` - the stride.
 /// * `dilation` - the dilation.
-pub fn im2col<D: Dimension>(
+pub fn to_col<D: Dimension>(
     input: &Array<f32, D>,
     kernel_shape: &[usize],
     padding: &[usize],
@@ -645,7 +645,7 @@ mod tests {
         ];
         assert_eq!(
             im2col,
-            super::im2col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
+            super::to_col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
         );
 
         // Now let's increase the batch size by 1.
@@ -658,7 +658,7 @@ mod tests {
         // from the batch are concatenated along the columns.
         assert_eq!(
             ndarray::concatenate(ndarray::Axis(1), &[im2col.view(), im2col.view()]).unwrap(),
-            super::im2col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
+            super::to_col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
         );
         // The nice thing about im2col is that it works for 1d, 2d, and 3d convolutions.
     }
