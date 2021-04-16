@@ -2,8 +2,6 @@ use super::Parameter;
 use crate::graph::{node::Node, GraphBuilder, Tensor};
 use ndarray::{Ix1, Ix2};
 
-pub mod utils;
-
 pub mod init {
     use super::super::{graph::GraphBuilder, graph::ParamDim, Parameter};
     use ndarray::{Axis, Ix2};
@@ -163,6 +161,6 @@ impl Linear {
         &self,
         input: &GraphBuilder<impl Node<Dim = Ix2>>,
     ) -> GraphBuilder<impl Node<Dim = Ix2>> {
-        input.mm(&self.weight.t()) + self.bias.clone()
+        input.mm_mul(&self.weight.t()) + self.bias.clone()
     }
 }

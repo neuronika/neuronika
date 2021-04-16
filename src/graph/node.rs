@@ -8,6 +8,53 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
+// ==================================================== Utils ====================================================
+
+fn broadcasted_zeros<Lhs, Rhs>(left: &Tensor<Lhs>, right: &Tensor<Rhs>) -> BroadTensor<Lhs, Rhs>
+where
+    Lhs: Dimension + DimMax<Rhs>,
+    Rhs: Dimension,
+{
+    let (mut bigger, smaller) = if left.ndim() >= right.ndim() {
+        (left.shape().to_vec(), right.shape())
+    } else {
+        (right.shape().to_vec(), left.shape())
+    };
+    for (l, r) in bigger.iter_mut().rev().zip(smaller.iter().rev()) {
+        *l = std::cmp::max(*l, *r);
+    }
+    let total = bigger.iter().product();
+    Tensor::from_shape_vec(bigger, vec![0.; total])
+        .unwrap()
+        .into_dimensionality::<Broadcasted<Lhs, Rhs>>()
+        .unwrap()
+}
+
+fn dotted_shapes(left: &[usize], right: &[usize]) -> Vec<usize> {
+    let (left_len, right_len) = (left.len(), right.len());
+    debug_assert!(left_len * right_len != 0 && left_len + right_len < 5);
+
+    match left_len {
+        1 => {
+            debug_assert_eq!(left[0], right[0], "Wrong shapes");
+            match right_len {
+                1 => vec![1],
+                2 => vec![right[1]],
+                _ => panic!(),
+            }
+        }
+        2 => {
+            debug_assert_eq!(left[1], right[0], "Wrong shapes");
+            match right_len {
+                1 => vec![left[0]],
+                2 => vec![left[0], right[1]],
+                _ => panic!(),
+            }
+        }
+        _ => panic!("Unsupported operation"),
+    }
+}
+
 // ===================================== Computational Graph Aux. Components =====================================
 
 /// Forward action counter. Ensures that the actual computation only happens when the node is fully accumulated.
@@ -305,13 +352,14 @@ pub struct Negation<T: Node> {
 
 impl<T: Node> Negation<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = -operand.data().deref();
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -392,14 +440,14 @@ where
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let data = lhs.data().deref() + rhs.data().deref();
-        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
-        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
+        let data = RefCell::new(broadcasted_zeros(lhs.data().deref(), rhs.data().deref()));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
 
         Self {
-            data: RefCell::new(data),
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
+            data,
+            lhs_grad,
+            rhs_grad,
             lhs,
             rhs,
             requires_grad,
@@ -424,13 +472,9 @@ where
         self.lhs.forward();
         self.rhs.forward();
 
-        let mut self_data = self.data.borrow_mut();
-        let lhs_data = self.lhs.data();
-        let rhs_data = self.rhs.data();
-
-        Zip::from(self_data.deref_mut())
-            .and_broadcast(lhs_data.deref())
-            .and_broadcast(rhs_data.deref())
+        Zip::from(self.data.borrow_mut().deref_mut())
+            .and_broadcast(self.lhs.data().deref())
+            .and_broadcast(self.rhs.data().deref())
             .par_for_each(|self_data_el, lhs_data_el, rhs_data_el| {
                 *self_data_el = *lhs_data_el + *rhs_data_el
             });
@@ -491,14 +535,14 @@ where
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let data = lhs.data().deref() - rhs.data().deref();
-        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
-        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
+        let data = RefCell::new(broadcasted_zeros(lhs.data().deref(), rhs.data().deref()));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
 
         Self {
-            data: RefCell::new(data),
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
+            data,
+            lhs_grad,
+            rhs_grad,
             lhs,
             rhs,
             requires_grad,
@@ -590,14 +634,14 @@ where
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let data = lhs.data().deref() * rhs.data().deref();
-        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
-        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
+        let data = RefCell::new(broadcasted_zeros(lhs.data().deref(), rhs.data().deref()));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
 
         Self {
-            data: RefCell::new(data),
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
+            data,
+            lhs_grad,
+            rhs_grad,
             lhs,
             rhs,
             requires_grad,
@@ -702,14 +746,14 @@ where
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let data = lhs.data().deref() / rhs.data().deref();
-        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
-        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
+        let data = RefCell::new(broadcasted_zeros(lhs.data().deref(), rhs.data().deref()));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
 
         Self {
-            data: RefCell::new(data),
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
+            data,
+            lhs_grad,
+            rhs_grad,
             lhs,
             rhs,
             requires_grad,
@@ -792,7 +836,7 @@ where
 // ============================ Computational Graph Internal Component: Matrix Mult.  ============================
 
 #[derive(Debug)]
-pub struct Dot<Lhs, Rhs>
+pub struct MatrixMatrixMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix2>,
     Rhs: Node<Dim = Ix2>,
@@ -807,25 +851,24 @@ where
     counter: PassCounter,
 }
 
-impl<Lhs, Rhs> Dot<Lhs, Rhs>
+impl<Lhs, Rhs> MatrixMatrixMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix2>,
     Rhs: Node<Dim = Ix2>,
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
+        let shape = dotted_shapes(lhs.data().shape(), rhs.data().shape());
+        let data = RefCell::new(Tensor::zeros((shape[0], shape[1])));
+        let grad = RefCell::new(Tensor::zeros((shape[0], shape[1])));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let data = lhs.data().dot(rhs.data().deref());
-
-        let grad = Tensor::zeros(data.raw_dim());
-        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
-        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
-
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
+            data,
+            grad,
+            lhs_grad,
+            rhs_grad,
             lhs,
             rhs,
             requires_grad,
@@ -834,7 +877,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Node for Dot<Lhs, Rhs>
+impl<Lhs, Rhs> Node for MatrixMatrixMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix2>,
     Rhs: Node<Dim = Ix2>,
@@ -907,6 +950,7 @@ where
     fn requires_grad(&self) -> bool {
         self.requires_grad
     }
+
     fn clear(&self) {
         if !self.counter.is_zero() {
             self.lhs.clear();
@@ -919,14 +963,14 @@ where
 // ============================ Computational Graph Internal Component: Mat. Vec. Prod.  ============================
 
 #[derive(Debug)]
-pub struct VectorDot<Lhs, Rhs>
+pub struct MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix2>,
     Rhs: Node<Dim = Ix1>,
 {
     data: RefCell<Tensor<Ix1>>,
     grad: RefCell<Tensor<Ix1>>,
-    lhs_grad: RefCell<Tensor<Ix2>>, // Todo: All these nodes must be replaced with `Dot` by using the `ndarray::Dot`(::Output) trait
+    lhs_grad: RefCell<Tensor<Ix2>>,
     rhs_grad: RefCell<Tensor<Ix1>>,
     lhs: Rc<Lhs>,
     rhs: Rc<Rhs>,
@@ -934,32 +978,24 @@ where
     counter: PassCounter,
 }
 
-impl<Lhs, Rhs> VectorDot<Lhs, Rhs>
+impl<Lhs, Rhs> MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix2>,
     Rhs: Node<Dim = Ix1>,
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
+        let shape = dotted_shapes(lhs.data().shape(), rhs.data().shape());
+        let data = RefCell::new(Tensor::zeros(shape[0]));
+        let grad = RefCell::new(Tensor::zeros(shape[0]));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
 
-        let (data, grad, lhs_grad, rhs_grad) = {
-            let lhs_data = lhs.data();
-            let rhs_data = rhs.data();
-            let data = lhs_data.dot(rhs_data.deref());
-            let grad = Tensor::zeros(data.raw_dim());
-            (
-                data,
-                grad,
-                Tensor::zeros(lhs_data.raw_dim()),
-                Tensor::zeros(rhs_data.raw_dim()),
-            )
-        };
-
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
+            data,
+            grad,
+            lhs_grad,
+            rhs_grad,
             lhs,
             rhs,
             requires_grad,
@@ -968,7 +1004,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Node for VectorDot<Lhs, Rhs>
+impl<Lhs, Rhs> Node for MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix2>,
     Rhs: Node<Dim = Ix1>,
@@ -1054,7 +1090,7 @@ where
 // ============================ Computational Graph Internal Component: Inner Prod.  ============================
 
 #[derive(Debug)]
-pub struct ScalarProduct<Lhs, Rhs>
+pub struct VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix1>,
     Rhs: Node<Dim = Ix1>,
@@ -1068,27 +1104,22 @@ where
     counter: PassCounter,
 }
 
-impl<Lhs, Rhs> ScalarProduct<Lhs, Rhs>
+impl<Lhs, Rhs> VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix1>,
     Rhs: Node<Dim = Ix1>,
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
+        let shape = dotted_shapes(lhs.data().shape(), rhs.data().shape());
+        let data = RefCell::new(Tensor::zeros(shape[0]));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let (data, lhs_grad, rhs_grad) = {
-            let lhs_data = lhs.data();
-            let rhs_data = rhs.data();
-            (
-                Tensor::<Ix1>::from(vec![lhs_data.dot(rhs_data.deref())]),
-                Tensor::zeros(lhs_data.raw_dim()),
-                Tensor::zeros(rhs_data.raw_dim()),
-            )
-        };
 
         Self {
-            data: RefCell::new(data),
-            lhs_grad: RefCell::new(lhs_grad),
-            rhs_grad: RefCell::new(rhs_grad),
+            data,
+            lhs_grad,
+            rhs_grad,
             lhs,
             rhs,
             requires_grad,
@@ -1097,7 +1128,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Node for ScalarProduct<Lhs, Rhs>
+impl<Lhs, Rhs> Node for VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Node<Dim = Ix1>,
     Rhs: Node<Dim = Ix1>,
@@ -1166,6 +1197,116 @@ where
     }
 }
 
+// ============================ Computational Graph Internal Component: Inner Prod.  ============================
+
+#[derive(Debug)]
+pub struct VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Node<Dim = Ix1>,
+    Rhs: Node<Dim = Ix2>,
+{
+    data: RefCell<Tensor<Ix1>>,
+    lhs_grad: RefCell<Tensor<Ix1>>,
+    rhs_grad: RefCell<Tensor<Ix2>>,
+    lhs: Rc<Lhs>,
+    rhs: Rc<Rhs>,
+    requires_grad: bool,
+    counter: PassCounter,
+}
+
+impl<Lhs, Rhs> VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Node<Dim = Ix1>,
+    Rhs: Node<Dim = Ix2>,
+{
+    pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>) -> Self {
+        let shape = dotted_shapes(lhs.data().shape(), rhs.data().shape());
+        let data = RefCell::new(Tensor::zeros(shape[0]));
+        let lhs_grad = RefCell::new(Tensor::zeros(lhs.data().raw_dim()));
+        let rhs_grad = RefCell::new(Tensor::zeros(rhs.data().raw_dim()));
+        let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+
+        Self {
+            data,
+            lhs_grad,
+            rhs_grad,
+            lhs,
+            rhs,
+            requires_grad,
+            counter: PassCounter::default(),
+        }
+    }
+}
+
+impl<Lhs, Rhs> Node for VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Node<Dim = Ix1>,
+    Rhs: Node<Dim = Ix2>,
+{
+    type Dim = Ix1;
+
+    fn forward(&self) {
+        if self.counter.forward_action() == ForwardAction::Cached {
+            return;
+        }
+
+        self.lhs.forward();
+        self.rhs.forward();
+
+        let lhs_data = self.lhs.data();
+        let rhs_data = self.rhs.data();
+        let mut self_data = self.data.borrow_mut();
+
+        *self_data = lhs_data.dot(rhs_data.deref());
+    }
+
+    fn backward(&self, grad: &Ref<Tensor<Self::Dim>>) {
+        let action = self.counter.backward_action();
+
+        {
+            let lhs_data = self.lhs.data();
+            let mut lhs_grad = self.lhs_grad.borrow_mut();
+            let rhs_data = self.rhs.data();
+            let mut rhs_grad = self.rhs_grad.borrow_mut();
+            let down_grad = grad.deref();
+
+            accumulate(
+                lhs_grad.deref_mut(),
+                rhs_data.deref(),
+                down_grad[0],
+                &action,
+            );
+            accumulate(
+                rhs_grad.deref_mut(),
+                lhs_data.deref(),
+                down_grad[0],
+                &action,
+            );
+        }
+
+        if self.counter.recurse_backward() {
+            self.lhs.backward(&self.lhs_grad.borrow());
+            self.rhs.backward(&self.rhs_grad.borrow());
+        }
+    }
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn clear(&self) {
+        if !self.counter.is_zero() {
+            self.lhs.clear();
+            self.rhs.clear();
+            self.counter.clear();
+        }
+    }
+}
+
 // ============================ Computational Graph Internal Component: Power  ============================
 
 #[derive(Debug)]
@@ -1180,13 +1321,14 @@ pub struct Power<T: Node> {
 
 impl<T: Node> Power<T> {
     pub fn new(operand: Rc<T>, exp: i32) -> Self {
-        let data = operand.data().map(|el| el.powi(exp));
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             exp,
             requires_grad,
@@ -1356,13 +1498,14 @@ pub struct Logn<T: Node> {
 
 impl<T: Node> Logn<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = operand.data().map(|el| el.ln());
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -1446,13 +1589,14 @@ pub struct Relu<T: Node> {
 
 impl<T: Node> Relu<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = operand.data().map(|el| if *el < 0.0 { 0.0 } else { *el });
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -1550,15 +1694,14 @@ pub struct LeakyRelu<T: Node> {
 
 impl<T: Node> LeakyRelu<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = operand
-            .data()
-            .map(|el| if *el < 0.0 { 0.01 * el } else { *el });
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -1656,21 +1799,14 @@ pub struct Softplus<T: Node> {
 
 impl<T: Node> Softplus<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = operand.data().map(|el| {
-            if *el < -15.0 {
-                0.0
-            } else if *el > 15.0 {
-                *el
-            } else {
-                (1.0 + el.exp()).ln()
-            }
-        });
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -1773,22 +1909,14 @@ pub struct Sigmoid<T: Node> {
 
 impl<T: Node> Sigmoid<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = operand.data().map(|el| {
-            if *el >= 15.0 {
-                1.0
-            } else if *el <= -15.0 {
-                0.0
-            } else {
-                1.0 / (1.0 + (-el).exp())
-            }
-        });
-
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -1880,13 +2008,14 @@ pub struct Tanh<T: Node> {
 
 impl<T: Node> Tanh<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = operand.data().map(|el| el.tanh());
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -1970,13 +2099,14 @@ pub struct Exp<T: Node> {
 
 impl<T: Node> Exp<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = operand.data().map(|el| el.exp());
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -2062,31 +2192,17 @@ pub struct Softmax<T: Node> {
 
 impl<T: Node> Softmax<T> {
     pub fn new(operand: Rc<T>, axis: usize) -> Self {
-        let (data, j_dim) = {
-            let op_data = operand.data();
-            let mut data = Tensor::zeros(op_data.raw_dim());
-
-            Zip::from(op_data.lanes(Axis(axis)))
-                .and(data.lanes_mut(Axis(axis)))
-                .for_each(|lane_self, lane_new| {
-                    let max = lane_self.fold(std::f32::MIN, |x, y| x.max(*y));
-                    let num = &lane_self.map(|el| (el - max).exp());
-                    let den = num.sum();
-                    Zip::from(lane_new)
-                        .and(num)
-                        .for_each(|lane_new_el, num_el| *lane_new_el = *num_el / den);
-                });
-
-            (data, op_data.shape()[axis])
-        };
-        let grad = Tensor::zeros(data.raw_dim());
+        let shape = operand.data().raw_dim();
+        let jacobian = RefCell::new(Tensor::zeros((shape[axis], shape[axis])));
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
             axis,
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
-            jacobian: RefCell::new(Array2::zeros((j_dim, j_dim))),
+            data,
+            grad,
+            jacobian,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -2198,18 +2314,14 @@ pub struct Transpose<T: Node> {
 
 impl<T: Node> Transpose<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let (data, grad) = {
-            let operand_data = operand.data();
-            (
-                operand_data.t().to_owned(),
-                Tensor::zeros(operand_data.raw_dim()),
-            )
-        };
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.clone()));
+        let grad = RefCell::new(Tensor::zeros(shape));
         let requires_grad = operand.requires_grad();
 
         Self {
-            data: RefCell::new(data),
-            grad: RefCell::new(grad),
+            data,
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),
@@ -2294,15 +2406,9 @@ where
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>, axis: usize) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let (data, lhs_grad, rhs_grad) = {
-            let lhs_data = lhs.data();
-            let rhs_data = rhs.data();
-            (
-                concatenate(Axis(axis), &[lhs_data.view(), rhs_data.view()]).unwrap(),
-                Tensor::zeros(lhs_data.raw_dim()),
-                Tensor::zeros(rhs_data.raw_dim()),
-            )
-        };
+        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
+        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
+        let data = concatenate(Axis(axis), &[lhs_grad.view(), rhs_grad.view()]).unwrap();
 
         Self {
             data: RefCell::new(data),
@@ -2424,15 +2530,9 @@ where
 {
     pub fn new(lhs: Rc<Lhs>, rhs: Rc<Rhs>, axis: usize) -> Self {
         let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-        let (data, lhs_grad, rhs_grad) = {
-            let lhs_data = lhs.data();
-            let rhs_data = rhs.data();
-            (
-                stack(Axis(axis), &[lhs_data.view(), rhs_data.view()]).unwrap(),
-                Tensor::zeros(lhs_data.raw_dim()),
-                Tensor::zeros(rhs_data.raw_dim()),
-            )
-        };
+        let lhs_grad = Tensor::zeros(lhs.data().raw_dim());
+        let rhs_grad = Tensor::zeros(rhs.data().raw_dim());
+        let data = stack(Axis(axis), &[lhs_grad.view(), rhs_grad.view()]).unwrap();
 
         Self {
             data: RefCell::new(data),
@@ -2569,18 +2669,14 @@ where
 {
     pub fn new(operand: Rc<T>, axis: usize) -> Self {
         let requires_grad = operand.requires_grad();
-        let (data, grad) = {
-            let operand_data = operand.data();
-            (
-                operand_data.clone().insert_axis(Axis(axis)),
-                Tensor::zeros(operand_data.raw_dim()),
-            )
-        };
+        let shape = operand.data().raw_dim();
+        let data = RefCell::new(Tensor::zeros(shape.insert_axis(Axis(axis))));
+        let grad = RefCell::new(Tensor::zeros(shape));
 
         Self {
-            data: RefCell::new(data),
+            data,
             axis,
-            grad: RefCell::new(grad),
+            grad,
             operand,
             requires_grad,
             counter: PassCounter::default(),

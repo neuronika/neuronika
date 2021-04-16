@@ -1,11 +1,11 @@
-pub(crate) mod node;
+pub mod node;
 
 use itertools::Itertools;
 use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
 use node::{
-    Addition, Concatenate, Division, Dot, Exp, LeakyRelu, Logn, Multiplication, Negation, Node,
-    Parameter, Power, Relu, ScalarProduct, Sigmoid, Softmax, Softplus, Stack, Subtraction, Sum,
-    Tanh, Transpose, Unsqueeze, VectorDot,
+    Addition, Concatenate, Division, Exp, LeakyRelu, Logn, MatrixMatrixMul, MatrixVectorMul,
+    Multiplication, Negation, Node, Parameter, Power, Relu, Sigmoid, Softmax, Softplus, Stack,
+    Subtraction, Sum, Tanh, Transpose, Unsqueeze, VectorMatrixMul, VectorVectorMul,
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
@@ -14,9 +14,9 @@ use std::{
     rc::Rc,
 };
 
-pub(crate) type Tensor<D> = Array<f32, D>;
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
+pub(crate) type Tensor<D> = Array<f32, D>;
 
 pub trait ParamDim: Dimension + 'static {
     fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters);
@@ -149,12 +149,25 @@ impl<T> GraphBuilder<T>
 where
     T: Node<Dim = Ix1>,
 {
-    pub fn dot<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
+    pub fn vv_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
     where
         U: Node<Dim = Ix1>,
     {
         GraphBuilder::new(
-            Rc::new(ScalarProduct::new(
+            Rc::new(VectorVectorMul::new(
+                Rc::clone(&self.repr),
+                Rc::clone(&other.repr),
+            )),
+            track_upstream(&self.upstream, &other.upstream),
+        )
+    }
+
+    pub fn vm_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
+    where
+        U: Node<Dim = Ix2>,
+    {
+        GraphBuilder::new(
+            Rc::new(VectorMatrixMul::new(
                 Rc::clone(&self.repr),
                 Rc::clone(&other.repr),
             )),
@@ -167,12 +180,15 @@ impl<T> GraphBuilder<T>
 where
     T: Node<Dim = Ix2>,
 {
-    pub fn mm<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix2>>
+    pub fn mm_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix2>>
     where
         U: Node<Dim = Ix2>,
     {
         GraphBuilder::new(
-            Rc::new(Dot::new(Rc::clone(&self.repr), Rc::clone(&other.repr))),
+            Rc::new(MatrixMatrixMul::new(
+                Rc::clone(&self.repr),
+                Rc::clone(&other.repr),
+            )),
             track_upstream(&self.upstream, &other.upstream),
         )
     }
@@ -182,7 +198,7 @@ where
         U: Node<Dim = Ix1>,
     {
         GraphBuilder::new(
-            Rc::new(VectorDot::new(
+            Rc::new(MatrixVectorMul::new(
                 Rc::clone(&self.repr),
                 Rc::clone(&other.repr),
             )),
