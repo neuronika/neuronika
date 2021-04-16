@@ -1,8 +1,91 @@
 use super::Parameter;
 use crate::graph::{node::Node, GraphBuilder, Tensor};
-use ndarray::{Ix1, Ix2};
+use ndarray::{Array, ArrayView, Dimension, Ix1, Ix2, IxDyn, ShapeBuilder, Slice};
 
-pub mod utils;
+/// Computes the shape of the output map.
+///
+/// `input_shape` - the shape of the input.
+///
+/// `kernel_shape` - the shape of the kernel.
+///
+/// `padding` - the padding around the input.
+fn compute_out_shape<D: Dimension>(
+    input_shape: &[usize],
+    kernel_shape: &[usize],
+    padding: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> D {
+    let mut map_shape = D::zeros(input_shape.len());
+    itertools::izip!(
+        map_shape.slice_mut(),
+        input_shape,
+        kernel_shape,
+        padding,
+        stride,
+        dilation
+    )
+    .for_each(|(map_s, in_s, k_s, pd, str, dil)| {
+        *map_s = (in_s + 2 * pd - dil * (k_s - 1) - 1) / str + 1
+    });
+    map_shape
+}
+
+/// Returns a **rolling window view** of the input array.
+///
+/// `input` - input array.
+///
+/// `window_shape` - the shape of each of the windows.
+///
+/// `padding` - the padding around `input`.
+///
+/// `stride` - the stride.
+///
+/// `dilation` - the spacing between each element of the windows.
+fn as_windows<'a, D: Dimension>(
+    input: &Array<f32, D>,
+    window_shape: &[usize],
+    padding: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> ArrayView<'a, f32, IxDyn> {
+    let ndim = input.ndim();
+    let input_shape = input.shape();
+
+    let mut indexing_strides = vec![0; ndim];
+    {
+        let view =
+            input.slice_each_axis(|ax| Slice::new(0, None, stride[ax.axis.index()] as isize));
+        indexing_strides
+            .iter_mut()
+            .zip(view.strides())
+            .for_each(|(is, vs)| *is = *vs);
+    }
+
+    let mut window_strides = vec![0; ndim];
+    itertools::izip!(window_strides.iter_mut(), input.strides(), dilation)
+        .for_each(|(ws, is, dil)| *ws = *is * (*dil as isize));
+
+    let win_indices_shape =
+        compute_out_shape::<D>(input_shape, window_shape, padding, stride, dilation);
+
+    let mut new_shape = IxDyn::zeros(win_indices_shape.ndim() + window_shape.len());
+    let mut strides = IxDyn::zeros(win_indices_shape.ndim() + window_shape.len());
+
+    new_shape
+        .slice_mut()
+        .iter_mut()
+        .zip(win_indices_shape.slice().iter().chain(window_shape.iter()))
+        .for_each(|(ns, _s)| *ns = *_s as usize);
+
+    strides
+        .slice_mut()
+        .iter_mut()
+        .zip(indexing_strides.iter().chain(window_strides.iter()))
+        .for_each(|(s, _s)| *s = *_s as usize);
+
+    unsafe { ArrayView::from_shape_ptr(new_shape.strides(strides), input.as_ptr()) }
+}
 
 pub mod init {
     use super::super::{graph::GraphBuilder, graph::ParamDim, Parameter};
@@ -163,6 +246,6 @@ impl Linear {
         &self,
         input: &GraphBuilder<impl Node<Dim = Ix2>>,
     ) -> GraphBuilder<impl Node<Dim = Ix2>> {
-        input.mm(&self.weight.t()) + self.bias.clone()
+        input.mm_mul(&self.weight.t()) + self.bias.clone()
     }
 }
