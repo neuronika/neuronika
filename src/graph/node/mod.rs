@@ -8,6 +8,9 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
+// !!
+// !! OLD CODE
+// !!
 // ==================================================== Utils ====================================================
 
 fn broadcasted_zeros<Lhs, Rhs>(left: &Tensor<Lhs>, right: &Tensor<Rhs>) -> BroadTensor<Lhs, Rhs>
