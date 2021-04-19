@@ -20,72 +20,72 @@ pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type Tensor<D> = Array<f32, D>;
 
 pub trait ParamDim: Dimension + 'static {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>);
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters);
 }
 
 impl ParamDim for Ix1 {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.oned_params.push(item);
     }
 }
 
 impl ParamDim for Ix2 {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.twod_params.push(item);
     }
 }
 
 impl ParamDim for Ix3 {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.threed_params.push(item);
     }
 }
 
 impl ParamDim for Ix4 {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.fourd_params.push(item);
     }
 }
 
 impl ParamDim for Ix5 {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.fived_params.push(item);
     }
 }
 
 impl ParamDim for Ix6 {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.sixd_params.push(item);
     }
 }
 
 impl ParamDim for IxDyn {
-    fn insert<'a>(item: GraphBuilder<'a, Parameter<Self>>, dest: &mut Parameters<'a>) {
+    fn insert(item: GraphBuilder<Parameter<Self>>, dest: &mut Parameters) {
         dest.dynd_params.push(item);
     }
 }
 
 #[derive(Debug, Clone)]
 /// Contains the learnable ancestors of the node.
-pub struct Parameters<'a> {
+pub struct Parameters {
     // Contains the one dimensional learnable ancestors
-    oned_params: Vec<GraphBuilder<'a, Parameter<Ix1>>>,
+    oned_params: Vec<GraphBuilder<Parameter<Ix1>>>,
     // Contains the two dimensional learnable ancestors
-    twod_params: Vec<GraphBuilder<'a, Parameter<Ix2>>>,
+    twod_params: Vec<GraphBuilder<Parameter<Ix2>>>,
     // Contains the three dimensional learnable ancestors
-    threed_params: Vec<GraphBuilder<'a, Parameter<Ix3>>>,
+    threed_params: Vec<GraphBuilder<Parameter<Ix3>>>,
     // Contains the four dimensional learnable ancestors
-    fourd_params: Vec<GraphBuilder<'a, Parameter<Ix4>>>,
+    fourd_params: Vec<GraphBuilder<Parameter<Ix4>>>,
     // Contains the five dimensional learnable ancestors
-    fived_params: Vec<GraphBuilder<'a, Parameter<Ix5>>>,
+    fived_params: Vec<GraphBuilder<Parameter<Ix5>>>,
     // Contains the six dimensional learnable ancestors
-    sixd_params: Vec<GraphBuilder<'a, Parameter<Ix6>>>,
+    sixd_params: Vec<GraphBuilder<Parameter<Ix6>>>,
     // Contains the dynamic dimensional learnable ancestors
-    dynd_params: Vec<GraphBuilder<'a, Parameter<IxDyn>>>,
+    dynd_params: Vec<GraphBuilder<Parameter<IxDyn>>>,
 }
 
-impl<'a> Parameters<'a> {
-    fn new() -> Parameters<'a> {
+impl Parameters {
+    fn new() -> Parameters {
         Parameters {
             oned_params: Vec::new(),
             twod_params: Vec::new(),
@@ -110,23 +110,23 @@ impl<'a> Parameters<'a> {
 
 // A pointer to a node in the computational graph.
 #[derive(Debug)]
-pub struct GraphBuilder<'a, T: Node> {
-    repr: &'a T,
+pub struct GraphBuilder<T: Node> {
+    repr: Rc<T>,
     grad: Option<RefCell<Tensor<T::Dim>>>,
-    upstream: Parameters<'a>,
+    upstream: Parameters,
 }
 
-impl<'a, T: Node> Clone for GraphBuilder<'a, T> {
+impl<T: Node> Clone for GraphBuilder<T> {
     fn clone(&self) -> Self {
         GraphBuilder {
-            repr: &self.repr.clone(),
+            repr: Rc::clone(&self.repr),
             grad: None,
             upstream: self.upstream.clone(),
         }
     }
 }
 
-impl<'a, D> GraphBuilder<'a, Parameter<D>>
+impl<D> GraphBuilder<Parameter<D>>
 where
     D: ParamDim,
 {
@@ -208,8 +208,8 @@ where
 //     }
 // }
 
-impl<'a, T: Node> GraphBuilder<'a, T> {
-    pub(super) fn new(repr: &'a T, upstream: Parameters<'a>) -> Self {
+impl<T: Node> GraphBuilder<T> {
+    pub(super) fn new(repr: Rc<T>, upstream: Parameters) -> Self {
         GraphBuilder {
             repr,
             grad: None,

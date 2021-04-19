@@ -141,15 +141,18 @@ impl<D> Parameter<D>
 where
     D: ParamDim,
 {
-    pub fn new<'a>(data: Tensor<D>) -> GraphBuilder<'a, Self> {
+    pub fn new<'a>(data: Tensor<D>) -> GraphBuilder<Self> {
         let grad = Tensor::zeros(data.raw_dim());
-        let node = Parameter {
+        let node = Rc::new(Parameter {
             data: RefCell::new(data),
             grad: RefCell::new(grad),
-        };
+        });
         let mut upstream = Parameters::new();
-        D::insert(GraphBuilder::new(&node, Parameters::new()), &mut upstream);
-        GraphBuilder::new(&node, upstream)
+        D::insert(
+            GraphBuilder::new(Rc::clone(&node), Parameters::new()),
+            &mut upstream,
+        );
+        GraphBuilder::new(node, upstream)
     }
 
     pub fn grad(&self) -> Ref<Tensor<D>> {
@@ -200,11 +203,11 @@ where
 }
 
 impl<'a, D: Dimension + 'static> Input<D> {
-    pub fn new(data: Tensor<D>) -> GraphBuilder<'a, Self> {
+    pub fn new(data: Tensor<D>) -> GraphBuilder<Self> {
         GraphBuilder::new(
-            &Input {
+            Rc::new(Input {
                 data: RefCell::new(data),
-            },
+            }),
             Parameters::new(),
         )
     }
