@@ -200,6 +200,9 @@ where
 {
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
         let (id, forward) = self.last;
+        if Rc::strong_count(&forward) > 1 {
+            panic!("error: cannot make the Input differentiable.")
+        }
         let backward = Rc::new(forward.differentiable());
         let forward_path = self.forward_path;
         let mut backward_path = BTreeMap::new();

@@ -1,7 +1,13 @@
-use super::super::{BroadTensor, Broadcasted, Tensor};
-use super::broadcasted_zeros;
-use super::forward::{Data, Forward, Input};
-use ndarray::{linalg::general_mat_vec_mul, ArrayView1, Axis, DimMax, Dimension, Ix1, Ix2, Zip};
+use super::{
+    super::{BroadTensor, Broadcasted, Tensor},
+    broadcasted_zeros,
+    forward::{Data, Forward, Input},
+    DotDim,
+};
+use ndarray::{
+    linalg::{general_mat_mul, general_mat_vec_mul},
+    ArrayView1, Axis, DimMax, Dimension, Ix1, Ix2, Zip,
+};
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::rc::Rc;
 
@@ -34,7 +40,7 @@ pub fn reduce<D: ndarray::Dimension, E: ndarray::Dimension>(
     }
 }
 
-fn fill_jacobian(jacobian: &mut Tensor<Ix2>, array: &ArrayView1<f32>) {
+fn fill_softmax_jacobian(jacobian: &mut Tensor<Ix2>, array: &ArrayView1<f32>) {
     for (row_idx, (mut row, row_val)) in jacobian
         .rows_mut()
         .into_iter()
@@ -759,6 +765,7 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiplicationBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub struct MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
@@ -1314,6 +1321,771 @@ where
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     type Dim = Broadcasted<LhsD::Dim, RhsG::Dim>;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MattrixMatrixMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    left_data: Rc<LhsD>,
+    left_grad: Rc<LhsG>,
+    right_data: Rc<RhsD>,
+    right_grad: Rc<RhsG>,
+    gradient: RefCell<Tensor<Ix2>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    pub fn new(
+        left_data: Rc<LhsD>,
+        left_grad: Rc<LhsG>,
+        right_data: Rc<RhsD>,
+        right_grad: Rc<RhsG>,
+    ) -> Self {
+        let shape = DotDim::shape(
+            left_grad.gradient().raw_dim(),
+            right_grad.gradient().raw_dim(),
+        );
+        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
+
+        Self {
+            left_data,
+            left_grad,
+            right_data,
+            right_grad,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
+            (
+                self.left_grad.gradient_mut(),
+                self.left_data.data(),
+                self.right_grad.gradient_mut(),
+                self.right_data.data(),
+            )
+        };
+        let grad = self.gradient.borrow();
+        if self.left_grad.can_overwrite() {
+            general_mat_mul(1.0, &grad, &rhs_data.t(), 0., &mut lhs_grad);
+            self.left_grad.was_overwritten();
+        } else {
+            general_mat_mul(1.0, &grad, &rhs_data.t(), 1., &mut lhs_grad);
+        }
+        if self.right_grad.can_overwrite() {
+            general_mat_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
+            self.right_grad.was_overwritten();
+        } else {
+            general_mat_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
+        }
+        true
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Gradient for MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    type Dim = Ix2;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct MatrixMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    left_grad: Rc<LhsG>,
+    right_data: Rc<RhsD>,
+    gradient: RefCell<Tensor<Ix2>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<LhsG, RhsD> MatrixMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
+        let shape = DotDim::shape(left_grad.gradient().raw_dim(), right_data.data().raw_dim());
+        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
+
+        Self {
+            left_grad,
+            right_data,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<LhsG, RhsD> Backward for MatrixMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
+        let grad = self.gradient.borrow();
+        if self.left_grad.can_overwrite() {
+            general_mat_mul(1.0, &grad, &rhs_data.t(), 0., &mut lhs_grad);
+            self.left_grad.was_overwritten();
+        } else {
+            general_mat_mul(1.0, &grad, &rhs_data.t(), 1., &mut lhs_grad);
+        }
+        true
+    }
+}
+
+impl<LhsG, RhsD> Gradient for MatrixMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    type Dim = Ix2;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct MatrixMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    left_data: Rc<LhsD>,
+    right_grad: Rc<RhsG>,
+    gradient: RefCell<Tensor<Ix2>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<LhsD, RhsG> MatrixMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    pub fn new(left_data: Rc<LhsD>, right_grad: Rc<RhsG>) -> Self {
+        let shape = DotDim::shape(left_data.data().raw_dim(), right_grad.gradient().raw_dim());
+        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
+        Self {
+            left_data,
+            right_grad,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<LhsD, RhsG> Backward for MatrixMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
+        let grad = self.gradient.borrow();
+        if self.right_grad.can_overwrite() {
+            general_mat_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
+            self.right_grad.was_overwritten();
+        } else {
+            general_mat_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
+        }
+        true
+    }
+}
+
+impl<LhsD, RhsG> Gradient for MatrixMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2>,
+{
+    type Dim = Ix2;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMultBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    left_data: Rc<LhsD>,
+    left_grad: Rc<LhsG>,
+    right_data: Rc<RhsD>,
+    right_grad: Rc<RhsG>,
+    gradient: RefCell<Tensor<Ix1>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    pub fn new(
+        left_data: Rc<LhsD>,
+        left_grad: Rc<LhsG>,
+        right_data: Rc<RhsD>,
+        right_grad: Rc<RhsG>,
+    ) -> Self {
+        let shape = DotDim::shape(
+            left_grad.gradient().raw_dim(),
+            right_grad.gradient().raw_dim(),
+        );
+        let gradient = RefCell::new(Tensor::zeros(shape[0]));
+
+        Self {
+            left_data,
+            left_grad,
+            right_data,
+            right_grad,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
+            (
+                self.left_grad.gradient_mut(),
+                self.left_data.data(),
+                self.right_grad.gradient_mut(),
+                self.right_data.data(),
+            )
+        };
+        let grad = self.gradient.borrow();
+        if self.left_grad.can_overwrite() {
+            Zip::from(lhs_grad.rows_mut())
+                .and(&*grad)
+                .for_each(|row, grad_el| {
+                    Zip::from(row)
+                        .and(&*rhs_data)
+                        .for_each(|row_el, rhs_data_el| *row_el = *rhs_data_el * *grad_el);
+                });
+            self.left_grad.was_overwritten();
+        } else {
+            Zip::from(lhs_grad.rows_mut())
+                .and(&*grad)
+                .for_each(|row, grad_el| {
+                    Zip::from(row)
+                        .and(&*rhs_data)
+                        .for_each(|row_el, rhs_data_el| *row_el += *rhs_data_el * *grad_el);
+                });
+        }
+        if self.right_grad.can_overwrite() {
+            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
+            self.right_grad.was_overwritten();
+        } else {
+            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
+        }
+        true
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Gradient for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct MatrixVectorMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    left_grad: Rc<LhsG>,
+    right_data: Rc<RhsD>,
+    gradient: RefCell<Tensor<Ix1>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<LhsG, RhsD> MatrixVectorMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
+        let shape = DotDim::shape(left_grad.gradient().raw_dim(), right_data.data().raw_dim());
+        let gradient = RefCell::new(Tensor::zeros(shape[0]));
+
+        Self {
+            left_grad,
+            right_data,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<LhsG, RhsD> Backward for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
+        let grad = self.gradient.borrow();
+        if self.left_grad.can_overwrite() {
+            Zip::from(lhs_grad.rows_mut())
+                .and(&*grad)
+                .for_each(|row, grad_el| {
+                    Zip::from(row)
+                        .and(&*rhs_data)
+                        .for_each(|row_el, rhs_data_el| *row_el = *rhs_data_el * *grad_el);
+                });
+            self.left_grad.was_overwritten();
+        } else {
+            Zip::from(lhs_grad.rows_mut())
+                .and(&*grad)
+                .for_each(|row, grad_el| {
+                    Zip::from(row)
+                        .and(&*rhs_data)
+                        .for_each(|row_el, rhs_data_el| *row_el += *rhs_data_el * *grad_el);
+                });
+        }
+        true
+    }
+}
+
+impl<LhsG, RhsD> Gradient for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct MatrixVectorMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    left_data: Rc<LhsD>,
+    right_grad: Rc<RhsG>,
+    gradient: RefCell<Tensor<Ix1>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<LhsD, RhsG> MatrixVectorMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    pub fn new(left_data: Rc<LhsD>, right_grad: Rc<RhsG>) -> Self {
+        let shape = DotDim::shape(left_data.data().raw_dim(), right_grad.gradient().raw_dim());
+        let gradient = RefCell::new(Tensor::zeros(shape[0]));
+
+        Self {
+            left_data,
+            right_grad,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<LhsD, RhsG> Backward for MatrixVectorMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
+        let grad = self.gradient.borrow();
+        if self.right_grad.can_overwrite() {
+            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
+            self.right_grad.was_overwritten();
+        } else {
+            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
+        }
+        true
+    }
+}
+
+impl<LhsD, RhsG> Gradient for MatrixVectorMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    left_data: Rc<LhsD>,
+    left_grad: Rc<LhsG>,
+    right_data: Rc<RhsD>,
+    right_grad: Rc<RhsG>,
+    gradient: RefCell<Tensor<Ix1>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    pub fn new(
+        left_data: Rc<LhsD>,
+        left_grad: Rc<LhsG>,
+        right_data: Rc<RhsD>,
+        right_grad: Rc<RhsG>,
+    ) -> Self {
+        let shape = DotDim::shape(
+            left_grad.gradient().raw_dim(),
+            right_grad.gradient().raw_dim(),
+        );
+        let gradient = RefCell::new(Tensor::zeros(shape[0]));
+
+        Self {
+            left_data,
+            left_grad,
+            right_data,
+            right_grad,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Backward for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
+            (
+                self.left_grad.gradient_mut(),
+                self.left_data.data(),
+                self.right_grad.gradient_mut(),
+                self.right_data.data(),
+            )
+        };
+        let grad = self.gradient.borrow();
+        let left_zip = Zip::from(&mut *lhs_grad).and(&*rhs_data);
+        let right_zip = Zip::from(&mut *rhs_grad).and(&*lhs_data);
+        if self.left_grad.can_overwrite() {
+            left_zip.for_each(|lhs_grad_el, rhs_data_el| *lhs_grad_el = rhs_data_el * grad[0]);
+            self.left_grad.was_overwritten();
+        } else {
+            left_zip.for_each(|lhs_grad_el, rhs_data_el| *lhs_grad_el += rhs_data_el * grad[0]);
+        }
+
+        if self.right_grad.can_overwrite() {
+            right_zip.for_each(|rhs_grad_el, lhs_data_el| *rhs_grad_el = lhs_data_el * grad[0]);
+            self.right_grad.was_overwritten();
+        } else {
+            right_zip.for_each(|rhs_grad_el, lhs_data_el| *rhs_grad_el += lhs_data_el * grad[0]);
+        }
+        true
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Gradient for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMulBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct VectorVectorMulBackwardUnary<T, U>
+where
+    T: Gradient<Dim = Ix1>,
+    U: Data<Dim = Ix1>,
+{
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
+    gradient: RefCell<Tensor<Ix1>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<T, U> VectorVectorMulBackwardUnary<T, U>
+where
+    T: Gradient<Dim = Ix1>,
+    U: Data<Dim = Ix1>,
+{
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = DotDim::shape(
+            diff_operand.gradient().raw_dim(),
+            no_diff_operand.data().raw_dim(),
+        );
+        let gradient = RefCell::new(Tensor::zeros(shape[0]));
+
+        Self {
+            diff_operand,
+            no_diff_operand,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<T, U> Backward for VectorVectorMulBackwardUnary<T, U>
+where
+    T: Gradient<Dim = Ix1>,
+    U: Data<Dim = Ix1>,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let (mut diff_op_grad, no_diff_op_data) = {
+            (
+                self.diff_operand.gradient_mut(),
+                self.no_diff_operand.data(),
+            )
+        };
+        let grad = self.gradient.borrow();
+        let zip = Zip::from(&mut *diff_op_grad).and(&*no_diff_op_data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|diff_op_grad_el, no_diff_op_data_el| {
+                *diff_op_grad_el = no_diff_op_data_el * grad[0]
+            });
+            self.diff_operand.was_overwritten();
+        } else {
+            zip.for_each(|diff_op_grad_el, no_diff_op_data_el| {
+                *diff_op_grad_el += no_diff_op_data_el * grad[0]
+            });
+        }
+        true
+    }
+}
+
+impl<T, U> Gradient for VectorVectorMulBackwardUnary<T, U>
+where
+    T: Gradient<Dim = Ix1>,
+    U: Data<Dim = Ix1>,
+{
+    type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
         self.gradient.borrow()
@@ -2241,14 +3013,14 @@ where
         if self.operand_grad.can_overwrite() {
             zip.par_for_each(|mut op_grad_lane, grad_lane, op_data_lane| {
                 let mut jacobian = Tensor::<Ix2>::zeros(jacobian_shape);
-                fill_jacobian(&mut jacobian, &op_data_lane);
+                fill_softmax_jacobian(&mut jacobian, &op_data_lane);
                 general_mat_vec_mul(1.0, &jacobian, &grad_lane, 0., &mut op_grad_lane);
             });
             self.operand_grad.was_overwritten();
         } else {
             zip.par_for_each(|mut op_grad_lane, grad_lane, op_data_lane| {
                 let mut jacobian = Tensor::<Ix2>::zeros(jacobian_shape);
-                fill_jacobian(&mut jacobian, &op_data_lane);
+                fill_softmax_jacobian(&mut jacobian, &op_data_lane);
                 general_mat_vec_mul(1.0, &jacobian, &grad_lane, 1., &mut op_grad_lane);
             });
         }

@@ -2,7 +2,11 @@ use super::{
     super::{BroadTensor, Broadcasted, Tensor, Var},
     broadcasted_zeros, DotDim,
 };
-use ndarray::{linalg::general_mat_mul, Axis, DimMax, Dimension, Ix1, Ix2, Zip};
+use ndarray::{
+    concatenate,
+    linalg::{general_mat_mul, general_mat_vec_mul},
+    stack, Axis, Dim, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
+};
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
@@ -433,6 +437,7 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub struct MatrixMatrixMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
@@ -472,7 +477,7 @@ where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix2>,
 {
-    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
+    type Dim = Ix2;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
@@ -483,7 +488,6 @@ impl<Lhs, Rhs> Forward for MatrixMatrixMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix2>,
-    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&mut self) -> bool {
         if self.was_computed {
@@ -497,6 +501,144 @@ where
             0.0,
             &mut *self.data.borrow_mut(),
         );
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMult ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct MatrixVectorMult<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<Tensor<Ix1>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs> MatrixVectorMult<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(shape[0]));
+        Self {
+            left,
+            right,
+            data,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs> Data for MatrixVectorMult<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for MatrixVectorMult<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        general_mat_vec_mul(
+            1.0,
+            &*self.left.data(),
+            &*self.right.data(),
+            0.0,
+            &mut *self.data.borrow_mut(),
+        );
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct VectorVectorMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<Tensor<Ix1>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs> VectorVectorMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(shape[0]));
+        Self {
+            left,
+            right,
+            data,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs> Data for VectorVectorMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for VectorVectorMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        self.data.borrow_mut()[0] = self.left.data().dot(&*self.right.data());
         true
     }
 }
@@ -984,6 +1126,183 @@ where
                     .and(num)
                     .for_each(|lane_v_el, num_el| *lane_v_el = *num_el / den);
             });
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct Concatenate<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    axis: usize,
+    data: RefCell<Tensor<D>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs, D> Concatenate<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
+        let data = RefCell::new(
+            concatenate(Axis(axis), &[left.data().view(), right.data().view()]).unwrap(),
+        );
+        Self {
+            left,
+            right,
+            data,
+            axis,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs, D> Data for Concatenate<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs, D> Forward for Concatenate<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let lhs_data = self.left.data();
+        let rhs_data = self.right.data();
+        let mut data = self.data.borrow_mut();
+        let axis = self.axis;
+        let (mut lhs_portion, mut rhs_portion) = data
+            .view_mut()
+            .split_at(Axis(axis), lhs_data.len_of(Axis(axis)));
+        Zip::from(&*lhs_data)
+            .and(&mut lhs_portion)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(&*rhs_data)
+            .and(&mut rhs_portion)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct Stack<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    axis: usize,
+    data: RefCell<Tensor<D::Larger>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs, D> Stack<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
+        let data =
+            RefCell::new(stack(Axis(axis), &[left.data().view(), right.data().view()]).unwrap());
+        Self {
+            left,
+            right,
+            data,
+            axis,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs, D> Data for Stack<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D::Larger;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs, D> Forward for Stack<Lhs, Rhs, D>
+where
+    Lhs: Data<Dim = D>,
+    Rhs: Data<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let lhs_data = self.left.data();
+        let rhs_data = self.right.data();
+        let mut data = self.data.borrow_mut();
+        let axis = self.axis;
+        let mut subview_iter = data.axis_iter_mut(Axis(axis));
+        let mut subview_left = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<Lhs::Dim>()
+            .unwrap();
+        let mut subview_right = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<Rhs::Dim>()
+            .unwrap();
+        Zip::from(&*lhs_data)
+            .and(&mut subview_left)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(&*rhs_data)
+            .and(&mut subview_right)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
         true
     }
 }
