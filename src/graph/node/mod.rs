@@ -332,6 +332,315 @@ where
 //     }
 // }
 
+pub struct Negation<T>
+where
+    T: Data,
+{
+    op: Rc<T>,
+    data: RefCell<Tensor<T::Dim>>,
+    was_computed: bool,
+}
+
+impl<T> Negation<T>
+where
+    T: Data,
+{
+    pub fn new(op: Rc<T>) -> Self {
+        Self {
+            op,
+            data: RefCell::new(Tensor::zeros(op.data().raw_dim())),
+            was_computed: false,
+        }
+    }
+    pub fn operand(&self) -> Rc<T> {
+        self.op.clone()
+    }
+}
+
+impl<T> Forward for Negation<T>
+where
+    T: Data,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        Zip::from(&mut *self.data.borrow_mut())
+            .and(&*self.op.data())
+            .par_for_each(|v, op| *v = *op);
+        true
+    }
+}
+
+pub struct Addition<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs> Addition<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
+        Self {
+            left,
+            right,
+            data,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs> Data for Addition<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for Addition<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        Zip::from(&mut *self.data.borrow_mut())
+            .and_broadcast(&*self.left.data())
+            .and_broadcast(&*self.right.data())
+            .par_for_each(|v, l, r| *v = l + r);
+        true
+    }
+}
+
+pub struct Subtraction<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs> Subtraction<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
+        Self {
+            left,
+            right,
+            data,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs> Data for Subtraction<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for Subtraction<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        Zip::from(&mut *self.data.borrow_mut())
+            .and_broadcast(&*self.left.data())
+            .and_broadcast(&*self.right.data())
+            .par_for_each(|v, l, r| *v = l - r);
+        true
+    }
+}
+
+pub struct Multiplication<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs> Multiplication<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
+        Self {
+            left,
+            right,
+            data,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs> Data for Multiplication<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for Multiplication<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        Zip::from(&mut *self.data.borrow_mut())
+            .and_broadcast(&*self.left.data())
+            .and_broadcast(&*self.right.data())
+            .par_for_each(|v, l, r| *v = l * r);
+        true
+    }
+}
+
+pub struct Division<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs> Division<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
+        Self {
+            left,
+            right,
+            data,
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs> Data for Division<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for Division<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        Zip::from(&mut *self.data.borrow_mut())
+            .and_broadcast(&*self.left.data())
+            .and_broadcast(&*self.right.data())
+            .par_for_each(|v, l, r| *v = l / r);
+        true
+    }
+}
+
 // // ============================================ Computational Graph Internal Component: Negation  ============================================
 
 // #[derive(Debug)]
