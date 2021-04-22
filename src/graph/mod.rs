@@ -1,13 +1,18 @@
 pub mod node;
 
-use itertools::{Diff, Itertools};
+use itertools::Itertools;
 use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
 // use node::{
 //     Addition, Concatenate, Division, Exp, LeakyRelu, Logn, MatrixMatrixMul, MatrixVectorMul,
 //     Multiplication, Negation, Node, Parameter, Power, Relu, Sigmoid, Softmax, Softplus, Stack,
 //     Subtraction, Sum, Tanh, Transpose, Unsqueeze, VectorMatrixMul, VectorVectorMul,
 // };
-use node::{Backward, Data, Differentiable, Forward, Gradient};
+use node::{
+    backward::{Backward, Differentiable, Gradient},
+    broadcasted_zeros,
+    forward::{Data, Forward},
+    Addition, AdditionBackward, AdditionBackwardUnary, Input, InputBackward,
+};
 use std::{
     cell::{Ref, RefCell, RefMut},
     collections::BTreeMap,
@@ -15,10 +20,6 @@ use std::{
     ops::{Add, Deref, Div, Mul, Neg, Sub},
     rc::Rc,
 };
-
-use crate::Input;
-
-use self::node::InputDiff;
 
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
@@ -83,13 +84,22 @@ impl ParamDim for IxDyn {
     }
 }
 
-struct Param<D>
+pub struct Param<D>
 where
     D: Dimension,
 {
     id: usize,
     input: Rc<Input<D>>,
-    input_diff: Rc<InputDiff<D>>,
+    input_diff: Rc<InputBackward<D>>,
+}
+
+impl<D> Param<D>
+where
+    D: Dimension,
+{
+    fn get_id(&self) -> usize {
+        self.id
+    }
 }
 
 impl<D> Clone for Param<D>
@@ -188,7 +198,7 @@ impl<D> Var<Input<D>>
 where
     D: ParamDim,
 {
-    pub fn requires_grad(self) -> VarDiff<Input<D>> {
+    pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
         let (id, forward) = self.last;
         let backward = Rc::new(forward.differentiable());
         let forward_path = self.forward_path;
@@ -203,7 +213,7 @@ where
             },
             &mut parameters,
         );
-        debug_assert_eq!(self.forward_path.contains_key(&id), true);
+        debug_assert_eq!(forward_path.contains_key(&id), true);
         VarDiff {
             last: (id, forward, backward),
             forward_path,
@@ -213,19 +223,21 @@ where
     }
 }
 
-pub struct VarDiff<T>
+pub struct VarDiff<T, U>
 where
-    T: Data + Forward + Differentiable + 'static,
+    T: Data + Forward + 'static,
+    U: Gradient + Backward + 'static,
 {
-    last: (usize, Rc<T>, Rc<<T as Differentiable>::Output>),
+    last: (usize, Rc<T>, Rc<U>),
     forward_path: BTreeMap<usize, Rc<dyn Forward>>,
     backward_path: BTreeMap<usize, Rc<dyn Backward>>,
     parameters: Parameters,
 }
 
-impl<T> Clone for VarDiff<T>
+impl<T, U> Clone for VarDiff<T, U>
 where
-    T: Data + Forward + Differentiable + 'static,
+    T: Data + Forward + 'static,
+    U: Gradient + Backward + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -237,7 +249,7 @@ where
     }
 }
 
-impl<D> VarDiff<Input<D>>
+impl<D> VarDiff<Input<D>, InputBackward<D>>
 where
     D: ParamDim,
 {
@@ -488,38 +500,32 @@ where
 //     }
 // }
 
-// fn track_upstream(lhs_params: &Parameters, rhs_params: &Parameters) -> Parameters {
-//     Parameters {
-//         oned_params: track_ancestors(&lhs_params.oned_params[..], &rhs_params.oned_params[..]),
-//         twod_params: track_ancestors(&lhs_params.twod_params[..], &rhs_params.twod_params[..]),
-//         threed_params: track_ancestors(
-//             &lhs_params.threed_params[..],
-//             &rhs_params.threed_params[..],
-//         ),
-//         fourd_params: track_ancestors(&lhs_params.fourd_params[..], &rhs_params.fourd_params[..]),
-//         fived_params: track_ancestors(&lhs_params.fived_params[..], &rhs_params.fived_params[..]),
-//         sixd_params: track_ancestors(&lhs_params.sixd_params[..], &rhs_params.sixd_params[..]),
-//         dynd_params: track_ancestors(&lhs_params.dynd_params[..], &rhs_params.dynd_params[..]),
-//     }
-// }
+fn merge_parameters(lhs_params: Parameters, rhs_params: Parameters) -> Parameters {
+    Parameters {
+        oned_params: merge(&lhs_params.oned_params[..], &rhs_params.oned_params[..]),
+        twod_params: merge(&lhs_params.twod_params[..], &rhs_params.twod_params[..]),
+        threed_params: merge(&lhs_params.threed_params[..], &rhs_params.threed_params[..]),
+        fourd_params: merge(&lhs_params.fourd_params[..], &rhs_params.fourd_params[..]),
+        fived_params: merge(&lhs_params.fived_params[..], &rhs_params.fived_params[..]),
+        sixd_params: merge(&lhs_params.sixd_params[..], &rhs_params.sixd_params[..]),
+        dynd_params: merge(&lhs_params.dynd_params[..], &rhs_params.dynd_params[..]),
+    }
+}
 
-// fn track_ancestors<D: ParamDim>(
-//     lhs_up: &[GraphBuilder<Parameter<D>>],
-//     rhs_up: &[GraphBuilder<Parameter<D>>],
-// ) -> Vec<GraphBuilder<Parameter<D>>> {
-//     lhs_up
-//         .iter()
-//         .merge_join_by(rhs_up.iter(), |lhs_par, rhs_par| {
-//             lhs_par.as_ptr().cmp(&rhs_par.as_ptr())
-//         })
-//         .map(|choice| match choice {
-//             itertools::EitherOrBoth::Left(lhs_par) => lhs_par,
-//             itertools::EitherOrBoth::Right(rhs_par) => rhs_par,
-//             itertools::EitherOrBoth::Both(lhs_par, _) => lhs_par,
-//         })
-//         .cloned()
-//         .collect()
-// }
+fn merge<D: ParamDim>(lhs_up: &[Param<D>], rhs_up: &[Param<D>]) -> Vec<Param<D>> {
+    lhs_up
+        .iter()
+        .merge_join_by(rhs_up.iter(), |lhs_par, rhs_par| {
+            lhs_par.get_id().cmp(&rhs_par.get_id())
+        })
+        .map(|choice| match choice {
+            itertools::EitherOrBoth::Left(lhs_par) => lhs_par,
+            itertools::EitherOrBoth::Right(rhs_par) => rhs_par,
+            itertools::EitherOrBoth::Both(lhs_par, _) => lhs_par,
+        })
+        .cloned()
+        .collect()
+}
 
 // macro_rules! impl_node_arithmetic_ops {
 //     ($trait:ident, $fun:ident, $repr:ident) => {
@@ -553,3 +559,137 @@ where
 //         GraphBuilder::new(Rc::new(Negation::new(self.repr)), self.upstream)
 //     }
 // }
+
+impl<Lhs, Rhs> Add<Var<Rhs>> for Var<Lhs>
+where
+    Lhs: Data + Forward + 'static,
+    Rhs: Data + Forward + 'static,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    type Output = Var<Addition<Lhs, Rhs>>;
+
+    fn add(mut self, mut rhs: Var<Rhs>) -> Self::Output {
+        self.forward_path.append(&mut rhs.forward_path);
+
+        let (_, lhs_node) = self.last;
+        let (_, rhs_node) = rhs.last;
+
+        let (id, node) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Addition::new(lhs_node, rhs_node)),
+        );
+        self.forward_path
+            .insert(id, node.clone() as Rc<dyn Forward>);
+
+        Self::Output {
+            last: (id, node),
+            forward_path: self.forward_path,
+        }
+    }
+}
+
+impl<F1, F2, B2> Add<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data + Forward + 'static,
+    F2: Data + Forward + 'static,
+    B2: Gradient + Backward + 'static,
+    F1::Dim: Dimension + DimMax<F2::Dim>,
+    <B2 as Gradient>::Dim: DimMax<<F1 as Data>::Dim>,
+{
+    type Output = VarDiff<Addition<F1, F2>, AdditionBackwardUnary<B2, F1>>;
+
+    fn add(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
+        rhs.forward_path.append(&mut self.forward_path);
+
+        let (_, lhs_node) = self.last;
+        let (_, rhs_forward, rhs_backward) = rhs.last;
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Addition::new(lhs_node.clone(), rhs_forward)),
+            Rc::new(AdditionBackwardUnary::new(rhs_backward, lhs_node)),
+        );
+        rhs.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        Self::Output {
+            last: (id, forward, backward),
+            forward_path: rhs.forward_path,
+            backward_path: rhs.backward_path,
+            parameters: rhs.parameters,
+        }
+    }
+}
+
+impl<F1, B1, F2> Add<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data + Forward + 'static,
+    F2: Data + Forward + 'static,
+    B1: Gradient + Backward + 'static,
+    F1::Dim: Dimension + DimMax<F2::Dim>,
+    <B1 as Gradient>::Dim: DimMax<<F2 as Data>::Dim>,
+{
+    type Output = VarDiff<Addition<F1, F2>, AdditionBackwardUnary<B1, F2>>;
+
+    fn add(mut self, mut rhs: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut rhs.forward_path);
+
+        let (_, lhs_forward, lhs_backward) = self.last;
+        let (_, rhs_node) = rhs.last;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Addition::new(lhs_forward, rhs_node.clone())),
+            Rc::new(AdditionBackwardUnary::new(lhs_backward, rhs_node)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        Self::Output {
+            last: (id, forward, backward),
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, B1, F2, B2> Add<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data + Forward + 'static,
+    F2: Data + Forward + 'static,
+    B1: Gradient + Backward + 'static,
+    B2: Gradient + Backward + 'static,
+    F1::Dim: Dimension + DimMax<F2::Dim>,
+    B1::Dim: Dimension + DimMax<B2::Dim>,
+{
+    type Output = VarDiff<Addition<F1, F2>, AdditionBackward<B1, B2>>;
+
+    fn add(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut rhs.forward_path);
+        self.backward_path.append(&mut rhs.backward_path);
+
+        let (_, lhs_forward, lhs_backward) = self.last;
+        let (_, rhs_forward, rhs_backward) = rhs.last;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Addition::new(lhs_forward, rhs_forward)),
+            Rc::new(AdditionBackward::new(lhs_backward, rhs_backward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        Self::Output {
+            last: (id, forward, backward),
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, rhs.parameters),
+        }
+    }
+}

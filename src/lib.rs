@@ -1,4 +1,4 @@
-// mod graph;
+mod graph;
 // pub mod nn;
 // pub use graph::node::{Input, Parameter};
 // pub use ndarray;
