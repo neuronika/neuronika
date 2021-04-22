@@ -5,7 +5,7 @@ use super::{
 use ndarray::{
     concatenate,
     linalg::{general_mat_mul, general_mat_vec_mul},
-    stack, Axis, Dim, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
+    stack, Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
 };
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
@@ -1303,6 +1303,64 @@ where
         Zip::from(&*rhs_data)
             .and(&mut subview_right)
             .for_each(|single_el, fused_el| *fused_el = *single_el);
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Unsqueeze ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct Unsqueeze<T>
+where
+    T: Data,
+{
+    op: Rc<T>,
+    data: RefCell<Tensor<<<T as Data>::Dim as Dimension>::Larger>>,
+    axis: usize,
+    was_computed: bool,
+}
+
+impl<T> Unsqueeze<T>
+where
+    T: Data,
+{
+    pub fn new(op: Rc<T>, axis: usize) -> Self {
+        let shape = op.data().raw_dim();
+        let data = Tensor::zeros(shape.insert_axis(Axis(axis)));
+        Self {
+            op,
+            data: RefCell::new(data),
+            axis,
+            was_computed: false,
+        }
+    }
+    pub fn operand(&self) -> Rc<T> {
+        self.op.clone()
+    }
+}
+
+impl<T> Forward for Unsqueeze<T>
+where
+    T: Data,
+{
+    fn forward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+        let mut data = self.data.borrow_mut();
+        let mut unsqueezed = data
+            .axis_iter_mut(Axis(self.axis))
+            .next()
+            .unwrap()
+            .into_dimensionality::<T::Dim>()
+            .unwrap();
+        let operand_data = self.op.data();
+
+        Zip::from(&mut unsqueezed)
+            .and(&*operand_data)
+            .par_for_each(|unsqueezed_el, operand_data_el| *unsqueezed_el = *operand_data_el);
         true
     }
 }
