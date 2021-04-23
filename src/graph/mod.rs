@@ -22,7 +22,7 @@ use node::{
 use std::{
     cell::{Ref, RefMut},
     collections::BTreeMap,
-    ops::{Add, Div, Mul, Neg, Rem, Sub},
+    ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
 

@@ -3639,7 +3639,7 @@ where
         let grad = self.gradient.borrow();
         let mut rhs_grad = self.right.gradient_mut();
         let axis = self.axis;
-        let mut subview_iter = grad.axis_iter(Axis(axis));
+        let subview_iter = grad.axis_iter(Axis(axis));
         let rhs_portion = subview_iter
             .skip(1)
             .next()
