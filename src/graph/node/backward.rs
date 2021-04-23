@@ -5,8 +5,9 @@ use super::{
     DotDim,
 };
 use ndarray::{
+    concatenate,
     linalg::{general_mat_mul, general_mat_vec_mul},
-    ArrayView1, Axis, DimMax, Dimension, Ix1, Ix2, Zip,
+    stack, ArrayView1, Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
 };
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::rc::Rc;
@@ -3030,4 +3031,711 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-//
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct ConcatenateBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    axis: usize,
+    gradient: RefCell<Tensor<D>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs, D> ConcatenateBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
+        let gradient = RefCell::new(
+            concatenate(
+                Axis(axis),
+                &[left.gradient().view(), right.gradient().view()],
+            )
+            .unwrap(),
+        );
+        Self {
+            left,
+            right,
+            gradient,
+            axis,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs, D> Gradient for ConcatenateBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<Lhs, Rhs, D> Backward for ConcatenateBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let grad = self.gradient.borrow();
+        let mut lhs_grad = self.left.gradient_mut();
+        let mut rhs_grad = self.right.gradient_mut();
+        let axis = self.axis;
+
+        let (lhs_portion, rhs_portion) = grad
+            .view()
+            .split_at(Axis(axis), lhs_grad.len_of(Axis(axis)));
+
+        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
+        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
+
+        if self.left.can_overwrite() {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
+            self.left.was_overwritten();
+        } else {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
+        }
+        if self.right.can_overwrite() {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
+            self.right.was_overwritten();
+        } else {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
+        }
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct ConcatenateBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    left: Rc<T>,
+    axis: usize,
+    gradient: RefCell<Tensor<D>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<T, D> ConcatenateBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new<U>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self
+    where
+        U: Data<Dim = D>,
+    {
+        let gradient = RefCell::new(
+            concatenate(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap(),
+        );
+        Self {
+            left,
+            axis,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+    pub fn operand(&self) -> Rc<T> {
+        self.left.clone()
+    }
+}
+
+impl<T, D> Gradient for ConcatenateBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<T, D> Backward for ConcatenateBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let grad = self.gradient.borrow();
+        let mut lhs_grad = self.left.gradient_mut();
+        let axis = self.axis;
+
+        let (lhs_portion, _) = grad
+            .view()
+            .split_at(Axis(axis), lhs_grad.len_of(Axis(axis)));
+
+        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
+
+        if self.left.can_overwrite() {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
+            self.left.was_overwritten();
+        } else {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
+        }
+        true
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct ConcatenateBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    offset: usize,
+    right: Rc<T>,
+    axis: usize,
+    gradient: RefCell<Tensor<D>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<T, D> ConcatenateBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new<U>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self
+    where
+        U: Data<Dim = D>,
+    {
+        let gradient = RefCell::new(
+            concatenate(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap(),
+        );
+        Self {
+            right,
+            gradient,
+            offset: left.data().len_of(Axis(axis)),
+            axis,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+    pub fn operand(&self) -> Rc<T> {
+        self.right.clone()
+    }
+}
+
+impl<T, D> Gradient for ConcatenateBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<T, D> Backward for ConcatenateBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let grad = self.gradient.borrow();
+        let mut rhs_grad = self.right.gradient_mut();
+        let axis = self.axis;
+
+        let (_, rhs_portion) = grad.view().split_at(Axis(axis), self.offset);
+
+        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
+
+        if self.right.can_overwrite() {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
+            self.right.was_overwritten();
+        } else {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
+        }
+        true
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct StackBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    axis: usize,
+    gradient: RefCell<Tensor<D::Larger>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<Lhs, Rhs, D> StackBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
+        let gradient = RefCell::new(
+            stack(
+                Axis(axis),
+                &[left.gradient().view(), right.gradient().view()],
+            )
+            .unwrap(),
+        );
+        Self {
+            left,
+            right,
+            gradient,
+            axis,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs, D> Gradient for StackBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D::Larger;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<Lhs, Rhs, D> Backward for StackBackward<Lhs, Rhs, D>
+where
+    Lhs: Gradient<Dim = D>,
+    Rhs: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let grad = self.gradient.borrow();
+        let mut lhs_grad = self.left.gradient_mut();
+        let mut rhs_grad = self.right.gradient_mut();
+        let axis = self.axis;
+        let mut subview_iter = grad.axis_iter(Axis(axis));
+
+        let (lhs_portion, rhs_portion) = {
+            (
+                subview_iter
+                    .next()
+                    .unwrap()
+                    .into_dimensionality::<Lhs::Dim>()
+                    .unwrap(),
+                subview_iter
+                    .next()
+                    .unwrap()
+                    .into_dimensionality::<Rhs::Dim>()
+                    .unwrap(),
+            )
+        };
+
+        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
+        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
+
+        if self.left.can_overwrite() {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
+            self.left.was_overwritten();
+        } else {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
+        }
+        if self.right.can_overwrite() {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
+            self.right.was_overwritten();
+        } else {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
+        }
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct StackBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    left: Rc<T>,
+    axis: usize,
+    gradient: RefCell<Tensor<D::Larger>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<T, D> StackBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new<U>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self
+    where
+        U: Data<Dim = D>,
+    {
+        let gradient = RefCell::new(
+            stack(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap(),
+        );
+        Self {
+            left,
+            gradient,
+            axis,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+    pub fn operand(&self) -> Rc<T> {
+        self.left.clone()
+    }
+}
+
+impl<T, D> Gradient for StackBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D::Larger;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<T, D> Backward for StackBackwardLeft<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let grad = self.gradient.borrow();
+        let mut lhs_grad = self.left.gradient_mut();
+        let axis = self.axis;
+        let mut subview_iter = grad.axis_iter(Axis(axis));
+
+        let lhs_portion = subview_iter
+            .next()
+            .unwrap()
+            .into_dimensionality::<T::Dim>()
+            .unwrap();
+
+        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
+
+        if self.left.can_overwrite() {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
+            self.left.was_overwritten();
+        } else {
+            zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
+        }
+        true
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct StackBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    right: Rc<T>,
+    axis: usize,
+    gradient: RefCell<Tensor<D::Larger>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<T, D> StackBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    pub fn new<U>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self
+    where
+        U: Data<Dim = D>,
+    {
+        let gradient = RefCell::new(
+            stack(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap(),
+        );
+        Self {
+            right,
+            gradient,
+            axis,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+    pub fn operand(&self) -> Rc<T> {
+        self.right.clone()
+    }
+}
+
+impl<T, D> Gradient for StackBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    type Dim = D::Larger;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<T, D> Backward for StackBackwardRight<T, D>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let grad = self.gradient.borrow();
+        let mut rhs_grad = self.right.gradient_mut();
+        let axis = self.axis;
+        let mut subview_iter = grad.axis_iter(Axis(axis));
+
+        let rhs_portion = subview_iter
+            .skip(1)
+            .next()
+            .unwrap()
+            .into_dimensionality::<T::Dim>()
+            .unwrap();
+
+        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
+
+        if self.right.can_overwrite() {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
+            self.right.was_overwritten();
+        } else {
+            zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
+        }
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ UnsqueezeBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct UnsqueezeBackward<T>
+where
+    T: Gradient,
+{
+    operand: Rc<T>,
+    axis: usize,
+    gradient: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
+    can_overwrite: Cell<bool>,
+    was_computed: bool,
+}
+
+impl<T> UnsqueezeBackward<T>
+where
+    T: Gradient,
+{
+    pub fn new(operand: Rc<T>, axis: usize) -> Self {
+        let shape = operand.gradient().raw_dim();
+        let gradient = RefCell::new(Tensor::zeros(shape.insert_axis(Axis(axis))));
+        Self {
+            operand,
+            axis,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: false,
+        }
+    }
+}
+
+impl<T> Gradient for UnsqueezeBackward<T>
+where
+    T: Gradient,
+{
+    type Dim = <T::Dim as Dimension>::Larger;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<T> Backward for UnsqueezeBackward<T>
+where
+    T: Gradient,
+{
+    fn backward(&mut self) -> bool {
+        if self.was_computed {
+            return false;
+        }
+        self.was_computed = true;
+
+        let mut operand_grad = self.operand.gradient_mut();
+        let axis = self.axis;
+        let grad = self.gradient.borrow();
+        let unsqueezed_gradient = grad
+            .axis_iter(Axis(axis))
+            .next()
+            .unwrap()
+            .into_dimensionality::<T::Dim>()
+            .unwrap();
+        let zip = Zip::from(&mut *operand_grad).and(&unsqueezed_gradient);
+
+        if self.operand.can_overwrite() {
+            zip.par_for_each(|dest, src| *dest = *src);
+            self.operand.was_overwritten();
+        } else {
+            zip.par_for_each(|dest, src| *dest += src);
+        }
+        true
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

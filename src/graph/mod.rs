@@ -1,7 +1,7 @@
 pub mod node;
 
 use itertools::Itertools;
-use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
+use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn};
 // use node::{
 //     Addition, Concatenate, Division, Exp, LeakyRelu, Logn, MatrixMatrixMul, MatrixVectorMul,
 //     Multiplication, Negation, Node, Parameter, Power, Relu, Sigmoid, Softmax, Softplus, Stack,
@@ -9,7 +9,6 @@ use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, Rem
 // };
 use node::{
     backward::{Backward, Differentiable, Gradient},
-    broadcasted_zeros,
     forward::{Data, Forward},
     Addition, AdditionBackward, AdditionBackwardUnary, Input, InputBackward,
 };
@@ -99,6 +98,10 @@ where
 {
     fn get_id(&self) -> usize {
         self.id
+    }
+
+    fn zero_grad(&self) {
+        self.input_diff.zero_grad();
     }
 }
 
