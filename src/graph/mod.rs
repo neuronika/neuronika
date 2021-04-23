@@ -22,7 +22,7 @@ use node::{
 use std::{
     cell::{Ref, RefMut},
     collections::BTreeMap,
-    ops::{Add, Div, Mul, Neg, Sub},
+    ops::{Add, Div, Mul, Neg, Rem, Sub},
     rc::Rc,
 };
 
@@ -1991,15 +1991,16 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2, B2, D> Cat<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, B1, F2, B2> Cat<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    B1: Gradient<Dim = D> + Backward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    B2: Gradient<Dim = D> + Backward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data + Forward + 'static,
+    B1: Gradient + Backward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    B2: Gradient<Dim = B1::Dim> + Backward + 'static,
+    F1::Dim: RemoveAxis,
+    B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Concatenate<F1, F2, D>, ConcatenateBackward<B1, B2, D>>;
+    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackward<B1, B2>>;
     fn cat(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
         self.backward_path.append(&mut other.backward_path);
@@ -2028,14 +2029,15 @@ where
     }
 }
 
-impl<F1, B1, F2, D> Cat<Var<F2>> for VarDiff<F1, B1>
+impl<F1, B1, F2> Cat<Var<F2>> for VarDiff<F1, B1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    B1: Gradient<Dim = D> + Backward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data<Dim = B1::Dim> + Forward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    B1: Gradient + Backward + 'static,
+    F1::Dim: RemoveAxis,
+    B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Concatenate<F1, F2, D>, ConcatenateBackwardLeft<B1, D>>;
+    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackwardLeft<B1>>;
     fn cat(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2067,14 +2069,15 @@ where
     }
 }
 
-impl<F1, F2, B2, D> Cat<VarDiff<F2, B2>> for Var<F1>
+impl<F1, F2, B2> Cat<VarDiff<F2, B2>> for Var<F1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    B2: Gradient<Dim = D> + Backward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data<Dim = B2::Dim> + Forward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    B2: Gradient + Backward + 'static,
+    F1::Dim: RemoveAxis,
+    B2::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Concatenate<F1, F2, D>, ConcatenateBackwardRight<B2, D>>;
+    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackwardRight<B2>>;
     fn cat(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2104,13 +2107,13 @@ where
     }
 }
 
-impl<F1, F2, D> Cat<Var<F2>> for Var<F1>
+impl<F1, F2> Cat<Var<F2>> for Var<F1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data + Forward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    F1::Dim: RemoveAxis,
 {
-    type Output = Var<Concatenate<F1, F2, D>>;
+    type Output = Var<Concatenate<F1, F2>>;
     fn cat(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2134,15 +2137,16 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2, B2, D> Stacked<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, B1, F2, B2> Stacked<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    B1: Gradient<Dim = D> + Backward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    B2: Gradient<Dim = D> + Backward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data + Forward + 'static,
+    B1: Gradient + Backward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    B2: Gradient<Dim = B1::Dim> + Backward + 'static,
+    F1::Dim: RemoveAxis,
+    B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Stack<F1, F2, D>, StackBackward<B1, B2, D>>;
+    type Output = VarDiff<Stack<F1, F2>, StackBackward<B1, B2>>;
     fn stack(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
         self.backward_path.append(&mut other.backward_path);
@@ -2171,14 +2175,15 @@ where
     }
 }
 
-impl<F1, B1, F2, D> Stacked<Var<F2>> for VarDiff<F1, B1>
+impl<F1, B1, F2> Stacked<Var<F2>> for VarDiff<F1, B1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    B1: Gradient<Dim = D> + Backward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data<Dim = B1::Dim> + Forward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    B1: Gradient + Backward + 'static,
+    F1::Dim: RemoveAxis,
+    B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Stack<F1, F2, D>, StackBackwardLeft<B1, D>>;
+    type Output = VarDiff<Stack<F1, F2>, StackBackwardLeft<B1>>;
     fn stack(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2206,14 +2211,15 @@ where
     }
 }
 
-impl<F1, F2, B2, D> Stacked<VarDiff<F2, B2>> for Var<F1>
+impl<F1, F2, B2> Stacked<VarDiff<F2, B2>> for Var<F1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    B2: Gradient<Dim = D> + Backward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data + Forward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    B2: Gradient<Dim = F1::Dim> + Backward + 'static,
+    B2::Dim: RemoveAxis,
+    F1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Stack<F1, F2, D>, StackBackwardRight<B2, D>>;
+    type Output = VarDiff<Stack<F1, F2>, StackBackwardRight<B2>>;
     fn stack(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2239,13 +2245,13 @@ where
     }
 }
 
-impl<F1, F2, D> Stacked<Var<F2>> for Var<F1>
+impl<F1, F2> Stacked<Var<F2>> for Var<F1>
 where
-    F1: Data<Dim = D> + Forward + 'static,
-    F2: Data<Dim = D> + Forward + 'static,
-    D: Dimension + RemoveAxis + 'static,
+    F1: Data + Forward + 'static,
+    F2: Data<Dim = F1::Dim> + Forward + 'static,
+    F1::Dim: RemoveAxis,
 {
-    type Output = Var<Stack<F1, F2, D>>;
+    type Output = Var<Stack<F1, F2>>;
     fn stack(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
