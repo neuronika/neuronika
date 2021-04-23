@@ -4,13 +4,14 @@ use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, Rem
 use node::{
     backward::{Backward, Differentiable, Gradient},
     forward::{Data, Forward},
-    Addition, AdditionBackward, AdditionBackwardUnary, Division, DivisionBackward,
-    DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, Input, InputBackward, LeakyReLU,
-    LeakyReLUBackward, Logn, LognBackward, Multiplication, MultiplicationBackward,
-    MultiplicationBackwardUnary, Negation, NegationBackward, Power, PowerBackward, ReLU,
-    ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
-    Subtraction, SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum,
-    SumBackward, TanH, TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward,
+    Addition, AdditionBackward, AdditionBackwardUnary, Concatenate, ConcatenateBackward, Division,
+    DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, Input,
+    InputBackward, LeakyReLU, LeakyReLUBackward, Logn, LognBackward, Multiplication,
+    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Power,
+    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
+    Softmax, SoftmaxBackward, Stack, StackBackward, Subtraction, SubtractionBackward,
+    SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
+    Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward,
 };
 use std::{
     cell::{Ref, RefMut},
@@ -727,28 +728,76 @@ where
         }
     }
 
-    // !!!TODO!!!
-    //     pub fn cat(
-    //         self,
-    //         other: GraphBuilder<impl Node<Dim = T::Dim>>,
-    //         axis: usize,
-    //     ) -> GraphBuilder<impl Node<Dim = T::Dim>> {
-    //         GraphBuilder::new(
-    //             Rc::new(Concatenate::new(self.repr, other.repr, axis)),
-    //             track_upstream(&self.upstream, &other.upstream),
-    //         )
-    //     }
+    pub fn cat(
+        mut self,
+        mut other: VarDiff<
+            impl Forward + Data<Dim = T::Dim>,
+            impl Backward + Gradient<Dim = T::Dim>,
+        >,
+        axis: usize,
+    ) -> VarDiff<impl Forward + Data<Dim = T::Dim>, impl Backward + Gradient<Dim = T::Dim>> {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
 
-    //     pub fn stack(
-    //         self,
-    //         other: GraphBuilder<impl Node<Dim = T::Dim>>,
-    //         axis: usize,
-    //     ) -> GraphBuilder<impl Node<Dim = <T::Dim as Dimension>::Larger>> {
-    //         GraphBuilder::new(
-    //             Rc::new(Stack::new(self.repr, other.repr, axis)),
-    //             track_upstream(&self.upstream, &other.upstream),
-    //         )
-    //     }
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Concatenate::new(lhs_forward, rhs_forward, axis)),
+            Rc::new(ConcatenateBackward::new(lhs_backward, rhs_backward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+
+    pub fn stack(
+        mut self,
+        mut other: VarDiff<
+            impl Forward + Data<Dim = T::Dim>,
+            impl Backward + Gradient<Dim = T::Dim>,
+        >,
+        axis: usize,
+    ) -> VarDiff<
+        impl Forward + Data<Dim = <T::Dim as Dimension>::Larger>,
+        impl Backward + Gradient<Dim = <T::Dim as Dimension>::Larger>,
+    > {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Stack::new(lhs_forward, rhs_forward, axis)),
+            Rc::new(StackBackward::new(lhs_backward, rhs_backward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
