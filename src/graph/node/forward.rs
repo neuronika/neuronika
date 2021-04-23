@@ -7,7 +7,7 @@ use ndarray::{
     linalg::{general_mat_mul, general_mat_vec_mul},
     stack, Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
 };
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::rc::Rc;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -18,7 +18,7 @@ pub trait Data {
 }
 
 pub trait Forward {
-    fn forward(&mut self) -> bool;
+    fn forward(&self) -> bool;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -56,7 +56,7 @@ impl<D: Dimension> Data for Input<D> {
 }
 
 impl<D: Dimension> Forward for Input<D> {
-    fn forward(&mut self) -> bool {
+    fn forward(&self) -> bool {
         false
     }
 }
@@ -71,7 +71,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Negation<T>
@@ -83,7 +83,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -95,15 +95,26 @@ impl<T> Forward for Negation<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = -o);
         true
+    }
+}
+
+impl<T> Data for Negation<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -116,7 +127,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Transpose<T>
@@ -128,7 +139,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -140,15 +151,26 @@ impl<T> Forward for Transpose<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(self.op.data().t())
             .par_for_each(|v, o| *v = *o);
         true
+    }
+}
+
+impl<T> Data for Transpose<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -164,7 +186,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Addition<Lhs, Rhs>
@@ -179,7 +201,7 @@ where
             left,
             right,
             data,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -209,11 +231,11 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -234,7 +256,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Subtraction<Lhs, Rhs>
@@ -249,7 +271,7 @@ where
             left,
             right,
             data,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -279,11 +301,11 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -305,7 +327,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Multiplication<Lhs, Rhs>
@@ -320,7 +342,7 @@ where
             left,
             right,
             data,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -350,11 +372,11 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -376,7 +398,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Division<Lhs, Rhs>
@@ -391,7 +413,7 @@ where
             left,
             right,
             data,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -421,11 +443,11 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -446,7 +468,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix2>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> MatrixMatrixMul<Lhs, Rhs>
@@ -461,7 +483,7 @@ where
             left,
             right,
             data,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -489,11 +511,11 @@ where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix2>,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         general_mat_mul(
             1.0,
             &*self.left.data(),
@@ -517,7 +539,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> MatrixVectorMult<Lhs, Rhs>
@@ -532,7 +554,7 @@ where
             left,
             right,
             data,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -561,11 +583,11 @@ where
     Rhs: Data<Dim = Ix1>,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         general_mat_vec_mul(
             1.0,
             &*self.left.data(),
@@ -589,7 +611,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> VectorVectorMul<Lhs, Rhs>
@@ -604,7 +626,7 @@ where
             left,
             right,
             data,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -633,11 +655,11 @@ where
     Rhs: Data<Dim = Ix1>,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         self.data.borrow_mut()[0] = self.left.data().dot(&*self.right.data());
         true
     }
@@ -654,7 +676,7 @@ where
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     exp: i32,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Power<T>
@@ -667,7 +689,7 @@ where
             op,
             data: RefCell::new(data),
             exp,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -679,16 +701,27 @@ impl<T> Forward for Power<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         let exp = self.exp;
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.powi(exp));
         true
+    }
+}
+
+impl<T> Data for Power<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -702,7 +735,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<Ix1>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Sum<T>
@@ -714,7 +747,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -726,13 +759,24 @@ impl<T> Forward for Sum<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         self.data.borrow_mut()[0] = self.op.data().sum();
         true
+    }
+}
+
+impl<T> Data for Sum<T>
+where
+    T: Data,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -746,7 +790,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Logn<T>
@@ -758,7 +802,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -770,15 +814,26 @@ impl<T> Forward for Logn<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.ln());
         true
+    }
+}
+
+impl<T> Data for Logn<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -792,7 +847,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> ReLU<T>
@@ -804,7 +859,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -816,15 +871,26 @@ impl<T> Forward for ReLU<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = if *o > 0.0 { *o } else { 0.0 });
         true
+    }
+}
+
+impl<T> Data for ReLU<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -838,7 +904,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> LeakyReLU<T>
@@ -850,7 +916,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -862,15 +928,26 @@ impl<T> Forward for LeakyReLU<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = if *o > 0.0 { *o } else { 0.01 * o });
         true
+    }
+}
+
+impl<T> Data for LeakyReLU<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -884,7 +961,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> SoftPlus<T>
@@ -896,7 +973,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -908,11 +985,11 @@ impl<T> Forward for SoftPlus<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| {
@@ -928,6 +1005,17 @@ where
     }
 }
 
+impl<T> Data for SoftPlus<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Sigmoid ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -938,7 +1026,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Sigmoid<T>
@@ -950,7 +1038,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -962,11 +1050,11 @@ impl<T> Forward for Sigmoid<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| {
@@ -982,6 +1070,17 @@ where
     }
 }
 
+impl<T> Data for Sigmoid<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ TanH ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -992,7 +1091,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> TanH<T>
@@ -1004,7 +1103,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -1016,15 +1115,26 @@ impl<T> Forward for TanH<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.tanh());
         true
+    }
+}
+
+impl<T> Data for TanH<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -1038,7 +1148,7 @@ where
 {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Exp<T>
@@ -1050,7 +1160,7 @@ where
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -1062,15 +1172,26 @@ impl<T> Forward for Exp<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.exp());
         true
+    }
+}
+
+impl<T> Data for Exp<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -1085,7 +1206,7 @@ where
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     axis: usize,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Softmax<T>
@@ -1098,7 +1219,7 @@ where
             op,
             data: RefCell::new(data),
             axis,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -1110,11 +1231,11 @@ impl<T> Forward for Softmax<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         let axis = self.axis;
         Zip::from(self.data.borrow_mut().lanes_mut(Axis(axis)))
             .and(self.op.data().lanes(Axis(axis)))
@@ -1127,6 +1248,17 @@ where
                     .for_each(|lane_v_el, num_el| *lane_v_el = *num_el / den);
             });
         true
+    }
+}
+
+impl<T> Data for Softmax<T>
+where
+    T: Data,
+{
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
@@ -1144,7 +1276,7 @@ where
     right: Rc<Rhs>,
     axis: usize,
     data: RefCell<Tensor<D>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs, D> Concatenate<Lhs, Rhs, D>
@@ -1162,7 +1294,7 @@ where
             right,
             data,
             axis,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -1192,11 +1324,11 @@ where
     Rhs: Data<Dim = D>,
     D: Dimension + RemoveAxis,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
 
         let lhs_data = self.left.data();
         let rhs_data = self.right.data();
@@ -1229,7 +1361,7 @@ where
     right: Rc<Rhs>,
     axis: usize,
     data: RefCell<Tensor<D::Larger>>,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs, D> Stack<Lhs, Rhs, D>
@@ -1246,7 +1378,7 @@ where
             right,
             data,
             axis,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn left_operand(&self) -> Rc<Lhs> {
@@ -1276,11 +1408,11 @@ where
     Rhs: Data<Dim = D>,
     D: Dimension + RemoveAxis,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
 
         let lhs_data = self.left.data();
         let rhs_data = self.right.data();
@@ -1318,7 +1450,7 @@ where
     op: Rc<T>,
     data: RefCell<Tensor<<<T as Data>::Dim as Dimension>::Larger>>,
     axis: usize,
-    was_computed: bool,
+    was_computed: Cell<bool>,
 }
 
 impl<T> Unsqueeze<T>
@@ -1332,7 +1464,7 @@ where
             op,
             data: RefCell::new(data),
             axis,
-            was_computed: false,
+            was_computed: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -1344,11 +1476,11 @@ impl<T> Forward for Unsqueeze<T>
 where
     T: Data,
 {
-    fn forward(&mut self) -> bool {
-        if self.was_computed {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
             return false;
         }
-        self.was_computed = true;
+        self.was_computed.set(true);
         let mut data = self.data.borrow_mut();
         let mut unsqueezed = data
             .axis_iter_mut(Axis(self.axis))
@@ -1362,6 +1494,17 @@ where
             .and(&*operand_data)
             .par_for_each(|unsqueezed_el, operand_data_el| *unsqueezed_el = *operand_data_el);
         true
+    }
+}
+
+impl<T> Data for Unsqueeze<T>
+where
+    T: Data,
+{
+    type Dim = <T::Dim as Dimension>::Larger;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
     }
 }
 
