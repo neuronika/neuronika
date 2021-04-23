@@ -6,9 +6,9 @@ use node::{
     forward::{Data, Forward},
     Addition, AdditionBackward, AdditionBackwardUnary, Concatenate, ConcatenateBackward, Division,
     DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, Input,
-    InputBackward, LeakyReLU, LeakyReLUBackward, Logn, LognBackward, Multiplication,
+    InputBackward, LeakyRelu, LeakyReluBackward, Logn, LognBackward, Multiplication,
     MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Power,
-    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
+    PowerBackward, Relu, ReluBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
     Softmax, SoftmaxBackward, Stack, StackBackward, Subtraction, SubtractionBackward,
     SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
     Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward,
@@ -500,8 +500,8 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(ReLU::new(forward.clone())),
-            Rc::new(ReLUBackward::new(backward, forward)),
+            Rc::new(Relu::new(forward.clone())),
+            Rc::new(ReluBackward::new(backward, forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -522,8 +522,8 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(LeakyReLU::new(forward.clone())),
-            Rc::new(LeakyReLUBackward::new(backward, forward)),
+            Rc::new(LeakyRelu::new(forward.clone())),
+            Rc::new(LeakyReluBackward::new(backward, forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
