@@ -1,11 +1,11 @@
 use super::{BroadTensor, Tensor};
 use ndarray::{DimMax, Dimension, Ix1, Ix2};
 
-pub(super) mod backward;
-pub(super) mod forward;
+pub mod backward;
+pub mod forward;
 
-pub(super) use backward::*;
-pub(super) use forward::*;
+pub use backward::*;
+pub use forward::*;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Utils ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

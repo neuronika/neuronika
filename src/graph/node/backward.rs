@@ -336,7 +336,7 @@ where
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest = *src);
-            self.left.was_overwritten();
+            self.right.was_overwritten();
         } else {
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
@@ -531,7 +531,7 @@ where
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest = -src);
-            self.left.was_overwritten();
+            self.right.was_overwritten();
         } else {
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
@@ -1093,7 +1093,7 @@ where
             .and_broadcast(&*self.left_data.data())
             .and_broadcast(&*self.right_data.data())
             .par_for_each(|tmp_el, grad_el, lhs_data_el, rhs_data_el| {
-                *tmp_el = grad_el * lhs_data_el / rhs_data_el.powi(2)
+                *tmp_el = -grad_el * lhs_data_el / rhs_data_el.powi(2)
             });
 
         let to_right_grad = reduce(&*rhs_grad, &tmp);

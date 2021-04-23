@@ -7,18 +7,19 @@ use node::{
     forward::{Data, Forward},
     Addition, AdditionBackward, AdditionBackwardUnary, Concatenate, ConcatenateBackward,
     ConcatenateBackwardLeft, ConcatenateBackwardRight, Division, DivisionBackward,
-    DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, Input, InputBackward, LeakyReLU,
-    LeakyReLUBackward, Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward,
-    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixVectorMul,
-    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
-    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
-    NegationBackward, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
-    SoftPlusBackward, Softmax, SoftmaxBackward, Stack, StackBackward, StackBackwardLeft,
+    DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, LeakyReLU, LeakyReLUBackward,
+    Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
+    MatrixMatrixMulBackwardRight, MatrixVectorMul, MatrixVectorMulBackward,
+    MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight, Multiplication,
+    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Power,
+    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
+    Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
     StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
     SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
     Unsqueeze, UnsqueezeBackward, VectorVectorMul, VectorVectorMulBackward,
     VectorVectorMulBackwardUnary,
 };
+pub use node::{Input, InputBackward};
 use std::{
     cell::{Ref, RefMut},
     collections::BTreeMap,
@@ -250,7 +251,7 @@ pub trait Cat<Rhs> {
     fn cat(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
-pub trait Stacked<Rhs> {
+pub trait Stack<Rhs> {
     type Output;
     fn stack(self, other: Rhs, axis: usize) -> Self::Output;
 }
@@ -305,7 +306,7 @@ where
 {
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
         let (id, forward) = (self.id, self.forward);
-        if Rc::strong_count(&forward) > 1 {
+        if Rc::strong_count(&forward) > 2 {
             panic!("error: cannot make the Input differentiable.")
         }
         let backward = Rc::new(forward.differentiable());
@@ -346,7 +347,7 @@ where
         self.forward.data()
     }
 
-    pub fn sum(mut self) -> Var<impl Forward + Data> {
+    pub fn sum(mut self) -> Var<Sum<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -362,7 +363,7 @@ where
         }
     }
 
-    pub fn pow(mut self, exp: i32) -> Var<impl Forward + Data> {
+    pub fn pow(mut self, exp: i32) -> Var<Power<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -377,7 +378,7 @@ where
         }
     }
 
-    pub fn relu(mut self) -> Var<impl Forward + Data> {
+    pub fn relu(mut self) -> Var<ReLU<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -392,7 +393,7 @@ where
         }
     }
 
-    pub fn leaky_relu(mut self) -> Var<impl Forward + Data> {
+    pub fn leaky_relu(mut self) -> Var<LeakyReLU<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -407,7 +408,7 @@ where
         }
     }
 
-    pub fn softplus(mut self) -> Var<impl Forward + Data> {
+    pub fn softplus(mut self) -> Var<SoftPlus<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -422,7 +423,7 @@ where
         }
     }
 
-    pub fn sigmoid(mut self) -> Var<impl Forward + Data> {
+    pub fn sigmoid(mut self) -> Var<Sigmoid<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -437,7 +438,7 @@ where
         }
     }
 
-    pub fn tanh(mut self) -> Var<impl Forward + Data> {
+    pub fn tanh(mut self) -> Var<TanH<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -452,7 +453,7 @@ where
         }
     }
 
-    pub fn ln(mut self) -> Var<impl Forward + Data> {
+    pub fn ln(mut self) -> Var<Logn<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -467,7 +468,7 @@ where
         }
     }
 
-    pub fn exp(mut self) -> Var<impl Forward + Data> {
+    pub fn exp(mut self) -> Var<Exp<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -482,7 +483,7 @@ where
         }
     }
 
-    pub fn softmax(mut self, axis: usize) -> Var<impl Forward + Data> {
+    pub fn softmax(mut self, axis: usize) -> Var<Softmax<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -497,7 +498,7 @@ where
         }
     }
 
-    pub fn t(mut self) -> Var<impl Forward + Data> {
+    pub fn t(mut self) -> Var<Transpose<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -518,7 +519,7 @@ where
     T: Data<Dim = D> + Forward + 'static,
     D: Dimension + RemoveAxis,
 {
-    pub fn unsqueeze(mut self, axis: usize) -> Var<impl Forward + Data> {
+    pub fn unsqueeze(mut self, axis: usize) -> Var<Unsqueeze<T>> {
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -647,7 +648,7 @@ where
         }
     }
 
-    pub fn pow(mut self, exp: i32) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn pow(mut self, exp: i32) -> VarDiff<Power<T>, PowerBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -669,7 +670,7 @@ where
         }
     }
 
-    pub fn relu(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn relu(mut self) -> VarDiff<ReLU<T>, ReLUBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -691,7 +692,7 @@ where
         }
     }
 
-    pub fn leaky_relu(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn leaky_relu(mut self) -> VarDiff<LeakyReLU<T>, LeakyReLUBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -713,7 +714,7 @@ where
         }
     }
 
-    pub fn softplus(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn softplus(mut self) -> VarDiff<SoftPlus<T>, SoftPlusBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -735,7 +736,7 @@ where
         }
     }
 
-    pub fn sigmoid(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn sigmoid(mut self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -757,7 +758,7 @@ where
         }
     }
 
-    pub fn tanh(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn tanh(mut self) -> VarDiff<TanH<T>, TanHBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -779,7 +780,7 @@ where
         }
     }
 
-    pub fn ln(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn ln(mut self) -> VarDiff<Logn<T>, LognBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -800,7 +801,7 @@ where
             parameters: self.parameters,
         }
     }
-    pub fn exp(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn exp(mut self) -> VarDiff<Exp<T>, ExpBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -822,10 +823,7 @@ where
         }
     }
 
-    pub fn softmax(
-        mut self,
-        axis: usize,
-    ) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn softmax(mut self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, T>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -847,7 +845,7 @@ where
         }
     }
 
-    pub fn t(mut self) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn t(mut self) -> VarDiff<Transpose<T>, TransposeBackward<U>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -876,10 +874,7 @@ where
     U: Gradient<Dim = D> + Backward + 'static,
     D: Dimension + RemoveAxis,
 {
-    pub fn unsqueeze(
-        mut self,
-        axis: usize,
-    ) -> VarDiff<impl Forward + Data, impl Backward + Gradient> {
+    pub fn unsqueeze(mut self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -2137,7 +2132,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2, B2> Stacked<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, B1, F2, B2> Stack<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + Forward + 'static,
     B1: Gradient + Backward + 'static,
@@ -2146,7 +2141,7 @@ where
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Stack<F1, F2>, StackBackward<B1, B2>>;
+    type Output = VarDiff<StackF<F1, F2>, StackBackward<B1, B2>>;
     fn stack(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
         self.backward_path.append(&mut other.backward_path);
@@ -2156,7 +2151,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Stack::new(lhs_forward, rhs_forward, axis)),
+            Rc::new(StackF::new(lhs_forward, rhs_forward, axis)),
             Rc::new(StackBackward::new(lhs_backward, rhs_backward, axis)),
         );
         self.forward_path
@@ -2175,7 +2170,7 @@ where
     }
 }
 
-impl<F1, B1, F2> Stacked<Var<F2>> for VarDiff<F1, B1>
+impl<F1, B1, F2> Stack<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = B1::Dim> + Forward + 'static,
     F2: Data<Dim = F1::Dim> + Forward + 'static,
@@ -2183,7 +2178,7 @@ where
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Stack<F1, F2>, StackBackwardLeft<B1>>;
+    type Output = VarDiff<StackF<F1, F2>, StackBackwardLeft<B1>>;
     fn stack(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2192,7 +2187,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Stack::new(lhs_forward, rhs_forward.clone(), axis)),
+            Rc::new(StackF::new(lhs_forward, rhs_forward.clone(), axis)),
             Rc::new(StackBackwardLeft::new(lhs_backward, rhs_forward, axis)),
         );
         self.forward_path
@@ -2211,7 +2206,7 @@ where
     }
 }
 
-impl<F1, F2, B2> Stacked<VarDiff<F2, B2>> for Var<F1>
+impl<F1, F2, B2> Stack<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data + Forward + 'static,
     F2: Data<Dim = F1::Dim> + Forward + 'static,
@@ -2219,7 +2214,7 @@ where
     B2::Dim: RemoveAxis,
     F1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Stack<F1, F2>, StackBackwardRight<B2>>;
+    type Output = VarDiff<StackF<F1, F2>, StackBackwardRight<B2>>;
     fn stack(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2228,7 +2223,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Stack::new(lhs_forward.clone(), rhs_forward, axis)),
+            Rc::new(StackF::new(lhs_forward.clone(), rhs_forward, axis)),
             Rc::new(StackBackwardRight::new(lhs_forward, rhs_backward, axis)),
         );
         self.forward_path
@@ -2245,13 +2240,13 @@ where
     }
 }
 
-impl<F1, F2> Stacked<Var<F2>> for Var<F1>
+impl<F1, F2> Stack<Var<F2>> for Var<F1>
 where
     F1: Data + Forward + 'static,
     F2: Data<Dim = F1::Dim> + Forward + 'static,
     F1::Dim: RemoveAxis,
 {
-    type Output = Var<Stack<F1, F2>>;
+    type Output = Var<StackF<F1, F2>>;
     fn stack(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
         self.forward_path.append(&mut other.forward_path);
 
@@ -2260,7 +2255,7 @@ where
 
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Stack::new(lhs_forward, rhs_forward, axis)),
+            Rc::new(StackF::new(lhs_forward, rhs_forward, axis)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);

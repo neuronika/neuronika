@@ -1190,7 +1190,14 @@ where
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
         let data = RefCell::new(
-            concatenate(Axis(axis), &[left.data().view(), right.data().view()]).unwrap(),
+            concatenate(
+                Axis(axis),
+                &[
+                    Tensor::zeros(left.data().raw_dim()).view(),
+                    Tensor::zeros(right.data().raw_dim()).view(),
+                ],
+            )
+            .unwrap(),
         );
 
         Self {
@@ -1276,7 +1283,14 @@ where
     Lhs::Dim: RemoveAxis,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
-        let data = stack(Axis(axis), &[left.data().view(), right.data().view()]).unwrap();
+        let data = stack(
+            Axis(axis),
+            &[
+                Tensor::zeros(left.data().raw_dim()).view(),
+                Tensor::zeros(right.data().raw_dim()).view(),
+            ],
+        )
+        .unwrap();
 
         Self {
             left,
