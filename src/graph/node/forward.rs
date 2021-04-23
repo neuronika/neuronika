@@ -529,9 +529,9 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMult ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct MatrixVectorMult<Lhs, Rhs>
+pub struct MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -542,7 +542,7 @@ where
     was_computed: Cell<bool>,
 }
 
-impl<Lhs, Rhs> MatrixVectorMult<Lhs, Rhs>
+impl<Lhs, Rhs> MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -565,7 +565,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for MatrixVectorMult<Lhs, Rhs>
+impl<Lhs, Rhs> Data for MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -577,7 +577,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Forward for MatrixVectorMult<Lhs, Rhs>
+impl<Lhs, Rhs> Forward for MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,

@@ -1,17 +1,23 @@
+// TODO: implementare vm_mul per Var e per VarDiff.
 pub mod node;
 use itertools::Itertools;
 use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
 use node::{
     backward::{Backward, Differentiable, Gradient},
     forward::{Data, Forward},
-    Addition, AdditionBackward, AdditionBackwardUnary, Concatenate, ConcatenateBackward, Division,
-    DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, Input,
-    InputBackward, LeakyReLU, LeakyReLUBackward, Logn, LognBackward, Multiplication,
-    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Power,
-    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
-    Softmax, SoftmaxBackward, Stack, StackBackward, Subtraction, SubtractionBackward,
-    SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
-    Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward,
+    Addition, AdditionBackward, AdditionBackwardUnary, Concatenate, ConcatenateBackward,
+    ConcatenateBackwardLeft, ConcatenateBackwardRight, Division, DivisionBackward,
+    DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, Input, InputBackward, LeakyReLU,
+    LeakyReLUBackward, Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward,
+    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixVectorMul,
+    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
+    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
+    NegationBackward, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
+    SoftPlusBackward, Softmax, SoftmaxBackward, Stack, StackBackward, StackBackwardLeft,
+    StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
+    SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
+    Unsqueeze, UnsqueezeBackward, VectorVectorMul, VectorVectorMulBackward,
+    VectorVectorMulBackwardUnary,
 };
 use std::{
     cell::{Ref, RefMut},
@@ -26,7 +32,6 @@ use std::{
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type Tensor<D> = Array<f32, D>;
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Global Var Identifier ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -53,43 +58,43 @@ pub trait ParamDim: Dimension + 'static {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ParamDim Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl ParamDim for Ix1 {
     fn insert(item: Param<Self>, dest: &mut Parameters) {
-        dest.oned_params.push(item);
+        dest.oned.push(item);
     }
 }
 
 impl ParamDim for Ix2 {
     fn insert(item: Param<Self>, dest: &mut Parameters) {
-        dest.twod_params.push(item);
+        dest.twod.push(item);
     }
 }
 
 impl ParamDim for Ix3 {
     fn insert(item: Param<Self>, dest: &mut Parameters) {
-        dest.threed_params.push(item);
+        dest.threed.push(item);
     }
 }
 
 impl ParamDim for Ix4 {
     fn insert(item: Param<Self>, dest: &mut Parameters) {
-        dest.fourd_params.push(item);
+        dest.fourd.push(item);
     }
 }
 
 impl ParamDim for Ix5 {
     fn insert(item: Param<Self>, dest: &mut Parameters) {
-        dest.fived_params.push(item);
+        dest.fived.push(item);
     }
 }
 
 impl ParamDim for Ix6 {
     fn insert(item: Param<Self>, dest: &mut Parameters) {
-        dest.sixd_params.push(item);
+        dest.sixd.push(item);
     }
 }
 
 impl ParamDim for IxDyn {
     fn insert(item: Param<Self>, dest: &mut Parameters) {
-        dest.dynd_params.push(item);
+        dest.dynd.push(item);
     }
 }
 
@@ -138,56 +143,57 @@ where
 /// Contains the learnable ancestors of the node.
 pub struct Parameters {
     // Contains the one dimensional learnable ancestors
-    oned_params: Vec<Param<Ix1>>,
+    oned: Vec<Param<Ix1>>,
     // Contains the two dimensional learnable ancestors
-    twod_params: Vec<Param<Ix2>>,
+    twod: Vec<Param<Ix2>>,
     // Contains the three dimensional learnable ancestors
-    threed_params: Vec<Param<Ix3>>,
+    threed: Vec<Param<Ix3>>,
     // Contains the four dimensional learnable ancestors
-    fourd_params: Vec<Param<Ix4>>,
+    fourd: Vec<Param<Ix4>>,
     // Contains the five dimensional learnable ancestors
-    fived_params: Vec<Param<Ix5>>,
+    fived: Vec<Param<Ix5>>,
     // Contains the six dimensional learnable ancestors
-    sixd_params: Vec<Param<Ix6>>,
+    sixd: Vec<Param<Ix6>>,
     // Contains the dynamic dimensional learnable ancestors
-    dynd_params: Vec<Param<IxDyn>>,
+    dynd: Vec<Param<IxDyn>>,
 }
 
 impl Parameters {
     fn new() -> Parameters {
         Parameters {
-            oned_params: Vec::new(),
-            twod_params: Vec::new(),
-            threed_params: Vec::new(),
-            fourd_params: Vec::new(),
-            fived_params: Vec::new(),
-            sixd_params: Vec::new(),
-            dynd_params: Vec::new(),
+            oned: Vec::new(),
+            twod: Vec::new(),
+            threed: Vec::new(),
+            fourd: Vec::new(),
+            fived: Vec::new(),
+            sixd: Vec::new(),
+            dynd: Vec::new(),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.oned_params.len()
-            + self.twod_params.len()
-            + self.threed_params.len()
-            + self.fourd_params.len()
-            + self.fived_params.len()
-            + self.sixd_params.len()
-            + self.dynd_params.len()
+        self.oned.len()
+            + self.twod.len()
+            + self.threed.len()
+            + self.fourd.len()
+            + self.fived.len()
+            + self.sixd.len()
+            + self.dynd.len()
     }
 }
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~ Functions to keep track of differentiable history ~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 fn merge_parameters(lhs_params: Parameters, rhs_params: Parameters) -> Parameters {
     Parameters {
-        oned_params: merge(&lhs_params.oned_params[..], &rhs_params.oned_params[..]),
-        twod_params: merge(&lhs_params.twod_params[..], &rhs_params.twod_params[..]),
-        threed_params: merge(&lhs_params.threed_params[..], &rhs_params.threed_params[..]),
-        fourd_params: merge(&lhs_params.fourd_params[..], &rhs_params.fourd_params[..]),
-        fived_params: merge(&lhs_params.fived_params[..], &rhs_params.fived_params[..]),
-        sixd_params: merge(&lhs_params.sixd_params[..], &rhs_params.sixd_params[..]),
-        dynd_params: merge(&lhs_params.dynd_params[..], &rhs_params.dynd_params[..]),
+        oned: merge(&lhs_params.oned[..], &rhs_params.oned[..]),
+        twod: merge(&lhs_params.twod[..], &rhs_params.twod[..]),
+        threed: merge(&lhs_params.threed[..], &rhs_params.threed[..]),
+        fourd: merge(&lhs_params.fourd[..], &rhs_params.fourd[..]),
+        fived: merge(&lhs_params.fived[..], &rhs_params.fived[..]),
+        sixd: merge(&lhs_params.sixd[..], &rhs_params.sixd[..]),
+        dynd: merge(&lhs_params.dynd[..], &rhs_params.dynd[..]),
     }
 }
 
@@ -204,6 +210,49 @@ fn merge<D: ParamDim>(lhs_up: &[Param<D>], rhs_up: &[Param<D>]) -> Vec<Param<D>>
         })
         .cloned()
         .collect()
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Algebraic Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub trait MatMatMul<Rhs> {
+    type Output;
+    fn mm_mul(self, other: Rhs) -> Self::Output;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub trait MatVecMul<Rhs> {
+    type Output;
+    fn mv_mul(self, other: Rhs) -> Self::Output;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub trait VecMatMul<Rhs> {
+    type Output;
+    fn vm_mul(self, other: Rhs) -> Self::Output;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub trait VecVecMul<Rhs> {
+    type Output;
+    fn vv_mul(self, other: Rhs) -> Self::Output;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concat and Stack traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub trait Cat<Rhs> {
+    type Output;
+    fn cat(self, other: Rhs, axis: usize) -> Self::Output;
+}
+
+pub trait Stacked<Rhs> {
+    type Output;
+    fn stack(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -296,6 +345,193 @@ where
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.forward.data()
     }
+
+    pub fn sum(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Sum::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn pow(mut self, exp: i32) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Power::new(forward.clone(), exp)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn relu(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(ReLU::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn leaky_relu(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(LeakyReLU::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn softplus(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(SoftPlus::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn sigmoid(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Sigmoid::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn tanh(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(TanH::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn ln(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Logn::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn exp(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Exp::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn softmax(mut self, axis: usize) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Softmax::new(forward.clone(), axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
+    pub fn t(mut self) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Transpose::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+}
+
+impl<T, D> Var<T>
+where
+    T: Data<Dim = D> + Forward + 'static,
+    D: Dimension + RemoveAxis,
+{
+    pub fn unsqueeze(mut self, axis: usize) -> Var<impl Forward + Data> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Unsqueeze::new(forward.clone(), axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Differentiable Variable ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -342,69 +578,6 @@ where
     }
 }
 
-// !!!TODO!!!
-// impl<T> GraphBuilder<T>
-// where
-//     T: Node<Dim = Ix1>,
-// {
-//     pub fn vv_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
-//     where
-//         U: Node<Dim = Ix1>,
-//     {
-//         GraphBuilder::new(
-//             Rc::new(VectorVectorMul::new(
-//                 Rc::clone(&self.repr),
-//                 Rc::clone(&other.repr),
-//             )),
-//             track_upstream(&self.upstream, &other.upstream),
-//         )
-//     }
-
-//     pub fn vm_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
-//     where
-//         U: Node<Dim = Ix2>,
-//     {
-//         GraphBuilder::new(
-//             Rc::new(VectorMatrixMul::new(
-//                 Rc::clone(&self.repr),
-//                 Rc::clone(&other.repr),
-//             )),
-//             track_upstream(&self.upstream, &other.upstream),
-//         )
-//     }
-// }
-
-// impl<T> GraphBuilder<T>
-// where
-//     T: Node<Dim = Ix2>,
-// {
-//     pub fn mm_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix2>>
-//     where
-//         U: Node<Dim = Ix2>,
-//     {
-//         GraphBuilder::new(
-//             Rc::new(MatrixMatrixMul::new(
-//                 Rc::clone(&self.repr),
-//                 Rc::clone(&other.repr),
-//             )),
-//             track_upstream(&self.upstream, &other.upstream),
-//         )
-//     }
-
-//     pub fn mv_mul<U>(&self, other: &GraphBuilder<U>) -> GraphBuilder<impl Node<Dim = Ix1>>
-//     where
-//         U: Node<Dim = Ix1>,
-//     {
-//         GraphBuilder::new(
-//             Rc::new(MatrixVectorMul::new(
-//                 Rc::clone(&self.repr),
-//                 Rc::clone(&other.repr),
-//             )),
-//             track_upstream(&self.upstream, &other.upstream),
-//         )
-//     }
-// }
-
 impl<T, U, D> VarDiff<T, U>
 where
     T: Data<Dim = D> + Forward + 'static,
@@ -426,25 +599,25 @@ where
         self.forward.data()
     }
     pub fn zero_gradient(&mut self) {
-        for param in &mut self.parameters.oned_params[..] {
+        for param in &mut self.parameters.oned[..] {
             param.zero_grad();
         }
-        for param in &mut self.parameters.twod_params[..] {
+        for param in &mut self.parameters.twod[..] {
             param.zero_grad();
         }
-        for param in &mut self.parameters.threed_params[..] {
+        for param in &mut self.parameters.threed[..] {
             param.zero_grad();
         }
-        for param in &mut self.parameters.fourd_params[..] {
+        for param in &mut self.parameters.fourd[..] {
             param.zero_grad();
         }
-        for param in &mut self.parameters.fived_params[..] {
+        for param in &mut self.parameters.fived[..] {
             param.zero_grad();
         }
-        for param in &mut self.parameters.sixd_params[..] {
+        for param in &mut self.parameters.sixd[..] {
             param.zero_grad();
         }
-        for param in &mut self.parameters.dynd_params[..] {
+        for param in &mut self.parameters.dynd[..] {
             param.zero_grad();
         }
     }
@@ -725,77 +898,6 @@ where
             forward_path: self.forward_path,
             backward_path: self.backward_path,
             parameters: self.parameters,
-        }
-    }
-
-    pub fn cat(
-        mut self,
-        mut other: VarDiff<
-            impl Forward + Data<Dim = T::Dim>,
-            impl Backward + Gradient<Dim = T::Dim>,
-        >,
-        axis: usize,
-    ) -> VarDiff<impl Forward + Data<Dim = T::Dim>, impl Backward + Gradient<Dim = T::Dim>> {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Concatenate::new(lhs_forward, rhs_forward, axis)),
-            Rc::new(ConcatenateBackward::new(lhs_backward, rhs_backward, axis)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            parameters: merge_parameters(self.parameters, other.parameters),
-        }
-    }
-
-    pub fn stack(
-        mut self,
-        mut other: VarDiff<
-            impl Forward + Data<Dim = T::Dim>,
-            impl Backward + Gradient<Dim = T::Dim>,
-        >,
-        axis: usize,
-    ) -> VarDiff<
-        impl Forward + Data<Dim = <T::Dim as Dimension>::Larger>,
-        impl Backward + Gradient<Dim = <T::Dim as Dimension>::Larger>,
-    > {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Stack::new(lhs_forward, rhs_forward, axis)),
-            Rc::new(StackBackward::new(lhs_backward, rhs_backward, axis)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            parameters: merge_parameters(self.parameters, other.parameters),
         }
     }
 }
@@ -1421,6 +1523,746 @@ where
             forward_path: self.forward_path,
             backward_path: self.backward_path,
             parameters: merge_parameters(self.parameters, rhs.parameters),
+        }
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Algebraic Operations Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, B1, F2, B2> MatMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    B1: Gradient<Dim = Ix2> + Backward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+    B2: Gradient<Dim = Ix2> + Backward + 'static,
+{
+    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackward<F1, B1, F2, B2>>;
+
+    fn mm_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(MatrixMatrixMulBackward::new(
+                lhs_forward,
+                lhs_backward,
+                rhs_forward,
+                rhs_backward,
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+}
+
+impl<F1, B1, F2> MatMatMul<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    B1: Gradient<Dim = Ix2> + Backward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+{
+    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardLeft<B1, F2>>;
+
+    fn mm_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let rhs_forward = other.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(MatrixMatrixMulBackwardLeft::new(lhs_backward, rhs_forward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, F2, B2> MatMatMul<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+    B2: Gradient<Dim = Ix2> + Backward + 'static,
+{
+    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardRight<F1, B2>>;
+
+    fn mm_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+        let lhs_forward = self.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(MatrixMatrixMulBackwardRight::new(lhs_forward, rhs_backward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: other.backward_path,
+            parameters: other.parameters,
+        }
+    }
+}
+
+impl<F1, F2> MatMatMul<Var<F2>> for Var<F1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+{
+    type Output = Var<MatrixMatrixMul<F1, F2>>;
+
+    fn mm_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let rhs_forward = other.forward;
+        let lhs_forward = self.forward;
+
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, B1, F2, B2> MatVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    B1: Gradient<Dim = Ix2> + Backward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+    B2: Gradient<Dim = Ix1> + Backward + 'static,
+{
+    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackward<F1, B1, F2, B2>>;
+
+    fn mv_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(MatrixVectorMulBackward::new(
+                lhs_forward,
+                lhs_backward,
+                rhs_forward,
+                rhs_backward,
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+}
+
+impl<F1, B1, F2> MatVecMul<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    B1: Gradient<Dim = Ix2> + Backward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+{
+    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardLeft<B1, F2>>;
+    fn mv_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let rhs_forward = other.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(MatrixVectorMulBackwardLeft::new(lhs_backward, rhs_forward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, F2, B2> MatVecMul<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+    B2: Gradient<Dim = Ix1> + Backward + 'static,
+{
+    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardRight<F1, B2>>;
+
+    fn mv_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+        let lhs_forward = self.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(MatrixVectorMulBackwardRight::new(lhs_forward, rhs_backward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: other.backward_path,
+            parameters: other.parameters,
+        }
+    }
+}
+
+impl<F1, F2> MatVecMul<Var<F2>> for Var<F1>
+where
+    F1: Data<Dim = Ix2> + Forward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+{
+    type Output = Var<MatrixVectorMul<F1, F2>>;
+
+    fn mv_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let rhs_forward = other.forward;
+        let lhs_forward = self.forward;
+
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, B1, F2, B2> VecVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    B1: Gradient<Dim = Ix1> + Backward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+    B2: Gradient<Dim = Ix1> + Backward + 'static,
+{
+    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackward<F1, B1, F2, B2>>;
+    fn vv_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(VectorVectorMulBackward::new(
+                lhs_forward,
+                lhs_backward,
+                rhs_forward,
+                rhs_backward,
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+}
+
+impl<F1, B1, F2> VecVecMul<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    B1: Gradient<Dim = Ix1> + Backward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+{
+    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B1, F2>>;
+    fn vv_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let rhs_forward = other.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(VectorVectorMulBackwardUnary::new(lhs_backward, rhs_forward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, F2, B2> VecVecMul<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+    B2: Gradient<Dim = Ix1> + Backward + 'static,
+{
+    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B2, F1>>;
+
+    fn vv_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+        let lhs_forward = self.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(VectorVectorMulBackwardUnary::new(rhs_backward, lhs_forward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: other.backward_path,
+            parameters: other.parameters,
+        }
+    }
+}
+
+impl<F1, F2> VecVecMul<Var<F2>> for Var<F1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    F2: Data<Dim = Ix1> + Forward + 'static,
+{
+    type Output = Var<VectorVectorMul<F1, F2>>;
+
+    fn vv_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let rhs_forward = other.forward;
+        let lhs_forward = self.forward;
+
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorVectorMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Cat and Stack traits implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, B1, F2, B2, D> Cat<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    B1: Gradient<Dim = D> + Backward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    B2: Gradient<Dim = D> + Backward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = VarDiff<Concatenate<F1, F2, D>, ConcatenateBackward<B1, B2, D>>;
+    fn cat(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Concatenate::new(lhs_forward, rhs_forward, axis)),
+            Rc::new(ConcatenateBackward::new(lhs_backward, rhs_backward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+}
+
+impl<F1, B1, F2, D> Cat<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    B1: Gradient<Dim = D> + Backward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = VarDiff<Concatenate<F1, F2, D>, ConcatenateBackwardLeft<B1, D>>;
+    fn cat(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let rhs_forward = other.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Concatenate::new(lhs_forward, rhs_forward.clone(), axis)),
+            Rc::new(ConcatenateBackwardLeft::new(
+                lhs_backward,
+                rhs_forward,
+                axis,
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, F2, B2, D> Cat<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    B2: Gradient<Dim = D> + Backward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = VarDiff<Concatenate<F1, F2, D>, ConcatenateBackwardRight<B2, D>>;
+    fn cat(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+        let lhs_forward = self.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Concatenate::new(lhs_forward.clone(), rhs_forward, axis)),
+            Rc::new(ConcatenateBackwardRight::new(
+                lhs_forward,
+                rhs_backward,
+                axis,
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: other.backward_path,
+            parameters: other.parameters,
+        }
+    }
+}
+
+impl<F1, F2, D> Cat<Var<F2>> for Var<F1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = Var<Concatenate<F1, F2, D>>;
+    fn cat(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let lhs_forward = self.forward;
+        let rhs_forward = other.forward;
+
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Concatenate::new(lhs_forward, rhs_forward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, B1, F2, B2, D> Stacked<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    B1: Gradient<Dim = D> + Backward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    B2: Gradient<Dim = D> + Backward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = VarDiff<Stack<F1, F2, D>, StackBackward<B1, B2, D>>;
+    fn stack(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Stack::new(lhs_forward, rhs_forward, axis)),
+            Rc::new(StackBackward::new(lhs_backward, rhs_backward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+}
+
+impl<F1, B1, F2, D> Stacked<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    B1: Gradient<Dim = D> + Backward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = VarDiff<Stack<F1, F2, D>, StackBackwardLeft<B1, D>>;
+    fn stack(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let rhs_forward = other.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Stack::new(lhs_forward, rhs_forward.clone(), axis)),
+            Rc::new(StackBackwardLeft::new(lhs_backward, rhs_forward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, F2, B2, D> Stacked<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    B2: Gradient<Dim = D> + Backward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = VarDiff<Stack<F1, F2, D>, StackBackwardRight<B2, D>>;
+    fn stack(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+        let lhs_forward = self.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Stack::new(lhs_forward.clone(), rhs_forward, axis)),
+            Rc::new(StackBackwardRight::new(lhs_forward, rhs_backward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: other.backward_path,
+            parameters: other.parameters,
+        }
+    }
+}
+
+impl<F1, F2, D> Stacked<Var<F2>> for Var<F1>
+where
+    F1: Data<Dim = D> + Forward + 'static,
+    F2: Data<Dim = D> + Forward + 'static,
+    D: Dimension + RemoveAxis + 'static,
+{
+    type Output = Var<Stack<F1, F2, D>>;
+    fn stack(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let lhs_forward = self.forward;
+        let rhs_forward = other.forward;
+
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Stack::new(lhs_forward, rhs_forward, axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
         }
     }
 }
