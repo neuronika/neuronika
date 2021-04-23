@@ -183,6 +183,6 @@ impl Linear {
         W: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
         W::Output: Add<VarDiff<Input<Ix1>, InputBackward<Ix1>>>,
     {
-        input.mm_mul(self.weight.t()) + self.bias.clone()
+        input.mm_mul(self.weight.t()) + self.bias
     }
 }
