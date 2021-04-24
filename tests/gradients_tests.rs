@@ -756,7 +756,7 @@ fn stack() {
 fn concatenate() {
     use neuronika::Cat;
     let x = neuronika::full!(2, 1., true);
-    let y = neuronika::full!(2, 1., true);
+    let y = neuronika::full!(2, 1., false);
 
     let res = x.clone().cat(y.clone(), 0);
     assert_eq!(*res.data(), ndarray::array![0., 0., 0., 0.]);

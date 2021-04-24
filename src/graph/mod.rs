@@ -36,7 +36,7 @@ pub(crate) type Tensor<D> = Array<f32, D>;
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Global Var Identifier ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-struct OperationsCounter {
+pub(crate) struct OperationsCounter {
     count: usize,
 }
 
@@ -47,7 +47,7 @@ impl OperationsCounter {
     }
 }
 
-static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter { count: 0 };
+pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter { count: 0 };
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ParamDim Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -265,9 +265,9 @@ pub struct Var<T>
 where
     T: Data + Forward + 'static,
 {
-    id: usize,
-    forward: Rc<T>,
-    forward_path: BTreeMap<usize, Rc<dyn Forward>>,
+    pub(crate) id: usize,
+    pub(crate) forward: Rc<T>,
+    pub(crate) forward_path: BTreeMap<usize, Rc<dyn Forward>>,
 }
 
 impl<T> Var<T>
@@ -541,12 +541,12 @@ where
     T: Data + Forward + 'static,
     U: Gradient + Backward + 'static,
 {
-    id: usize,
-    forward: Rc<T>,
-    backward: Rc<U>,
-    forward_path: BTreeMap<usize, Rc<dyn Forward>>,
-    backward_path: BTreeMap<usize, Rc<dyn Backward>>,
-    parameters: Parameters,
+    pub(crate) id: usize,
+    pub(crate) forward: Rc<T>,
+    pub(crate) backward: Rc<U>,
+    pub(crate) forward_path: BTreeMap<usize, Rc<dyn Forward>>,
+    pub(crate) backward_path: BTreeMap<usize, Rc<dyn Backward>>,
+    pub(crate) parameters: Parameters,
 }
 
 impl<T, U> Clone for VarDiff<T, U>
