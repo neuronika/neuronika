@@ -1,10 +1,14 @@
 use super::{Input, InputBackward};
 use crate::graph::{
+    self,
     node::{Backward, Data, Forward, Gradient, Transpose, TransposeBackward},
-    MatMatMul, Tensor, VarDiff,
+    MatMatMul, Tensor, Var, VarDiff,
 };
 use ndarray::{Ix1, Ix2};
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub mod init {
     use super::super::{graph::ParamDim, graph::VarDiff, Input, InputBackward};
     use ndarray::{Axis, Ix2};
@@ -137,6 +141,8 @@ pub mod init {
             .map_inplace(|el| *el = norm_distr.sample(&mut t_rng));
     }
 }
+
+pub mod loss;
 
 /// Applies a linear transformation to the incoming data.
 ///
