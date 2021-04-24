@@ -1,8 +1,6 @@
-use std::ops::Add;
-
 use super::{Input, InputBackward};
 use crate::graph::{
-    node::{Transpose, TransposeBackward},
+    node::{Backward, Data, Forward, Gradient, Transpose, TransposeBackward},
     MatMatMul, Tensor, VarDiff,
 };
 use ndarray::{Ix1, Ix2};
@@ -140,11 +138,6 @@ pub mod init {
     }
 }
 
-type LinearEmbeddingNoBias<T> =
-    <T as MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>>::Output;
-type LinearEmbedding<T> =
-    <LinearEmbeddingNoBias<T> as Add<VarDiff<Input<Ix1>, InputBackward<Ix1>>>>::Output;
-
 /// Applies a linear transformation to the incoming data.
 ///
 /// **y = xA^T + b**
@@ -178,11 +171,16 @@ impl Linear {
     /// Applies the linear transformation **y = xA^T + b** to the incoming data.
     ///
     /// `data` - `(N, in_features)`, the output will be `(N, out_features)`.
-    pub fn forward<W>(self, input: W) -> LinearEmbedding<W>
+    pub fn forward<W, T, U>(
+        self,
+        input: W,
+    ) -> VarDiff<impl Data + Forward, impl Backward + Gradient>
     where
         W: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
-        W::Output: Add<VarDiff<Input<Ix1>, InputBackward<Ix1>>>,
+        W::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix2> + Forward,
+        U: Gradient<Dim = Ix2> + Backward,
     {
-        input.mm_mul(self.weight.t()) + self.bias
+        input.mm_mul(self.weight.t()).into() + self.bias
     }
 }
