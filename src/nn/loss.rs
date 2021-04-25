@@ -908,9 +908,9 @@ where
 /// Lᴏss = ―   ∑ ʏᵢ * ln(σ(xᵢ)) + (1 - ʏᵢ) * ln(1 - σ(xᵢ))
 ///        n  i=1
 /// ```
-/// This loss combines a Sigmoid layer and the BCELoss in one single class.
-/// This version is more numerically stable than using a plain Sigmoid followed by a
-/// BCELoss as, by combining the operations into one layer, we take
+/// This loss combines a sigmoid and a **binary cross entropy**.
+/// This version is more numerically stable than using a plain sigmoid followed by a
+/// binary cross entropy as, by combining the operations into one layer, we take
 /// advantage of the **log-sum-exp** trick for numerical stability.
 /// Note that the target **y** should be numbers between 0 and 1 and the
 /// input **x** should be raw unnormalized scores.
