@@ -300,8 +300,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct Multiplication<Lhs, Rhs>
@@ -523,8 +521,6 @@ where
         true
     }
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -1474,5 +1470,603 @@ impl<T: Data + Forward> Data for Unsqueeze<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ndarray::StrideShape;
+
+    use super::*;
+
+    const F16_EPSILON: f32 = 4.88e-04;
+
+    fn is_precise_enough<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) -> bool {
+        (our - their)
+            .iter()
+            .all(|&val| val <= F16_EPSILON || val.is_nan())
+    }
+
+    fn make_me_an_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<Input<D>>
+    where
+        D: Dimension + 'static,
+        Sh: Into<StrideShape<D>>,
+    {
+        Input::new(Tensor::from_shape_vec(shape, elems).unwrap()).forward
+    }
+
+    mod negation {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let negation = Negation::new(input.clone());
+            assert_eq!(*negation.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&negation.operand(), &input));
+
+            negation.forward();
+            assert!(is_precise_enough(
+                &*negation.data(),
+                &Tensor::from_shape_vec((3, 3), vec![-1., -2., -3., -4., -5., -6., -7., -8., -9.])
+                    .unwrap()
+            ));
+        }
+
+        #[test]
+        fn chained() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let first = Rc::new(Negation::new(input.clone()));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.operand(), &input));
+
+            let second = Negation::new(first.clone());
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            first.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![-1., -2., -3., -4., -5., -6., -7., -8., -9.])
+                    .unwrap()
+            );
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            second.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![-1., -2., -3., -4., -5., -6., -7., -8., -9.])
+                    .unwrap()
+            );
+            assert_eq!(
+                &*second.data(),
+                &Tensor::from_shape_vec((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]).unwrap()
+            );
+        }
+    }
+
+    mod transpose {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let transpose = Transpose::new(input.clone());
+            assert_eq!(*transpose.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&transpose.operand(), &input));
+
+            transpose.forward();
+            assert!(is_precise_enough(
+                &*transpose.data(),
+                &Tensor::from_shape_vec((3, 3), vec![1., 4., 7., 2., 5., 8., 3., 6., 9.]).unwrap()
+            ));
+        }
+
+        #[test]
+        fn chained() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let first = Rc::new(Transpose::new(input.clone()));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.operand(), &input));
+
+            let second = Transpose::new(first.clone());
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            first.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![1., 4., 7., 2., 5., 8., 3., 6., 9.]).unwrap()
+            );
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            second.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![1., 4., 7., 2., 5., 8., 3., 6., 9.]).unwrap()
+            );
+            assert_eq!(
+                &*second.data(),
+                &Tensor::from_shape_vec((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]).unwrap()
+            );
+        }
+    }
+
+    mod addition {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![1., 1., 1., 1., 1., 1., 1., 1., 1.]);
+
+            let addition = Addition::new(left.clone(), right.clone());
+            assert_eq!(*addition.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&addition.left_operand(), &left));
+            assert!(Rc::ptr_eq(&addition.right_operand(), &right));
+
+            addition.forward();
+            assert_eq!(
+                &*addition.data(),
+                &Tensor::from_shape_vec((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]).unwrap()
+            );
+        }
+
+        #[test]
+        fn chained() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![1.; 9]);
+
+            let first = Rc::new(Addition::new(left.clone(), right.clone()));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.left_operand(), &left));
+            assert!(Rc::ptr_eq(&first.right_operand(), &right));
+
+            let second = Addition::new(first.clone(), right.clone());
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.left_operand(), &first));
+            assert!(Rc::ptr_eq(&second.right_operand(), &right));
+
+            first.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]).unwrap()
+            );
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+
+            second.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]).unwrap()
+            );
+            assert_eq!(
+                &*second.data(),
+                &Tensor::from_shape_vec((3, 3), vec![3., 4., 5., 6., 7., 8., 9., 10., 11.])
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn left_broadcast() {
+            let left = make_me_an_input((1, 3), vec![1., 2., 3.]);
+            let right = make_me_an_input((2, 2, 3), vec![1.; 12]);
+
+            let addition = Addition::new(left.clone(), right.clone());
+            assert_eq!(*addition.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&addition.left_operand(), &left));
+            assert!(Rc::ptr_eq(&addition.right_operand(), &right));
+
+            addition.forward();
+            assert_eq!(
+                &*addition.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![2., 3., 4., 2., 3., 4., 2., 3., 4., 2., 3., 4.]
+                )
+                .unwrap()
+            );
+        }
+
+        #[test]
+        fn right_broadcast() {
+            let left = make_me_an_input((2, 2, 3), vec![1.; 12]);
+            let right = make_me_an_input((1, 3), vec![1., 2., 3.]);
+
+            let addition = Addition::new(left.clone(), right.clone());
+            assert_eq!(*addition.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&addition.left_operand(), &left));
+            assert!(Rc::ptr_eq(&addition.right_operand(), &right));
+
+            addition.forward();
+            assert_eq!(
+                &*addition.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![2., 3., 4., 2., 3., 4., 2., 3., 4., 2., 3., 4.]
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    mod subtraction {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![1., 1., 1., 1., 1., 1., 1., 1., 1.]);
+
+            let addition = Subtraction::new(left.clone(), right.clone());
+            assert_eq!(*addition.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&addition.left_operand(), &left));
+            assert!(Rc::ptr_eq(&addition.right_operand(), &right));
+
+            addition.forward();
+            assert_eq!(
+                &*addition.data(),
+                &Tensor::from_shape_vec((3, 3), vec![0., 1., 2., 3., 4., 5., 6., 7., 8.]).unwrap()
+            );
+        }
+
+        #[test]
+        fn chained() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![1.; 9]);
+
+            let first = Rc::new(Subtraction::new(left.clone(), right.clone()));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.left_operand(), &left));
+            assert!(Rc::ptr_eq(&first.right_operand(), &right));
+
+            let second = Subtraction::new(first.clone(), right.clone());
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.left_operand(), &first));
+            assert!(Rc::ptr_eq(&second.right_operand(), &right));
+
+            first.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![0., 1., 2., 3., 4., 5., 6., 7., 8.]).unwrap()
+            );
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+
+            second.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![0., 1., 2., 3., 4., 5., 6., 7., 8.]).unwrap()
+            );
+            assert_eq!(
+                &*second.data(),
+                &Tensor::from_shape_vec((3, 3), vec![-1., 0., 1., 2., 3., 4., 5., 6., 7.]).unwrap()
+            );
+        }
+
+        #[test]
+        fn left_broadcast() {
+            let left = make_me_an_input((1, 3), vec![1., 2., 3.]);
+            let right = make_me_an_input((2, 2, 3), vec![1.; 12]);
+
+            let addition = Subtraction::new(left.clone(), right.clone());
+            assert_eq!(*addition.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&addition.left_operand(), &left));
+            assert!(Rc::ptr_eq(&addition.right_operand(), &right));
+
+            addition.forward();
+            assert_eq!(
+                &*addition.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![0., 1., 2., 0., 1., 2., 0., 1., 2., 0., 1., 2.]
+                )
+                .unwrap()
+            );
+        }
+
+        #[test]
+        fn right_broadcast() {
+            let left = make_me_an_input((2, 2, 3), vec![1.; 12]);
+            let right = make_me_an_input((1, 3), vec![1., 2., 3.]);
+
+            let addition = Subtraction::new(left.clone(), right.clone());
+            assert_eq!(*addition.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&addition.left_operand(), &left));
+            assert!(Rc::ptr_eq(&addition.right_operand(), &right));
+
+            addition.forward();
+            assert_eq!(
+                &*addition.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![0., -1., -2., 0., -1., -2., 0., -1., -2., 0., -1., -2.]
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    mod multiplication {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![2.; 9]);
+
+            let multiplication = Multiplication::new(left.clone(), right.clone());
+            assert_eq!(*multiplication.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&multiplication.left_operand(), &left));
+            assert!(Rc::ptr_eq(&multiplication.right_operand(), &right));
+
+            multiplication.forward();
+            assert_eq!(
+                &*multiplication.data(),
+                &Tensor::from_shape_vec((3, 3), vec![2., 4., 6., 8., 10., 12., 14., 16., 18.])
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn chained() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![2.; 9]);
+
+            let first = Rc::new(Multiplication::new(left.clone(), right.clone()));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.left_operand(), &left));
+            assert!(Rc::ptr_eq(&first.right_operand(), &right));
+
+            let second = Multiplication::new(first.clone(), right.clone());
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.left_operand(), &first));
+            assert!(Rc::ptr_eq(&second.right_operand(), &right));
+
+            first.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![2., 4., 6., 8., 10., 12., 14., 16., 18.])
+                    .unwrap()
+            );
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+
+            second.forward();
+            assert_eq!(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![2., 4., 6., 8., 10., 12., 14., 16., 18.])
+                    .unwrap()
+            );
+            assert_eq!(
+                &*second.data(),
+                &Tensor::from_shape_vec((3, 3), vec![4., 8., 12., 16., 20., 24., 28., 32., 36.])
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn left_broadcast() {
+            let left = make_me_an_input((1, 3), vec![1., 2., 3.]);
+            let right = make_me_an_input((2, 2, 3), vec![2.; 12]);
+
+            let multiplication = Multiplication::new(left.clone(), right.clone());
+            assert_eq!(*multiplication.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&multiplication.left_operand(), &left));
+            assert!(Rc::ptr_eq(&multiplication.right_operand(), &right));
+
+            multiplication.forward();
+            assert_eq!(
+                &*multiplication.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![2., 4., 6., 2., 4., 6., 2., 4., 6., 2., 4., 6.]
+                )
+                .unwrap()
+            );
+        }
+
+        #[test]
+        fn right_broadcast() {
+            let left = make_me_an_input((2, 2, 3), vec![2.; 12]);
+            let right = make_me_an_input((1, 3), vec![1., 2., 3.]);
+
+            let multiplication = Multiplication::new(left.clone(), right.clone());
+            assert_eq!(*multiplication.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&multiplication.left_operand(), &left));
+            assert!(Rc::ptr_eq(&multiplication.right_operand(), &right));
+
+            multiplication.forward();
+            assert_eq!(
+                &*multiplication.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![2., 4., 6., 2., 4., 6., 2., 4., 6., 2., 4., 6.]
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    mod division {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![2.; 9]);
+
+            let division = Division::new(left.clone(), right.clone());
+            assert_eq!(*division.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&division.left_operand(), &left));
+            assert!(Rc::ptr_eq(&division.right_operand(), &right));
+
+            division.forward();
+            assert!(is_precise_enough(
+                &*division.data(),
+                &Tensor::from_shape_vec((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5])
+                    .unwrap()
+            ));
+        }
+
+        #[test]
+        fn chained() {
+            let left = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = make_me_an_input((3, 3), vec![2.; 9]);
+
+            let first = Rc::new(Division::new(left.clone(), right.clone()));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.left_operand(), &left));
+            assert!(Rc::ptr_eq(&first.right_operand(), &right));
+
+            let second = Division::new(first.clone(), right.clone());
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.left_operand(), &first));
+            assert!(Rc::ptr_eq(&second.right_operand(), &right));
+
+            first.forward();
+            assert!(is_precise_enough(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5])
+                    .unwrap()
+            ));
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+
+            second.forward();
+            assert!(is_precise_enough(
+                &*first.data(),
+                &Tensor::from_shape_vec((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5])
+                    .unwrap()
+            ));
+            assert!(is_precise_enough(
+                &*second.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![0.25, 0.50, 0.75, 1., 1.25, 1.50, 1.75, 2., 2.25]
+                )
+                .unwrap()
+            ));
+        }
+
+        #[test]
+        fn left_broadcast() {
+            let left = make_me_an_input((1, 3), vec![1., 2., 3.]);
+            let right = make_me_an_input((2, 2, 3), vec![2.; 12]);
+
+            let division = Division::new(left.clone(), right.clone());
+            assert_eq!(*division.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&division.left_operand(), &left));
+            assert!(Rc::ptr_eq(&division.right_operand(), &right));
+
+            division.forward();
+            assert!(is_precise_enough(
+                &*division.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![0.5, 1., 1.5, 0.5, 1., 1.5, 0.5, 1., 1.5, 0.5, 1., 1.5]
+                )
+                .unwrap()
+            ));
+        }
+
+        #[test]
+        fn right_broadcast() {
+            let left = make_me_an_input((2, 2, 3), vec![2.; 12]);
+            let right = make_me_an_input((1, 3), vec![1., 2., 3.]);
+
+            let division = Division::new(left.clone(), right.clone());
+            assert_eq!(*division.data(), Tensor::from_elem((2, 2, 3), 0.));
+            assert!(Rc::ptr_eq(&division.left_operand(), &left));
+            assert!(Rc::ptr_eq(&division.right_operand(), &right));
+
+            division.forward();
+            assert!(is_precise_enough(
+                &*division.data(),
+                &Tensor::from_shape_vec(
+                    (2, 2, 3),
+                    vec![2., 1., 0.6667, 2., 1., 0.6667, 2., 1., 0.6667, 2., 1., 0.6667]
+                )
+                .unwrap()
+            ));
+        }
+    }
+
+    mod logn {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let logn = Logn::new(input.clone());
+            assert_eq!(*logn.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&logn.operand(), &input));
+
+            logn.forward();
+            assert!(is_precise_enough(
+                &*logn.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972]
+                )
+                .unwrap()
+            ));
+        }
+
+        #[test]
+        fn chained() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let first = Rc::new(Logn::new(input.clone()));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.operand(), &input));
+
+            let second = Logn::new(first.clone());
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            first.forward();
+            assert!(is_precise_enough(
+                &*first.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972]
+                )
+                .unwrap()
+            ));
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            second.forward();
+            assert!(is_precise_enough(
+                &*first.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972]
+                )
+                .unwrap()
+            ));
+            assert!(is_precise_enough(
+                &*second.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![
+                        f32::NEG_INFINITY,
+                        -0.3665,
+                        0.0940,
+                        0.3266,
+                        0.4759,
+                        0.5832,
+                        0.6657,
+                        0.7321,
+                        0.7872
+                    ]
+                )
+                .unwrap()
+            ));
+        }
     }
 }
