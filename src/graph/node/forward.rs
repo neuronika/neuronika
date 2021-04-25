@@ -1475,16 +1475,22 @@ impl<T: Data + Forward> Data for Unsqueeze<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use ndarray::StrideShape;
 
-    use super::*;
+    const F16_EPSILON: f32 = 9.77e-04;
 
-    const F16_EPSILON: f32 = 4.88e-04;
-
-    fn is_precise_enough<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) -> bool {
-        (our - their)
-            .iter()
-            .all(|&val| val <= F16_EPSILON || val.is_nan())
+    fn assert_is_precise_enough<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) {
+        assert!(
+            Zip::from(our).and(their).all(|l, r| {
+                (*l == 0. && *r == 0.)
+                    || (!l.is_finite() && !r.is_finite())
+                    || ((1. - r / l).abs() <= F16_EPSILON)
+            }),
+            "\nLeft:\n{}\nRight:\n{}",
+            our,
+            their
+        );
     }
 
     fn make_me_an_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<Input<D>>
@@ -1507,11 +1513,11 @@ mod tests {
             assert!(Rc::ptr_eq(&negation.operand(), &input));
 
             negation.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*negation.data(),
                 &Tensor::from_shape_vec((3, 3), vec![-1., -2., -3., -4., -5., -6., -7., -8., -9.])
-                    .unwrap()
-            ));
+                    .unwrap(),
+            );
         }
 
         #[test]
@@ -1560,10 +1566,10 @@ mod tests {
             assert!(Rc::ptr_eq(&transpose.operand(), &input));
 
             transpose.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*transpose.data(),
-                &Tensor::from_shape_vec((3, 3), vec![1., 4., 7., 2., 5., 8., 3., 6., 9.]).unwrap()
-            ));
+                &Tensor::from_shape_vec((3, 3), vec![1., 4., 7., 2., 5., 8., 3., 6., 9.]).unwrap(),
+            );
         }
 
         #[test]
@@ -1905,11 +1911,11 @@ mod tests {
             assert!(Rc::ptr_eq(&division.right_operand(), &right));
 
             division.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*division.data(),
                 &Tensor::from_shape_vec((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5])
-                    .unwrap()
-            ));
+                    .unwrap(),
+            );
         }
 
         #[test]
@@ -1928,27 +1934,27 @@ mod tests {
             assert!(Rc::ptr_eq(&second.right_operand(), &right));
 
             first.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*first.data(),
                 &Tensor::from_shape_vec((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5])
-                    .unwrap()
-            ));
+                    .unwrap(),
+            );
             assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
 
             second.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*first.data(),
                 &Tensor::from_shape_vec((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5])
-                    .unwrap()
-            ));
-            assert!(is_precise_enough(
+                    .unwrap(),
+            );
+            assert_is_precise_enough(
                 &*second.data(),
                 &Tensor::from_shape_vec(
                     (3, 3),
-                    vec![0.25, 0.50, 0.75, 1., 1.25, 1.50, 1.75, 2., 2.25]
+                    vec![0.25, 0.50, 0.75, 1., 1.25, 1.50, 1.75, 2., 2.25],
                 )
-                .unwrap()
-            ));
+                .unwrap(),
+            );
         }
 
         #[test]
@@ -1962,14 +1968,14 @@ mod tests {
             assert!(Rc::ptr_eq(&division.right_operand(), &right));
 
             division.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*division.data(),
                 &Tensor::from_shape_vec(
                     (2, 2, 3),
-                    vec![0.5, 1., 1.5, 0.5, 1., 1.5, 0.5, 1., 1.5, 0.5, 1., 1.5]
+                    vec![0.5, 1., 1.5, 0.5, 1., 1.5, 0.5, 1., 1.5, 0.5, 1., 1.5],
                 )
-                .unwrap()
-            ));
+                .unwrap(),
+            );
         }
 
         #[test]
@@ -1983,14 +1989,85 @@ mod tests {
             assert!(Rc::ptr_eq(&division.right_operand(), &right));
 
             division.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*division.data(),
                 &Tensor::from_shape_vec(
                     (2, 2, 3),
-                    vec![2., 1., 0.6667, 2., 1., 0.6667, 2., 1., 0.6667, 2., 1., 0.6667]
+                    vec![
+                        2., 1., 0.6667, 2., 1., 0.6667, 2., 1., 0.6667, 2., 1., 0.6667,
+                    ],
                 )
-                .unwrap()
-            ));
+                .unwrap(),
+            );
+        }
+    }
+
+    mod power {
+        use super::*;
+
+        #[test]
+        fn single_node() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let logn = Power::new(input.clone(), 3);
+            assert_eq!(*logn.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&logn.operand(), &input));
+
+            logn.forward();
+            assert_is_precise_enough(
+                &*logn.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![1., 8., 27., 64., 125., 216., 343., 512., 729.],
+                )
+                .unwrap(),
+            );
+        }
+
+        #[test]
+        fn chained() {
+            let input = make_me_an_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+            let first = Rc::new(Power::new(input.clone(), 3));
+            assert_eq!(*first.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&first.operand(), &input));
+
+            let second = Power::new(first.clone(), 5);
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            first.forward();
+            assert_is_precise_enough(
+                &*first.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![1., 8., 27., 64., 125., 216., 343., 512., 729.],
+                )
+                .unwrap(),
+            );
+            assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
+            assert!(Rc::ptr_eq(&second.operand(), &first));
+
+            second.forward();
+            assert_is_precise_enough(
+                &*first.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![1., 8., 27., 64., 125., 216., 343., 512., 729.],
+                )
+                .unwrap(),
+            );
+            assert_is_precise_enough(
+                &*second.data(),
+                &Tensor::from_shape_vec(
+                    (3, 3),
+                    vec![
+                        1.0000e+00, 3.2768e+04, 1.4349e+07, 1.0737e+09, 3.0518e+10, 4.7018e+11,
+                        4.7476e+12, 3.5184e+13, 2.0589e+14,
+                    ],
+                )
+                .unwrap(),
+            );
         }
     }
 
@@ -2006,14 +2083,16 @@ mod tests {
             assert!(Rc::ptr_eq(&logn.operand(), &input));
 
             logn.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*logn.data(),
                 &Tensor::from_shape_vec(
                     (3, 3),
-                    vec![0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972]
+                    vec![
+                        0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972,
+                    ],
                 )
-                .unwrap()
-            ));
+                .unwrap(),
+            );
         }
 
         #[test]
@@ -2029,27 +2108,31 @@ mod tests {
             assert!(Rc::ptr_eq(&second.operand(), &first));
 
             first.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*first.data(),
                 &Tensor::from_shape_vec(
                     (3, 3),
-                    vec![0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972]
+                    vec![
+                        0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972,
+                    ],
                 )
-                .unwrap()
-            ));
+                .unwrap(),
+            );
             assert_eq!(*second.data(), Tensor::from_elem((3, 3), 0.));
             assert!(Rc::ptr_eq(&second.operand(), &first));
 
             second.forward();
-            assert!(is_precise_enough(
+            assert_is_precise_enough(
                 &*first.data(),
                 &Tensor::from_shape_vec(
                     (3, 3),
-                    vec![0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972]
+                    vec![
+                        0.0000, 0.6931, 1.0986, 1.3863, 1.6094, 1.7918, 1.9459, 2.0794, 2.1972,
+                    ],
                 )
-                .unwrap()
-            ));
-            assert!(is_precise_enough(
+                .unwrap(),
+            );
+            assert_is_precise_enough(
                 &*second.data(),
                 &Tensor::from_shape_vec(
                     (3, 3),
@@ -2062,11 +2145,11 @@ mod tests {
                         0.5832,
                         0.6657,
                         0.7321,
-                        0.7872
-                    ]
+                        0.7872,
+                    ],
                 )
-                .unwrap()
-            ));
+                .unwrap(),
+            );
         }
     }
 }
