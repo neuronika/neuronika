@@ -1167,6 +1167,62 @@ impl<T: Data + Forward> Data for Softmax<T> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmax ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct LogSoftmax<T: Data + Forward> {
+    op: Rc<T>,
+    data: RefCell<Tensor<T::Dim>>,
+    axis: usize,
+    was_computed: Cell<bool>,
+}
+
+impl<T: Data + Forward> LogSoftmax<T> {
+    pub fn new(op: Rc<T>, axis: usize) -> Self {
+        let data = Tensor::zeros(op.data().raw_dim());
+
+        Self {
+            op,
+            data: RefCell::new(data),
+            axis,
+            was_computed: Cell::new(false),
+        }
+    }
+
+    pub fn operand(&self) -> Rc<T> {
+        self.op.clone()
+    }
+}
+
+impl<T: Data + Forward> Forward for LogSoftmax<T> {
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
+            return false;
+        }
+
+        self.was_computed.set(true);
+        let axis = self.axis;
+        Zip::from(self.data.borrow_mut().lanes_mut(Axis(axis)))
+            .and(self.op.data().lanes(Axis(axis)))
+            .for_each(|lane_v, lane_o| {
+                let max = lane_o.fold(std::f32::MIN, |x, y| x.max(*y));
+                let exp = &lane_o.map(|el| (el - max).exp());
+                let log_sum_exp = exp.sum().ln();
+                Zip::from(lane_v)
+                    .and(lane_o)
+                    .for_each(|lane_v_el, lane_o_el| *lane_v_el = lane_o_el - log_sum_exp - max);
+            });
+
+        true
+    }
+}
+
+impl<T: Data + Forward> Data for LogSoftmax<T> {
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct Concatenate<Lhs, Rhs>

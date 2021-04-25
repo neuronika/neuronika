@@ -8,12 +8,12 @@ use node::{
     Addition, AdditionBackward, AdditionBackwardUnary, Concatenate, ConcatenateBackward,
     ConcatenateBackwardLeft, ConcatenateBackwardRight, Division, DivisionBackward,
     DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, LeakyReLU, LeakyReLUBackward,
-    Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
-    MatrixMatrixMulBackwardRight, MatrixVectorMul, MatrixVectorMulBackward,
-    MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight, Multiplication,
-    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Power,
-    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
-    Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
+    LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward,
+    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixVectorMul,
+    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
+    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
+    NegationBackward, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
+    SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
     StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
     SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
     Unsqueeze, UnsqueezeBackward, VectorVectorMul, VectorVectorMulBackward,
@@ -498,6 +498,21 @@ where
         }
     }
 
+    pub fn log_softmax(mut self, axis: usize) -> Var<LogSoftmax<T>> {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(LogSoftmax::new(forward.clone(), axis)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+
     pub fn t(mut self) -> Var<Transpose<T>> {
         let forward = self.forward;
         let (id, forward) = (
@@ -830,6 +845,31 @@ where
             Rc::new(Softmax::new(forward.clone(), axis)),
             Rc::new(SoftmaxBackward::new(backward, forward, axis)),
         );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+
+    pub fn log_softmax(
+        mut self,
+        axis: usize,
+    ) -> VarDiff<LogSoftmax<T>, LogSoftmaxBackward<U, LogSoftmax<T>>> {
+        let (forward, backward) = (self.forward, self.backward);
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(LogSoftmax::new(forward.clone(), axis)),
+        );
+        let backward = Rc::new(LogSoftmaxBackward::new(backward, forward.clone(), axis));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path

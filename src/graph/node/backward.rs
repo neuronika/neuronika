@@ -3027,6 +3027,111 @@ where
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmaxBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct LogSoftmaxBackward<T, U>
+where
+    T: Gradient<Dim = U::Dim> + Backward,
+    U: Data + Forward,
+{
+    operand_grad: Rc<T>,
+    forward_data: Rc<U>,
+    axis: usize,
+    gradient: RefCell<Tensor<T::Dim>>,
+    can_overwrite: Cell<bool>,
+    was_computed: Cell<bool>,
+}
+
+impl<T, U> LogSoftmaxBackward<T, U>
+where
+    T: Gradient<Dim = U::Dim> + Backward,
+    U: Data + Forward,
+{
+    pub fn new(operand_grad: Rc<T>, forward_data: Rc<U>, axis: usize) -> Self {
+        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+
+        Self {
+            operand_grad,
+            forward_data,
+            axis,
+            gradient,
+            can_overwrite: Cell::new(true),
+            was_computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Gradient for LogSoftmaxBackward<T, U>
+where
+    T: Gradient<Dim = U::Dim> + Backward,
+    U: Data + Forward,
+{
+    type Dim = T::Dim;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<T, U> Backward for LogSoftmaxBackward<T, U>
+where
+    T: Gradient<Dim = U::Dim> + Backward,
+    U: Data + Forward,
+{
+    fn backward(&self) -> bool {
+        if self.was_computed.get() {
+            return false;
+        }
+
+        self.was_computed.set(true);
+        let mut op_grad = self.operand_grad.gradient_mut();
+        let data = self.forward_data.data();
+        let grad = self.gradient.borrow();
+        let axis = self.axis;
+
+        let zip = Zip::from(op_grad.lanes_mut(Axis(axis)))
+            .and(grad.lanes(Axis(axis)))
+            .and(data.lanes(Axis(axis)));
+        if self.operand_grad.can_overwrite() {
+            zip.par_for_each(|mut op_grad_lane, grad_lane, data_lane| {
+                let gradient_sum = grad_lane.sum();
+                Zip::from(&mut op_grad_lane)
+                    .and(&grad_lane)
+                    .and(&data_lane)
+                    .for_each(|op_grad_el, grad_el, data_el| {
+                        *op_grad_el = grad_el - data_el.exp() * gradient_sum
+                    })
+            });
+            self.operand_grad.was_overwritten();
+        } else {
+            zip.par_for_each(|mut op_grad_lane, grad_lane, data_lane| {
+                let gradient_sum = grad_lane.sum();
+                Zip::from(&mut op_grad_lane)
+                    .and(&grad_lane)
+                    .and(&data_lane)
+                    .for_each(|op_grad_el, grad_el, data_el| {
+                        *op_grad_el += grad_el - data_el.exp() * gradient_sum
+                    })
+            });
+        }
+
+        true
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct ConcatenateBackward<Lhs, Rhs>
