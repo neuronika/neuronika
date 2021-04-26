@@ -2,7 +2,7 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ losses module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 use super::{graph::OPERATIONS_COUNTER, Backward, Data, Forward, Gradient, Tensor, Var, VarDiff};
-use ndarray::{Ix1, Zip};
+use ndarray::{Axis, Dimension, IntoDimension, Ix1, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     rc::Rc,
@@ -171,7 +171,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow_mut(),
+                self.gradient.borrow(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -411,7 +411,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow_mut(),
+                self.gradient.borrow(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -664,7 +664,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow_mut(),
+                self.gradient.borrow(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -704,7 +704,7 @@ where
 ///
 /// ```text
 ///        1   n
-/// Lᴏss = ―   ∑ ʏᵢ * ln(xᵢ) + (1 - ʏᵢ) * ln(1 - xᵢ)
+/// Lᴏss = ―   ∑ - [ʏᵢ * ln(xᵢ) + (1 - ʏᵢ) * ln(1 - xᵢ)]
 ///        n  i=1
 /// ```
 ///
@@ -919,7 +919,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow_mut(),
+                self.gradient.borrow(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -971,7 +971,7 @@ where
 ///
 /// ```text
 ///        1   n
-/// Lᴏss = ―   ∑ ʏᵢ * ln(σ(xᵢ)) + (1 - ʏᵢ) * ln(1 - σ(xᵢ))
+/// Lᴏss = ―   ∑  - [ʏᵢ * ln(σ(xᵢ)) + (1 - ʏᵢ) * ln(1 - σ(xᵢ))]
 ///        n  i=1
 /// ```
 /// This loss combines a sigmoid and a **binary cross entropy**.
@@ -1026,11 +1026,268 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Cross Entropy Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// TODO
-pub struct CrossEntropyLoss {
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
+    state: Cell<bool>,
 }
-pub struct CrossEntropyLossBackward {
+
+impl<T, U> NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            state: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<T, U> Forward for NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+        self.state.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        loss_data[0] = {
+            let total_loss = Zip::indexed(&*input_data)
+                .and_broadcast(&target_data.view().insert_axis(Axis(1)))
+                .fold(0.0, |loss, idx, log, target| {
+                    if idx.into_dimension().last_elem() == *target as usize {
+                        loss + log
+                    } else {
+                        loss + 0.
+                    }
+                });
+            match self.reduction {
+                Reduction::Mean => -total_loss / input_data.len() as f32,
+                Reduction::Sum => -total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
+    }
+}
+
+pub struct NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    diff_input: Rc<T>,
+    target: Rc<U>,
+    gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
+    can_overwrite: Cell<bool>,
+    state: Cell<bool>,
+}
+
+impl<T, U> NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    pub fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            diff_input,
+            target,
+            gradient: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            can_overwrite: Cell::new(true),
+            state: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Gradient for NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+    fn was_overwritten(&self) {
+        self.can_overwrite.set(true)
+    }
+}
+
+impl<T, U> Backward for NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T::Dim: Copy,
+    U: Data + Forward,
+{
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.state.set(true);
+        let (mut operand_gradient, gradient, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient.borrow(),
+                self.target.data(),
+            )
+        };
+        let zip = Zip::indexed(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and_broadcast(target_data.view().insert_axis(Axis(1)));
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = target_data.len() as f32;
+                zip.for_each(|idx, op_grad, grad, target| {
+                    if idx.into_dimension().last_elem() == *target as usize {
+                        *op_grad = grad * -1. / n
+                    } else {
+                        *op_grad = 0.;
+                    }
+                });
+            }
+            Reduction::Sum => zip.for_each(|idx, op_grad, grad, target| {
+                if idx.into_dimension().last_elem() == *target as usize {
+                    *op_grad = grad * -1.
+                } else {
+                    *op_grad = 0.
+                }
+            }),
+        }
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
+    }
+}
+
+/// Computes a criterion that measures the **negative log likelihood** between
+/// the `target` **y** and `input` **x**.
+///
+/// ```text
+///         1   n
+/// Lᴏss =  ―   ∑  - xₙ,ᵧₙ
+///         n  i=1
+/// ```
+///
+///The `input` **x** given is expected to contain **log-probabilities** for each class,
+/// this is typically achieved by using `log_softmax`. `input` has to be a of size either
+/// **(minibatch, C)** or **(minibatch, C, d1, d2, ..., dk)** with k >= 1 for the **K**-dimensional
+/// case. The target that this loss expects should be a class index in the range **[0, C)** where
+/// **C** = number of classes.
+///
+/// As mentioned before, this loss can also be used for higher dimensional inputs, such as 2D
+/// images, by providing an input of size **(minibatch, C, d1, d2, ..., dk)** with k >= 1 where
+/// **k** is the number of dimensions. In the case of images, it computes **NLL loss** *per-pixel*.
+///
+/// In the **K**-dimensional case this loss expects a target of shape
+/// **(minibatch, d1, d2, ..., dk)**.
+pub fn nll_loss<T, U, V>(
+    mut input: VarDiff<T, U>,
+    mut target: Var<V>,
+    reduction: Reduction,
+) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Backward>
+where
+    T: Data<Dim = <V::Dim as Dimension>::Larger> + Forward,
+    U: Gradient<Dim = T::Dim> + Backward,
+    V: Data + Forward,
+    T::Dim: Copy,
+{
+    input.forward_path.append(&mut target.forward_path);
+
+    let (input_forward, input_backward) = (input.forward, input.backward);
+    let target_forward = target.forward;
+
+    let (id, forward, backward) = (
+        unsafe { OPERATIONS_COUNTER.next() },
+        Rc::new(NLLLoss::new(
+            input_forward.clone(),
+            target_forward.clone(),
+            reduction.clone(),
+        )),
+        Rc::new(NLLLossBackward::new(
+            input_backward,
+            target_forward,
+            reduction,
+        )),
+    );
+    input
+        .forward_path
+        .insert(id, forward.clone() as Rc<dyn Forward>);
+    input
+        .backward_path
+        .insert(id, backward.clone() as Rc<dyn Backward>);
+
+    VarDiff {
+        id,
+        forward,
+        backward,
+        forward_path: input.forward_path,
+        backward_path: input.backward_path,
+        parameters: input.parameters,
+    }
 }
