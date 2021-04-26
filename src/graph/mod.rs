@@ -1,4 +1,3 @@
-// TODO: implementare vm_mul per Var e per VarDiff.
 pub mod node;
 use itertools::Itertools;
 use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
@@ -16,8 +15,9 @@ use node::{
     SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
     StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
     SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
-    Unsqueeze, UnsqueezeBackward, VectorVectorMul, VectorVectorMulBackward,
-    VectorVectorMulBackwardUnary,
+    Unsqueeze, UnsqueezeBackward, VectorMatrixMul, VectorMatrixMulBackward,
+    VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight, VectorVectorMul,
+    VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 pub use node::{Input, InputBackward};
 use std::{
@@ -1869,7 +1869,154 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+impl<F1, B1, F2, B2> VecMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    B1: Gradient<Dim = Ix1> + Backward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+    B2: Gradient<Dim = Ix2> + Backward + 'static,
+{
+    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackward<F1, B1, F2, B2>>;
 
+    fn vm_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(VectorMatrixMulBackward::new(
+                lhs_forward,
+                lhs_backward,
+                rhs_forward,
+                rhs_backward,
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+}
+
+impl<F1, B1, F2> VecMatMul<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    B1: Gradient<Dim = Ix1> + Backward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+{
+    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardLeft<B1, F2>>;
+    fn vm_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let rhs_forward = other.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(VectorMatrixMulBackwardLeft::new(lhs_backward, rhs_forward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, F2, B2> VecMatMul<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+    B2: Gradient<Dim = Ix2> + Backward + 'static,
+{
+    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardRight<F1, B2>>;
+
+    fn vm_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+        let lhs_forward = self.forward;
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(VectorMatrixMulBackwardRight::new(lhs_forward, rhs_backward)),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: other.backward_path,
+            parameters: other.parameters,
+        }
+    }
+}
+
+impl<F1, F2> VecMatMul<Var<F2>> for Var<F1>
+where
+    F1: Data<Dim = Ix1> + Forward + 'static,
+    F2: Data<Dim = Ix2> + Forward + 'static,
+{
+    type Output = Var<VectorMatrixMul<F1, F2>>;
+
+    fn vm_mul(mut self, mut other: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+
+        let rhs_forward = other.forward;
+        let lhs_forward = self.forward;
+
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(VectorMatrixMul::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+}
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 impl<F1, B1, F2, B2> VecVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>

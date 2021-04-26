@@ -597,6 +597,80 @@ where
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1> + Forward,
+    Rhs: Data<Dim = Ix2> + Forward,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<Tensor<Ix1>>,
+    was_computed: Cell<bool>,
+}
+
+impl<Lhs, Rhs> VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1> + Forward,
+    Rhs: Data<Dim = Ix2> + Forward,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(shape[0]));
+
+        Self {
+            left,
+            right,
+            data,
+            was_computed: Cell::new(false),
+        }
+    }
+
+    pub fn left_operand(&self) -> Rc<Lhs> {
+        self.left.clone()
+    }
+
+    pub fn right_operand(&self) -> Rc<Rhs> {
+        self.right.clone()
+    }
+}
+
+impl<Lhs, Rhs> Data for VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1> + Forward,
+    Rhs: Data<Dim = Ix2> + Forward,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1> + Forward,
+    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn forward(&self) -> bool {
+        if self.was_computed.get() {
+            return false;
+        }
+
+        self.was_computed.set(true);
+        general_mat_vec_mul(
+            1.0,
+            &self.right.data().t(),
+            &*self.left.data(),
+            0.0,
+            &mut *self.data.borrow_mut(),
+        );
+
+        true
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct VectorVectorMul<Lhs, Rhs>
