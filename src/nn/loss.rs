@@ -27,7 +27,7 @@ where
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> MSELoss<T, U>
@@ -41,7 +41,7 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -63,11 +63,12 @@ where
     T: Data + Forward,
     U: Data<Dim = T::Dim> + Forward,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
-        self.was_computed.set(true);
+
+        self.state.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -84,7 +85,16 @@ where
                 Reduction::Sum => total_loss,
             }
         };
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -100,7 +110,7 @@ where
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U, V> MSELossBackward<T, U, V>
@@ -117,7 +127,7 @@ where
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -152,12 +162,12 @@ where
     U: Data<Dim = T::Dim> + Forward,
     V: Data<Dim = U::Dim> + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.state.get() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -171,7 +181,6 @@ where
             .and_broadcast(&*gradient)
             .and(&*input_data)
             .and(&*target_data);
-
         match self.reduction {
             Reduction::Mean => {
                 let n = input_data.len() as f32;
@@ -183,7 +192,14 @@ where
                 *op_grad = (2.0 * (input - target) * input) * grad
             }),
         }
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -251,7 +267,7 @@ where
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> MAELoss<T, U>
@@ -265,7 +281,7 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -287,11 +303,12 @@ where
     T: Data + Forward,
     U: Data<Dim = T::Dim> + Forward,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
-        self.was_computed.set(true);
+
+        self.state.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -308,7 +325,16 @@ where
                 Reduction::Sum => total_loss,
             }
         };
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -324,7 +350,7 @@ where
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U, V> MAELossBackward<T, U, V>
@@ -341,7 +367,7 @@ where
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -376,12 +402,12 @@ where
     U: Data<Dim = T::Dim> + Forward,
     V: Data<Dim = U::Dim> + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.state.get() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -413,7 +439,14 @@ where
                 *op_grad = if diff != 0. { diff.signum() * grad } else { 0. }
             }),
         }
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -482,7 +515,7 @@ where
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> BCELoss<T, U>
@@ -496,7 +529,7 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -518,11 +551,12 @@ where
     T: Data + Forward,
     U: Data<Dim = T::Dim> + Forward,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
-        self.was_computed.set(true);
+
+        self.state.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -544,7 +578,16 @@ where
                 Reduction::Sum => total_loss,
             }
         };
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -560,7 +603,7 @@ where
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U, V> BCELossBackward<T, U, V>
@@ -577,7 +620,7 @@ where
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -612,12 +655,12 @@ where
     U: Data<Dim = T::Dim> + Forward,
     V: Data<Dim = U::Dim> + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -645,7 +688,14 @@ where
                 *op_grad = (1. - 2. * target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
             }),
         }
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -720,7 +770,7 @@ where
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> BCEWithLogitsLoss<T, U>
@@ -734,7 +784,7 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -756,11 +806,11 @@ where
     T: Data + Forward,
     U: Data<Dim = T::Dim> + Forward,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -783,7 +833,16 @@ where
                 Reduction::Sum => total_loss,
             }
         };
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -799,7 +858,7 @@ where
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U, V> BCEWithLogitsLossBackward<T, U, V>
@@ -816,7 +875,7 @@ where
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -851,12 +910,12 @@ where
     U: Data<Dim = T::Dim> + Forward,
     V: Data<Dim = U::Dim> + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -896,7 +955,14 @@ where
                 *op_grad = (input_sigmoid - target) * grad
             }),
         }
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 

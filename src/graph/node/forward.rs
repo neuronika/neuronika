@@ -21,7 +21,11 @@ pub trait Data {
 }
 
 pub trait Forward {
-    fn forward(&self) -> bool;
+    fn forward(&self);
+
+    fn was_computed(&self) -> bool;
+
+    fn reset_computation(&self);
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -53,8 +57,16 @@ impl<D: Dimension> Data for Input<D> {
 }
 
 impl<D: Dimension> Forward for Input<D> {
-    fn forward(&self) -> bool {
+    fn forward(&self) {
+        // Nothing
+    }
+
+    fn was_computed(&self) -> bool {
         false
+    }
+
+    fn reset_computation(&self) {
+        // Nothing
     }
 }
 
@@ -63,7 +75,7 @@ impl<D: Dimension> Forward for Input<D> {
 pub struct Negation<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Negation<T> {
@@ -73,7 +85,7 @@ impl<T: Data + Forward> Negation<T> {
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -83,17 +95,23 @@ impl<T: Data + Forward> Negation<T> {
 }
 
 impl<T: Data + Forward> Forward for Negation<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = -o);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -110,7 +128,7 @@ impl<T: Data + Forward> Data for Negation<T> {
 pub struct Transpose<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Transpose<T> {
@@ -120,7 +138,7 @@ impl<T: Data + Forward> Transpose<T> {
         Self {
             op,
             data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -130,17 +148,25 @@ impl<T: Data + Forward> Transpose<T> {
 }
 
 impl<T: Data + Forward> Forward for Transpose<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(self.op.data().t())
             .par_for_each(|v, o| *v = *o);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -163,7 +189,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Addition<Lhs, Rhs>
@@ -179,7 +205,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -211,18 +237,26 @@ where
     Rhs: Data + Forward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
             .par_for_each(|v, l, r| *v = l + r);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -237,7 +271,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Subtraction<Lhs, Rhs>
@@ -253,7 +287,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -285,18 +319,26 @@ where
     Rhs: Data + Forward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
             .par_for_each(|v, l, r| *v = l - r);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -311,7 +353,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Multiplication<Lhs, Rhs>
@@ -327,7 +369,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -359,18 +401,26 @@ where
     Rhs: Data + Forward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
             .par_for_each(|v, l, r| *v = l * r);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -385,7 +435,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Division<Lhs, Rhs>
@@ -401,7 +451,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -433,18 +483,26 @@ where
     Rhs: Data + Forward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
             .par_for_each(|v, l, r| *v = l / r);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -458,7 +516,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix2>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> MatrixMatrixMul<Lhs, Rhs>
@@ -474,7 +532,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -504,12 +562,12 @@ where
     Lhs: Data<Dim = Ix2> + Forward,
     Rhs: Data<Dim = Ix2> + Forward,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         general_mat_mul(
             1.0,
             &*self.left.data(),
@@ -517,8 +575,16 @@ where
             0.0,
             &mut *self.data.borrow_mut(),
         );
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -532,7 +598,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> MatrixVectorMul<Lhs, Rhs>
@@ -548,7 +614,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -579,12 +645,12 @@ where
     Rhs: Data<Dim = Ix1> + Forward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         general_mat_vec_mul(
             1.0,
             &*self.left.data(),
@@ -592,12 +658,21 @@ where
             0.0,
             &mut *self.data.borrow_mut(),
         );
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub struct VectorMatrixMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix1> + Forward,
@@ -606,7 +681,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> VectorMatrixMul<Lhs, Rhs>
@@ -622,7 +697,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -653,12 +728,12 @@ where
     Rhs: Data<Dim = Ix2> + Forward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         general_mat_vec_mul(
             1.0,
             &self.right.data().t(),
@@ -666,8 +741,16 @@ where
             0.0,
             &mut *self.data.borrow_mut(),
         );
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -681,7 +764,7 @@ where
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> VectorVectorMul<Lhs, Rhs>
@@ -697,7 +780,7 @@ where
             left,
             right,
             data,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -728,15 +811,23 @@ where
     Rhs: Data<Dim = Ix1> + Forward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         self.data.borrow_mut()[0] = self.left.data().dot(&*self.right.data());
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -746,7 +837,7 @@ pub struct Power<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     exp: i32,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Power<T> {
@@ -757,7 +848,7 @@ impl<T: Data + Forward> Power<T> {
             op,
             data: RefCell::new(data),
             exp,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -767,18 +858,26 @@ impl<T: Data + Forward> Power<T> {
 }
 
 impl<T: Data + Forward> Forward for Power<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let exp = self.exp;
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.powi(exp));
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -795,17 +894,17 @@ impl<T: Data + Forward> Data for Power<T> {
 pub struct Sum<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<Ix1>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Sum<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(1);
+        let data = RefCell::new(Tensor::zeros(1));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -815,15 +914,23 @@ impl<T: Data + Forward> Sum<T> {
 }
 
 impl<T: Data + Forward> Forward for Sum<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         self.data.borrow_mut()[0] = self.op.data().sum();
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -840,17 +947,17 @@ impl<T: Data + Forward> Data for Sum<T> {
 pub struct Logn<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Logn<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -860,17 +967,25 @@ impl<T: Data + Forward> Logn<T> {
 }
 
 impl<T: Data + Forward> Forward for Logn<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.ln());
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -887,17 +1002,17 @@ impl<T: Data + Forward> Data for Logn<T> {
 pub struct ReLU<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> ReLU<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -907,17 +1022,25 @@ impl<T: Data + Forward> ReLU<T> {
 }
 
 impl<T: Data + Forward> Forward for ReLU<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.max(0.));
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -934,17 +1057,17 @@ impl<T: Data + Forward> Data for ReLU<T> {
 pub struct LeakyReLU<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> LeakyReLU<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -954,17 +1077,25 @@ impl<T: Data + Forward> LeakyReLU<T> {
 }
 
 impl<T: Data + Forward> Forward for LeakyReLU<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = if *o > 0.0 { *o } else { 0.01 * o });
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -981,17 +1112,17 @@ impl<T: Data + Forward> Data for LeakyReLU<T> {
 pub struct SoftPlus<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> SoftPlus<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -1001,12 +1132,12 @@ impl<T: Data + Forward> SoftPlus<T> {
 }
 
 impl<T: Data + Forward> Forward for SoftPlus<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| {
@@ -1018,8 +1149,16 @@ impl<T: Data + Forward> Forward for SoftPlus<T> {
                     (1.0 + o.exp()).ln()
                 }
             });
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1036,17 +1175,17 @@ impl<T: Data + Forward> Data for SoftPlus<T> {
 pub struct Sigmoid<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Sigmoid<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -1056,12 +1195,12 @@ impl<T: Data + Forward> Sigmoid<T> {
 }
 
 impl<T: Data + Forward> Forward for Sigmoid<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| {
@@ -1073,8 +1212,16 @@ impl<T: Data + Forward> Forward for Sigmoid<T> {
                     1.0 / (1.0 + (-*o).exp())
                 }
             });
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1091,17 +1238,17 @@ impl<T: Data + Forward> Data for Sigmoid<T> {
 pub struct TanH<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> TanH<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -1111,17 +1258,25 @@ impl<T: Data + Forward> TanH<T> {
 }
 
 impl<T: Data + Forward> Forward for TanH<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.tanh());
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1138,17 +1293,17 @@ impl<T: Data + Forward> Data for TanH<T> {
 pub struct Exp<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Exp<T> {
     pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
-            was_computed: Cell::new(false),
+            data,
+            state: Cell::new(false),
         }
     }
 
@@ -1158,17 +1313,25 @@ impl<T: Data + Forward> Exp<T> {
 }
 
 impl<T: Data + Forward> Forward for Exp<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.op.data())
             .par_for_each(|v, o| *v = o.exp());
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1186,18 +1349,18 @@ pub struct Softmax<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     axis: usize,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Softmax<T> {
     pub fn new(op: Rc<T>, axis: usize) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
+            data,
             axis,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -1207,12 +1370,12 @@ impl<T: Data + Forward> Softmax<T> {
 }
 
 impl<T: Data + Forward> Forward for Softmax<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let axis = self.axis;
         Zip::from(self.data.borrow_mut().lanes_mut(Axis(axis)))
             .and(self.op.data().lanes(Axis(axis)))
@@ -1224,8 +1387,16 @@ impl<T: Data + Forward> Forward for Softmax<T> {
                     .and(num)
                     .for_each(|lane_v_el, num_el| *lane_v_el = *num_el / den);
             });
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1238,22 +1409,23 @@ impl<T: Data + Forward> Data for Softmax<T> {
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmax ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub struct LogSoftmax<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     axis: usize,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> LogSoftmax<T> {
     pub fn new(op: Rc<T>, axis: usize) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
 
         Self {
             op,
-            data: RefCell::new(data),
+            data,
             axis,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -1263,12 +1435,12 @@ impl<T: Data + Forward> LogSoftmax<T> {
 }
 
 impl<T: Data + Forward> Forward for LogSoftmax<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let axis = self.axis;
         Zip::from(self.data.borrow_mut().lanes_mut(Axis(axis)))
             .and(self.op.data().lanes(Axis(axis)))
@@ -1280,8 +1452,16 @@ impl<T: Data + Forward> Forward for LogSoftmax<T> {
                     .and(lane_o)
                     .for_each(|lane_v_el, lane_o_el| *lane_v_el = lane_o_el - log_sum_exp - max);
             });
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1305,7 +1485,7 @@ where
     right: Rc<Rhs>,
     axis: usize,
     data: RefCell<Tensor<Lhs::Dim>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Concatenate<Lhs, Rhs>
@@ -1331,7 +1511,7 @@ where
             right,
             data,
             axis,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -1363,12 +1543,12 @@ where
     Rhs: Data + Forward,
     Lhs::Dim: RemoveAxis,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let lhs_data = self.left.data();
         let rhs_data = self.right.data();
         let mut data = self.data.borrow_mut();
@@ -1382,8 +1562,16 @@ where
         Zip::from(&*rhs_data)
             .and(&mut rhs_portion)
             .for_each(|single_el, fused_el| *fused_el = *single_el);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1399,7 +1587,7 @@ where
     right: Rc<Rhs>,
     axis: usize,
     data: RefCell<Tensor<<Lhs::Dim as Dimension>::Larger>>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Stack<Lhs, Rhs>
@@ -1409,21 +1597,23 @@ where
     Lhs::Dim: RemoveAxis,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
-        let data = stack(
-            Axis(axis),
-            &[
-                Tensor::zeros(left.data().raw_dim()).view(),
-                Tensor::zeros(right.data().raw_dim()).view(),
-            ],
-        )
-        .unwrap();
+        let data = RefCell::new(
+            stack(
+                Axis(axis),
+                &[
+                    Tensor::zeros(left.data().raw_dim()).view(),
+                    Tensor::zeros(right.data().raw_dim()).view(),
+                ],
+            )
+            .unwrap(),
+        );
 
         Self {
             left,
             right,
-            data: RefCell::new(data),
+            data,
             axis,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -1455,12 +1645,12 @@ where
     Rhs: Data + Forward,
     Lhs::Dim: RemoveAxis,
 {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let lhs_data = self.left.data();
         let rhs_data = self.right.data();
         let mut data = self.data.borrow_mut();
@@ -1472,20 +1662,28 @@ where
             .unwrap()
             .into_dimensionality::<Lhs::Dim>()
             .unwrap();
+        Zip::from(&*lhs_data)
+            .and(&mut subview_left)
+            .for_each(|single_el, fused_el| *fused_el = *single_el);
+
         let mut subview_right = subview_iter
             .next()
             .unwrap()
             .into_dimensionality::<Rhs::Dim>()
             .unwrap();
-
-        Zip::from(&*lhs_data)
-            .and(&mut subview_left)
-            .for_each(|single_el, fused_el| *fused_el = *single_el);
         Zip::from(&*rhs_data)
             .and(&mut subview_right)
             .for_each(|single_el, fused_el| *fused_el = *single_el);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 
@@ -1495,19 +1693,19 @@ pub struct Unsqueeze<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<<<T as Data>::Dim as Dimension>::Larger>>,
     axis: usize,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Data + Forward> Unsqueeze<T> {
     pub fn new(op: Rc<T>, axis: usize) -> Self {
         let shape = op.data().raw_dim();
-        let data = Tensor::zeros(shape.insert_axis(Axis(axis)));
+        let data = RefCell::new(Tensor::zeros(shape.insert_axis(Axis(axis))));
 
         Self {
             op,
-            data: RefCell::new(data),
+            data,
             axis,
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -1517,12 +1715,12 @@ impl<T: Data + Forward> Unsqueeze<T> {
 }
 
 impl<T: Data + Forward> Forward for Unsqueeze<T> {
-    fn forward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut data = self.data.borrow_mut();
         let mut unsqueezed = data
             .axis_iter_mut(Axis(self.axis))
@@ -1534,8 +1732,16 @@ impl<T: Data + Forward> Forward for Unsqueeze<T> {
         Zip::from(&mut unsqueezed)
             .and(&*operand_data)
             .par_for_each(|unsqueezed_el, operand_data_el| *unsqueezed_el = *operand_data_el);
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
     }
 }
 

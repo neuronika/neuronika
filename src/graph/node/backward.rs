@@ -79,7 +79,11 @@ pub trait Gradient {
 }
 
 pub trait Backward {
-    fn backward(&self) -> bool;
+    fn backward(&self);
+
+    fn was_computed(&self) -> bool;
+
+    fn reset_computation(&self);
 }
 
 pub trait Differentiable {
@@ -123,8 +127,16 @@ impl<D: Dimension> Gradient for InputBackward<D> {
 }
 
 impl<D: Dimension> Backward for InputBackward<D> {
-    fn backward(&self) -> bool {
+    fn backward(&self) {
+        // Nothing
+    }
+
+    fn was_computed(&self) -> bool {
         false
+    }
+
+    fn reset_computation(&self) {
+        // Nothing
     }
 }
 
@@ -145,17 +157,18 @@ pub struct NegationBackward<T: Gradient + Backward> {
     operand: Rc<T>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Gradient + Backward> NegationBackward<T> {
     pub fn new(operand: Rc<T>) -> Self {
         let gradient = RefCell::new(Tensor::zeros(operand.gradient().raw_dim()));
+
         Self {
             operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -182,12 +195,12 @@ impl<T: Gradient + Backward> Gradient for NegationBackward<T> {
 }
 
 impl<T: Gradient + Backward> Backward for NegationBackward<T> {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut operand_grad = self.operand.gradient_mut();
         let grad = self.gradient.borrow();
 
@@ -198,8 +211,14 @@ impl<T: Gradient + Backward> Backward for NegationBackward<T> {
         } else {
             zip.par_for_each(|dest, src| *dest += -src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -209,7 +228,7 @@ pub struct TransposeBackward<T: Gradient + Backward> {
     operand: Rc<T>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Gradient + Backward> TransposeBackward<T> {
@@ -220,7 +239,7 @@ impl<T: Gradient + Backward> TransposeBackward<T> {
             operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -247,12 +266,12 @@ impl<T: Gradient + Backward> Gradient for TransposeBackward<T> {
 }
 
 impl<T: Gradient + Backward> Backward for TransposeBackward<T> {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut operand_grad = self.operand.gradient_mut();
         let grad = self.gradient.borrow();
 
@@ -263,8 +282,14 @@ impl<T: Gradient + Backward> Backward for TransposeBackward<T> {
         } else {
             zip.par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -280,7 +305,7 @@ where
     right: Rc<Rhs>,
     gradient: RefCell<Tensor<Broadcasted<Lhs::Dim, Rhs::Dim>>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> AdditionBackward<Lhs, Rhs>
@@ -297,7 +322,7 @@ where
             right,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -308,12 +333,12 @@ where
     Rhs: Gradient + Backward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, mut rhs_grad) =
             { (self.left.gradient_mut(), self.right.gradient_mut()) };
         let (gradient_lhs, gradient_rhs) = {
@@ -342,8 +367,14 @@ where
                 .and_broadcast(&gradient_rhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -384,7 +415,7 @@ where
     diff_operand: Rc<T>,
     gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> AdditionBackwardUnary<T, U>
@@ -403,7 +434,7 @@ where
             diff_operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -414,12 +445,12 @@ where
     U: Data + Forward,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut operand_grad = self.diff_operand.gradient_mut();
         let gradient = reduce(&operand_grad, &*self.gradient.borrow());
 
@@ -433,8 +464,14 @@ where
                 .and_broadcast(&gradient.as_standard_layout())
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -475,7 +512,7 @@ where
     right: Rc<Rhs>,
     gradient: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> SubtractionBackward<Lhs, Rhs>
@@ -492,7 +529,7 @@ where
             right,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -503,12 +540,12 @@ where
     Rhs: Gradient + Backward,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, mut rhs_grad) =
             { (self.left.gradient_mut(), self.right.gradient_mut()) };
         let (gradient_lhs, gradient_rhs) = {
@@ -537,8 +574,14 @@ where
                 .and_broadcast(&gradient_rhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest += -src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -579,7 +622,7 @@ where
     diff_operand: Rc<T>,
     gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> SubtractionBackwardLeft<T, U>
@@ -598,7 +641,7 @@ where
             diff_operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -609,12 +652,12 @@ where
     U: Data + Forward,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut operand_grad = self.diff_operand.gradient_mut();
         let gradient = reduce(&operand_grad, &*self.gradient.borrow());
 
@@ -628,8 +671,14 @@ where
                 .and_broadcast(&gradient)
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -670,7 +719,7 @@ where
     diff_operand: Rc<T>,
     gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> SubtractionBackwardRight<T, U>
@@ -689,7 +738,7 @@ where
             diff_operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -700,12 +749,12 @@ where
     U: Data + Forward,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut operand_grad = self.diff_operand.gradient_mut();
         let gradient = reduce(&operand_grad, &*self.gradient.borrow());
 
@@ -719,8 +768,14 @@ where
                 .and_broadcast(&gradient)
                 .par_for_each(|dest, src| *dest += -src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -767,7 +822,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Broadcasted<LhsG::Dim, RhsG::Dim>>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
@@ -797,7 +852,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -811,12 +866,12 @@ where
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, mut rhs_grad) = {
             (
                 self.left_grad.gradient_mut(),
@@ -859,8 +914,14 @@ where
                 .and_broadcast(&to_right_grad.as_standard_layout())
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -905,7 +966,7 @@ where
     no_diff_operand: Rc<U>,
     gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> MultiplicationBackwardUnary<T, U>
@@ -925,7 +986,7 @@ where
             no_diff_operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -936,12 +997,12 @@ where
     U: Data + Forward,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut operand_grad = self.diff_operand.gradient_mut();
         let grad = self.gradient.borrow();
 
@@ -964,8 +1025,14 @@ where
                 .and_broadcast(&gradient.as_standard_layout())
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1012,7 +1079,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Broadcasted<LhsG::Dim, RhsG::Dim>>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> DivisionBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1042,7 +1109,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1056,12 +1123,12 @@ where
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, mut rhs_grad) = {
             (
                 self.left_grad.gradient_mut(),
@@ -1107,8 +1174,14 @@ where
                 .and_broadcast(&to_right_grad.as_standard_layout())
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1153,7 +1226,7 @@ where
     right_data: Rc<RhsD>,
     gradient: RefCell<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsG, RhsD> DivisionBackwardLeft<LhsG, RhsD>
@@ -1170,7 +1243,7 @@ where
             right_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1181,12 +1254,12 @@ where
     LhsG: Gradient + Backward,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut lhs_grad = { self.left_grad.gradient_mut() };
         let grad = self.gradient.borrow();
 
@@ -1207,8 +1280,14 @@ where
                 .and_broadcast(&to_left_grad.as_standard_layout())
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1252,7 +1331,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, RhsD, RhsG> DivisionBackwardRight<LhsD, RhsD, RhsG>
@@ -1271,7 +1350,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1283,12 +1362,12 @@ where
     RhsG: Gradient + Backward,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut rhs_grad = self.right_grad.gradient_mut();
         let grad = self.gradient.borrow();
 
@@ -1312,8 +1391,14 @@ where
                 .and_broadcast(&to_right_grad.as_standard_layout())
                 .par_for_each(|dest, src| *dest += *src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1359,7 +1444,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Ix2>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1388,7 +1473,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1400,12 +1485,12 @@ where
     LhsG: Gradient<Dim = Ix2> + Gradient,
     RhsG: Gradient<Dim = Ix2> + Gradient,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
             (
                 self.left_grad.gradient_mut(),
@@ -1429,8 +1514,14 @@ where
         } else {
             general_mat_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1472,7 +1563,7 @@ where
     right_data: Rc<RhsD>,
     gradient: RefCell<Tensor<Ix2>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsG, RhsD> MatrixMatrixMulBackwardLeft<LhsG, RhsD>
@@ -1489,7 +1580,7 @@ where
             right_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1499,12 +1590,12 @@ where
     RhsD: Data<Dim = Ix2> + Forward,
     LhsG: Gradient<Dim = Ix2> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
         let grad = self.gradient.borrow();
 
@@ -1514,8 +1605,14 @@ where
         } else {
             general_mat_mul(1.0, &grad, &rhs_data.t(), 1., &mut lhs_grad);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1555,7 +1652,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Ix2>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, RhsG> MatrixMatrixMulBackwardRight<LhsD, RhsG>
@@ -1572,7 +1669,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1582,12 +1679,12 @@ where
     LhsD: Data<Dim = Ix2> + Forward,
     RhsG: Gradient<Dim = Ix2> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
         let grad = self.gradient.borrow();
 
@@ -1597,8 +1694,14 @@ where
         } else {
             general_mat_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1627,9 +1730,8 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub struct MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2> + Forward,
@@ -1643,7 +1745,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1672,7 +1774,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1684,12 +1786,12 @@ where
     LhsG: Gradient<Dim = Ix2> + Backward,
     RhsG: Gradient<Dim = Ix1> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
             (
                 self.left_grad.gradient_mut(),
@@ -1720,8 +1822,14 @@ where
         } else {
             general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1763,7 +1871,7 @@ where
     right_data: Rc<RhsD>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsG, RhsD> MatrixVectorMulBackwardLeft<LhsG, RhsD>
@@ -1780,7 +1888,7 @@ where
             right_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1790,12 +1898,12 @@ where
     RhsD: Data<Dim = Ix1> + Forward,
     LhsG: Gradient<Dim = Ix2> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
         let grad = self.gradient.borrow();
         let zip = Zip::from(&mut *lhs_grad)
@@ -1812,8 +1920,14 @@ where
                 *lhs_grad_el += grad_el * rhs_data_el
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1853,7 +1967,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, RhsG> MatrixVectorMulBackwardRight<LhsD, RhsG>
@@ -1870,7 +1984,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1880,12 +1994,12 @@ where
     LhsD: Data<Dim = Ix2> + Forward,
     RhsG: Gradient<Dim = Ix1> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
 
         let grad = self.gradient.borrow();
@@ -1895,8 +2009,14 @@ where
         } else {
             general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -1939,7 +2059,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1968,7 +2088,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -1980,12 +2100,12 @@ where
     LhsG: Gradient<Dim = Ix1> + Backward,
     RhsG: Gradient<Dim = Ix2> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
             (
                 self.left_grad.gradient_mut(),
@@ -2017,8 +2137,14 @@ where
                 *rhs_grad_el += grad_el * lhs_data_el
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2050,6 +2176,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub struct VectorMatrixMulBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data<Dim = Ix2> + Forward,
@@ -2059,7 +2186,7 @@ where
     right_data: Rc<RhsD>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsG, RhsD> VectorMatrixMulBackwardLeft<LhsG, RhsD>
@@ -2076,7 +2203,7 @@ where
             right_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2086,12 +2213,12 @@ where
     RhsD: Data<Dim = Ix2> + Forward,
     LhsG: Gradient<Dim = Ix1> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
         let grad = self.gradient.borrow();
 
@@ -2101,8 +2228,14 @@ where
         } else {
             general_mat_vec_mul(1.0, &rhs_data, &grad, 1., &mut lhs_grad);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2142,7 +2275,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, RhsG> VectorMatrixMulBackwardRight<LhsD, RhsG>
@@ -2159,7 +2292,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2169,12 +2302,12 @@ where
     LhsD: Data<Dim = Ix1> + Forward,
     RhsG: Gradient<Dim = Ix2> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
         let grad = self.gradient.borrow();
 
@@ -2192,8 +2325,14 @@ where
                 *rhs_grad_el += grad_el * lhs_data_el
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2238,7 +2377,7 @@ where
     right_grad: Rc<RhsG>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -2267,7 +2406,7 @@ where
             right_grad,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2279,12 +2418,12 @@ where
     LhsG: Gradient<Dim = Ix1> + Backward,
     RhsG: Gradient<Dim = Ix1> + Backward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
             (
                 self.left_grad.gradient_mut(),
@@ -2310,8 +2449,14 @@ where
         } else {
             right_zip.for_each(|rhs_grad_el, lhs_data_el| *rhs_grad_el += lhs_data_el * grad[0]);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2353,7 +2498,7 @@ where
     no_diff_operand: Rc<U>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> VectorVectorMulBackwardUnary<T, U>
@@ -2373,7 +2518,7 @@ where
             no_diff_operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2383,12 +2528,12 @@ where
     T: Gradient<Dim = Ix1> + Backward,
     U: Data<Dim = Ix1> + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let (mut diff_op_grad, no_diff_op_data) = {
             (
                 self.diff_operand.gradient_mut(),
@@ -2408,8 +2553,14 @@ where
                 *diff_op_grad_el += no_diff_op_data_el * grad[0]
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2450,7 +2601,7 @@ where
     exp: i32,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> PowerBackward<T, U>
@@ -2467,7 +2618,7 @@ where
             exp,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2502,12 +2653,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -2524,8 +2675,14 @@ where
                 *op_grad_el += grad_el * op_data_el.powi(exp - 1) * exp as f32
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2535,7 +2692,7 @@ pub struct SumBackward<T: Gradient + Backward> {
     operand: Rc<T>,
     gradient: RefCell<Tensor<Ix1>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Gradient + Backward> SumBackward<T> {
@@ -2546,7 +2703,7 @@ impl<T: Gradient + Backward> SumBackward<T> {
             operand,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2573,12 +2730,12 @@ impl<T: Gradient + Backward> Gradient for SumBackward<T> {
 }
 
 impl<T: Gradient + Backward> Backward for SumBackward<T> {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand.gradient_mut();
         let grad = self.gradient.borrow();
 
@@ -2589,8 +2746,14 @@ impl<T: Gradient + Backward> Backward for SumBackward<T> {
         } else {
             zip.par_for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2605,7 +2768,7 @@ where
     operand_data: Rc<U>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> LognBackward<T, U>
@@ -2621,7 +2784,7 @@ where
             operand_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2656,12 +2819,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -2673,8 +2836,14 @@ where
         } else {
             zip.par_for_each(|op_grad_el, grad_el, op_data_el| *op_grad_el += grad_el / op_data_el);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2689,7 +2858,7 @@ where
     operand_data: Rc<U>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> ReLUBackward<T, U>
@@ -2705,7 +2874,7 @@ where
             operand_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2740,12 +2909,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -2761,8 +2930,14 @@ where
                 *op_grad_el += if *op_data_el > 0.0 { *grad_el } else { 0.0 }
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2777,7 +2952,7 @@ where
     operand_data: Rc<U>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> LeakyReLUBackward<T, U>
@@ -2793,7 +2968,7 @@ where
             operand_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2828,12 +3003,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -2849,8 +3024,14 @@ where
                 *op_grad_el += if *op_data_el > 0.0 { *grad_el } else { 0.01 }
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2865,7 +3046,7 @@ where
     operand_data: Rc<U>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> SoftPlusBackward<T, U>
@@ -2881,7 +3062,7 @@ where
             operand_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -2916,12 +3097,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -2949,8 +3130,14 @@ where
                 }
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -2965,7 +3152,7 @@ where
     operand_data: Rc<U>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> SigmoidBackward<T, U>
@@ -2981,7 +3168,7 @@ where
             operand_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -3016,12 +3203,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -3037,8 +3224,14 @@ where
                 *op_grad_el += *grad_el * *op_data_el * (1.0 - *op_data_el)
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3053,7 +3246,7 @@ where
     operand_data: Rc<U>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> TanHBackward<T, U>
@@ -3069,7 +3262,7 @@ where
             operand_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -3104,12 +3297,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -3125,8 +3318,14 @@ where
                 *op_grad_el += *grad_el * (1.0 - op_data_el.powi(2))
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3141,7 +3340,7 @@ where
     operand_data: Rc<U>,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> ExpBackward<T, U>
@@ -3157,7 +3356,7 @@ where
             operand_data,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -3192,12 +3391,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -3211,8 +3410,14 @@ where
                 *op_grad_el += *grad_el * op_data_el
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3228,7 +3433,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> SoftmaxBackward<T, U>
@@ -3245,7 +3450,7 @@ where
             axis,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -3280,12 +3485,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
         let grad = self.gradient.borrow();
@@ -3310,8 +3515,14 @@ where
                 general_mat_vec_mul(1.0, &jacobian, &grad_lane, 1., &mut op_grad_lane);
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3327,7 +3538,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T, U> LogSoftmaxBackward<T, U>
@@ -3344,7 +3555,7 @@ where
             axis,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -3379,12 +3590,12 @@ where
     T: Gradient<Dim = U::Dim> + Backward,
     U: Data + Forward,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut op_grad = self.operand_grad.gradient_mut();
         let data = self.forward_data.data();
         let grad = self.gradient.borrow();
@@ -3415,8 +3626,14 @@ where
                     })
             });
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3433,7 +3650,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<Lhs::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> ConcatenateBackward<Lhs, Rhs>
@@ -3457,7 +3674,7 @@ where
             gradient,
             axis,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -3502,12 +3719,12 @@ where
     Rhs: Gradient + Backward,
     Lhs::Dim: RemoveAxis,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let grad = self.gradient.borrow();
         let mut lhs_grad = self.left.gradient_mut();
         let mut rhs_grad = self.right.gradient_mut();
@@ -3531,8 +3748,14 @@ where
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3546,7 +3769,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T> ConcatenateBackwardLeft<T>
@@ -3567,7 +3790,7 @@ where
             axis,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -3606,12 +3829,12 @@ where
     T: Gradient + Backward,
     T::Dim: RemoveAxis,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let grad = self.gradient.borrow();
         let mut lhs_grad = self.left.gradient_mut();
         let axis = self.axis;
@@ -3626,8 +3849,14 @@ where
         } else {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3643,7 +3872,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<T::Dim>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T> ConcatenateBackwardRight<T>
@@ -3665,7 +3894,7 @@ where
             offset: left.data().len_of(Axis(axis)),
             axis,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
     pub fn operand(&self) -> Rc<T> {
@@ -3703,12 +3932,12 @@ where
     T: Gradient + Backward,
     T::Dim: RemoveAxis,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let grad = self.gradient.borrow();
         let mut rhs_grad = self.right.gradient_mut();
         let axis = self.axis;
@@ -3721,13 +3950,19 @@ where
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub struct StackBackward<Lhs, Rhs>
 where
     Lhs: Gradient<Dim = Rhs::Dim> + Backward,
@@ -3739,7 +3974,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<<Lhs::Dim as Dimension>::Larger>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<Lhs, Rhs> StackBackward<Lhs, Rhs>
@@ -3763,7 +3998,7 @@ where
             gradient,
             axis,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -3808,12 +4043,12 @@ where
     Rhs: Gradient + Backward,
     Lhs::Dim: RemoveAxis,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let grad = self.gradient.borrow();
         let mut lhs_grad = self.left.gradient_mut();
         let mut rhs_grad = self.right.gradient_mut();
@@ -3849,8 +4084,14 @@ where
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3864,7 +4105,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T> StackBackwardLeft<T>
@@ -3885,7 +4126,7 @@ where
             gradient,
             axis,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -3924,12 +4165,12 @@ where
     T: Gradient + Backward,
     T::Dim: RemoveAxis,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let grad = self.gradient.borrow();
         let mut lhs_grad = self.left.gradient_mut();
         let axis = self.axis;
@@ -3947,8 +4188,14 @@ where
         } else {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -3963,7 +4210,7 @@ where
     axis: usize,
     gradient: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T> StackBackwardRight<T>
@@ -3984,7 +4231,7 @@ where
             gradient,
             axis,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 
@@ -4023,12 +4270,12 @@ where
     T: Gradient + Backward,
     T::Dim: RemoveAxis,
 {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let grad = self.gradient.borrow();
         let mut rhs_grad = self.right.gradient_mut();
         let axis = self.axis;
@@ -4047,7 +4294,14 @@ where
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
-        true
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
 
@@ -4058,7 +4312,7 @@ pub struct UnsqueezeBackward<T: Gradient + Backward> {
     axis: usize,
     gradient: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
     can_overwrite: Cell<bool>,
-    was_computed: Cell<bool>,
+    state: Cell<bool>,
 }
 
 impl<T: Gradient + Backward> UnsqueezeBackward<T> {
@@ -4071,7 +4325,7 @@ impl<T: Gradient + Backward> UnsqueezeBackward<T> {
             axis,
             gradient,
             can_overwrite: Cell::new(true),
-            was_computed: Cell::new(false),
+            state: Cell::new(false),
         }
     }
 }
@@ -4098,12 +4352,12 @@ impl<T: Gradient + Backward> Gradient for UnsqueezeBackward<T> {
 }
 
 impl<T: Gradient + Backward> Backward for UnsqueezeBackward<T> {
-    fn backward(&self) -> bool {
-        if self.was_computed.get() {
-            return false;
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
         }
 
-        self.was_computed.set(true);
+        self.state.set(true);
         let mut operand_grad = self.operand.gradient_mut();
         let axis = self.axis;
         let grad = self.gradient.borrow();
@@ -4121,7 +4375,13 @@ impl<T: Gradient + Backward> Backward for UnsqueezeBackward<T> {
         } else {
             zip.par_for_each(|dest, src| *dest += src);
         }
+    }
 
-        true
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
     }
 }
