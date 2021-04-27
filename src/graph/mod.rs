@@ -33,6 +33,7 @@ use std::{
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type Tensor<D> = Array<f32, D>;
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Global Var Identifier ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -52,6 +53,7 @@ pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ParamDim Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub trait ParamDim: Dimension + 'static {
     fn insert(item: Param<Self>, dest: &mut Parameters);
 }
@@ -268,6 +270,7 @@ where
     pub(crate) id: usize,
     pub(crate) forward: Rc<T>,
     pub(crate) forward_path: BTreeMap<usize, Rc<dyn Forward>>,
+    pub(crate) forward_buffer: Vec<Rc<dyn Forward>>,
 }
 
 impl<T> Var<T>
@@ -279,10 +282,12 @@ where
         let forward = Rc::new(node);
         let mut forward_path = BTreeMap::new();
         forward_path.insert(id, forward.clone() as Rc<dyn Forward>);
+
         Self {
             id,
             forward,
             forward_path,
+            forward_buffer: Vec::new(),
         }
     }
 }
@@ -296,6 +301,7 @@ where
             id: self.id,
             forward: self.forward.clone(),
             forward_path: self.forward_path.clone(),
+            forward_buffer: self.forward_buffer.clone(),
         }
     }
 }
@@ -338,11 +344,32 @@ impl<T> Var<T>
 where
     T: Data + Forward + 'static,
 {
-    pub fn forward(&self) {
-        for f in &self.forward_path {
-            f.1.forward();
+    pub fn forward(&mut self) {
+        if self.forward_buffer.is_empty() {
+            self.forward_buffer = self.forward_path.values().cloned().collect()
+        }
+
+        let mut res = self.forward_buffer.binary_search_by(|node| {
+            if node.was_computed() {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        });
+
+        if let Err(i) = res {
+            if self.forward_buffer.get(i).is_some() {
+                res = Ok(i);
+            }
+        };
+
+        if let Ok(pos) = res {
+            for node in &self.forward_buffer[pos..] {
+                node.forward();
+            }
         }
     }
+
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.forward.data()
     }
@@ -360,6 +387,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -371,10 +399,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -386,10 +416,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -401,10 +433,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -416,10 +450,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -431,10 +467,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -446,10 +484,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -461,10 +501,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -476,10 +518,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -491,10 +535,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -506,10 +552,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 
@@ -521,10 +569,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -542,10 +592,12 @@ where
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
+
         Var {
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -1000,6 +1052,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -1143,6 +1196,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -1286,6 +1340,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -1437,6 +1492,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -1713,6 +1769,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -1864,6 +1921,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -2014,6 +2072,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -2163,6 +2222,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -2313,6 +2373,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
         }
     }
 }
@@ -2451,6 +2512,29 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: self.forward_buffer,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod var {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let a = Input::new(
+                Tensor::from_shape_vec((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]).unwrap(),
+            );
+            let b = Input::new(Tensor::from_shape_vec((1, 3), vec![1., 1., 1.]).unwrap());
+
+            let mut c = a + b;
+            let mut d = c.clone().relu().ln();
+            c.forward();
+            d.forward();
         }
     }
 }

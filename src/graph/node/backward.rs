@@ -190,6 +190,7 @@ impl<T: Gradient + Backward> Gradient for NegationBackward<T> {
 
     fn was_overwritten(&self) {
         debug_assert_eq!(self.can_overwrite.get(), true);
+
         self.can_overwrite.set(false);
     }
 }
