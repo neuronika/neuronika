@@ -1,23 +1,25 @@
 pub mod node;
 use itertools::Itertools;
-use ndarray::{Array, DimMax, Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis};
+use ndarray::{
+    Array, DimMax, Dimension, IntoDimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis,
+};
 use node::{
     backward::{Backward, Differentiable, Gradient},
     forward::{Data, Forward},
-    Addition, AdditionBackward, AdditionBackwardUnary, Concatenate, ConcatenateBackward,
-    ConcatenateBackwardLeft, ConcatenateBackwardRight, Division, DivisionBackward,
-    DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, LeakyReLU, LeakyReLUBackward,
-    LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward,
-    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixVectorMul,
-    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
-    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
-    NegationBackward, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
-    SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
-    StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
-    SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
-    Unsqueeze, UnsqueezeBackward, VectorMatrixMul, VectorMatrixMulBackward,
-    VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight, VectorVectorMul,
-    VectorVectorMulBackward, VectorVectorMulBackwardUnary,
+    Addition, AdditionBackward, AdditionBackwardUnary, Chunk, ChunkBackward, Concatenate,
+    ConcatenateBackward, ConcatenateBackwardLeft, ConcatenateBackwardRight, Division,
+    DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, LeakyReLU,
+    LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul,
+    MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight,
+    MatrixVectorMul, MatrixVectorMulBackward, MatrixVectorMulBackwardLeft,
+    MatrixVectorMulBackwardRight, Multiplication, MultiplicationBackward,
+    MultiplicationBackwardUnary, Negation, NegationBackward, Power, PowerBackward, ReLU,
+    ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
+    Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction,
+    SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH,
+    TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
+    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
+    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 pub use node::{Input, InputBackward};
 use std::{
@@ -527,6 +529,29 @@ where
             forward_path: self.forward_path,
         }
     }
+    pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
+        let forward = self.forward;
+        let forward_path = self.forward_path;
+        let data = forward.data();
+        let chunks = data.exact_chunks(chunk_size).into_iter().enumerate();
+        chunks
+            .map(|(i, chunk)| {
+                let (id, forward) = (
+                    unsafe { OPERATIONS_COUNTER.next() },
+                    Rc::new(Chunk::new(forward.clone(), chunk.to_owned(), i)),
+                );
+
+                let mut new_forward_path = forward_path.clone();
+                new_forward_path.insert(id, forward.clone() as Rc<dyn Forward>);
+
+                Var {
+                    id,
+                    forward,
+                    forward_path: new_forward_path,
+                }
+            })
+            .collect()
+    }
 }
 
 impl<T, D> Var<T>
@@ -906,6 +931,40 @@ where
             parameters: self.parameters,
         }
     }
+
+    pub fn chunks<E: IntoDimension<Dim = T::Dim>>(
+        self,
+        chunk_size: E,
+    ) -> Vec<VarDiff<Chunk<T>, ChunkBackward<U>>> {
+        let (forward, backward) = (self.forward, self.backward);
+        let (forward_path, backward_path) = (self.forward_path, self.backward_path);
+        let parameters = self.parameters;
+        let data = forward.data();
+        let chunks = data.exact_chunks(chunk_size).into_iter().enumerate();
+        chunks
+            .map(|(i, chunk)| {
+                let (id, forward, backward) = (
+                    unsafe { OPERATIONS_COUNTER.next() },
+                    Rc::new(Chunk::new(forward.clone(), chunk.to_owned(), i)),
+                    Rc::new(ChunkBackward::new(backward.clone(), chunk.map(|_| 0.0), i)),
+                );
+
+                let mut new_forward_path = forward_path.clone();
+                new_forward_path.insert(id, forward.clone() as Rc<dyn Forward>);
+                let mut new_backward_path = backward_path.clone();
+                new_backward_path.insert(id, backward.clone() as Rc<dyn Backward>);
+
+                VarDiff {
+                    id,
+                    forward,
+                    backward,
+                    forward_path: new_forward_path,
+                    backward_path: new_backward_path,
+                    parameters: parameters.clone(),
+                }
+            })
+            .collect()
+    }
 }
 
 impl<T, U, D> VarDiff<T, U>
@@ -942,6 +1001,29 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T> Neg for Var<T>
+where
+    T: Data + Forward + 'static,
+{
+    type Output = Var<Negation<T>>;
+
+    fn neg(mut self) -> Self::Output {
+        let forward = self.forward;
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Negation::new(forward.clone())),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            forward,
+            forward_path: self.forward_path,
+        }
+    }
+}
 
 impl<T, U> Neg for VarDiff<T, U>
 where
