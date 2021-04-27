@@ -1753,6 +1753,76 @@ impl<T: Data + Forward> Data for Unsqueeze<T> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Chunk ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct Chunk<T: Data + Forward> {
+    op: Rc<T>,
+    chunk_no: usize,
+    chunk_shape: T::Dim,
+    data: RefCell<Tensor<T::Dim>>,
+    state: Cell<bool>,
+}
+
+impl<T: Data + Forward> Chunk<T> {
+    pub fn new(op: Rc<T>, chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
+        Self {
+            op,
+            chunk_shape: chunk.raw_dim(),
+            data: RefCell::new(chunk),
+            chunk_no,
+            state: Cell::new(false),
+        }
+    }
+
+    pub fn operand(&self) -> Rc<T> {
+        self.op.clone()
+    }
+}
+
+impl<T: Data + Forward> Forward for Chunk<T> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.state.set(true);
+        let mut data = self.data.borrow_mut();
+        let op_data = self.op.data();
+        let (chunk_shape, chunk_no) = (&self.chunk_shape, self.chunk_no);
+        let operand_data_chunk = op_data
+            .exact_chunks(chunk_shape.clone())
+            .into_iter()
+            .skip(chunk_no)
+            .take(1)
+            .next()
+            .unwrap();
+        Zip::from(&mut *data)
+            .and(&operand_data_chunk)
+            .par_for_each(|chunk_el, operand_data_chunk_el| *chunk_el = *operand_data_chunk_el);
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        debug_assert_eq!(self.state.get(), true);
+
+        self.state.set(false);
+    }
+}
+
+impl<T: Data + Forward> Data for Chunk<T> {
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -234,7 +234,7 @@ pub struct TransposeBackward<T: Gradient + Backward> {
 
 impl<T: Gradient + Backward> TransposeBackward<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand.gradient().raw_dim()));
+        let gradient = RefCell::new(Tensor::zeros(operand.gradient().t().raw_dim()));
 
         Self {
             operand,
@@ -4370,6 +4370,87 @@ impl<T: Gradient + Backward> Backward for UnsqueezeBackward<T> {
             .unwrap();
 
         let zip = Zip::from(&mut *operand_grad).and(&unsqueezed_gradient);
+        if self.operand.can_overwrite() {
+            zip.par_for_each(|dest, src| *dest = *src);
+            self.operand.was_overwritten();
+        } else {
+            zip.par_for_each(|dest, src| *dest += src);
+        }
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ChunkBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct ChunkBackward<T: Gradient + Backward> {
+    operand: Rc<T>,
+    chunk_no: usize,
+    chunk_shape: T::Dim,
+    gradient: RefCell<Tensor<T::Dim>>,
+    can_overwrite: Cell<bool>,
+    state: Cell<bool>,
+}
+
+impl<T: Gradient + Backward> ChunkBackward<T> {
+    pub fn new(operand: Rc<T>, grad_chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
+        Self {
+            operand,
+            chunk_no,
+            chunk_shape: grad_chunk.raw_dim(),
+            gradient: RefCell::new(grad_chunk),
+            can_overwrite: Cell::new(true),
+            state: Cell::new(false),
+        }
+    }
+}
+
+impl<T: Gradient + Backward> Gradient for ChunkBackward<T> {
+    type Dim = T::Dim;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+
+    fn can_overwrite(&self) -> bool {
+        self.can_overwrite.get()
+    }
+
+    fn was_overwritten(&self) {
+        debug_assert_eq!(self.can_overwrite.get(), true);
+        self.can_overwrite.set(false);
+    }
+}
+
+impl<T: Gradient + Backward> Backward for ChunkBackward<T> {
+    fn backward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.state.set(true);
+        let mut operand_grad = self.operand.gradient_mut();
+        let grad = self.gradient.borrow();
+        let (chunk_no, chunk_shape) = (self.chunk_no, &self.chunk_shape);
+        let mut op_gradient_chunk = operand_grad
+            .exact_chunks_mut(chunk_shape.clone())
+            .into_iter()
+            .skip(chunk_no)
+            .take(1)
+            .next()
+            .unwrap();
+
+        let zip = Zip::from(&mut op_gradient_chunk).and(&*grad);
         if self.operand.can_overwrite() {
             zip.par_for_each(|dest, src| *dest = *src);
             self.operand.was_overwritten();

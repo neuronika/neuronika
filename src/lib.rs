@@ -149,7 +149,7 @@ macro_rules! full {
 macro_rules! rand {
     ($sh:expr, true) => {{
         use $crate::RandomExt;
-        $crate::Input::new($crate::ndarray::Array::rand(
+        $crate::Input::new($crate::ndarray::Array::random(
             $sh,
             $crate::Uniform::new(0., 1.),
         ))
