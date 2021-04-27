@@ -1265,7 +1265,7 @@ where
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
         Rc::new(NLLLoss::new(
-            input_forward.clone(),
+            input_forward,
             target_forward.clone(),
             reduction.clone(),
         )),

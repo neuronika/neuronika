@@ -380,7 +380,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Sum::new(forward.clone())),
+            Rc::new(Sum::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -397,7 +397,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Power::new(forward.clone(), exp)),
+            Rc::new(Power::new(forward, exp)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -414,7 +414,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(ReLU::new(forward.clone())),
+            Rc::new(ReLU::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -431,7 +431,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(LeakyReLU::new(forward.clone())),
+            Rc::new(LeakyReLU::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -448,7 +448,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(SoftPlus::new(forward.clone())),
+            Rc::new(SoftPlus::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -465,7 +465,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Sigmoid::new(forward.clone())),
+            Rc::new(Sigmoid::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -482,7 +482,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(TanH::new(forward.clone())),
+            Rc::new(TanH::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -499,7 +499,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Logn::new(forward.clone())),
+            Rc::new(Logn::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -516,7 +516,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Exp::new(forward.clone())),
+            Rc::new(Exp::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -533,7 +533,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Softmax::new(forward.clone(), axis)),
+            Rc::new(Softmax::new(forward, axis)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -550,7 +550,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(LogSoftmax::new(forward.clone(), axis)),
+            Rc::new(LogSoftmax::new(forward, axis)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -567,7 +567,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Transpose::new(forward.clone())),
+            Rc::new(Transpose::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -579,6 +579,7 @@ where
             forward_buffer: self.forward_buffer,
         }
     }
+
     pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
         let forward = self.forward;
         let forward_path = self.forward_path;
@@ -598,6 +599,7 @@ where
                     id,
                     forward,
                     forward_path: new_forward_path,
+                    forward_buffer: Vec::new(),
                 }
             })
             .collect()
@@ -613,7 +615,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Unsqueeze::new(forward.clone(), axis)),
+            Rc::new(Unsqueeze::new(forward, axis)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -722,7 +724,7 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Sum::new(forward.clone())),
+            Rc::new(Sum::new(forward)),
             Rc::new(SumBackward::new(backward)),
         );
         self.forward_path
@@ -944,7 +946,7 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(LogSoftmax::new(forward.clone(), axis)),
+            Rc::new(LogSoftmax::new(forward, axis)),
         );
         let backward = Rc::new(LogSoftmaxBackward::new(backward, forward.clone(), axis));
         self.forward_path
@@ -966,7 +968,7 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Transpose::new(forward.clone())),
+            Rc::new(Transpose::new(forward)),
             Rc::new(TransposeBackward::new(backward)),
         );
         self.forward_path
@@ -1029,7 +1031,7 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Unsqueeze::new(forward.clone(), axis)),
+            Rc::new(Unsqueeze::new(forward, axis)),
             Rc::new(UnsqueezeBackward::new(backward, axis)),
         );
         self.forward_path
@@ -1064,7 +1066,7 @@ where
         let forward = self.forward;
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Negation::new(forward.clone())),
+            Rc::new(Negation::new(forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -1073,6 +1075,7 @@ where
             id,
             forward,
             forward_path: self.forward_path,
+            forward_buffer: Vec::new(),
         }
     }
 }
@@ -1088,7 +1091,7 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Negation::new(forward.clone())),
+            Rc::new(Negation::new(forward)),
             Rc::new(NegationBackward::new(backward)),
         );
         self.forward_path
@@ -1766,10 +1769,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(MatrixMatrixMul::new(lhs_forward, rhs_forward.clone())),
             Rc::new(MatrixMatrixMulBackwardLeft::new(lhs_backward, rhs_forward)),
         );
         self.forward_path
@@ -1804,10 +1804,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(MatrixMatrixMul::new(lhs_forward.clone(), rhs_forward)),
             Rc::new(MatrixMatrixMulBackwardRight::new(lhs_forward, rhs_backward)),
         );
         self.forward_path
@@ -1839,10 +1836,7 @@ where
 
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(MatrixMatrixMul::new(lhs_forward, rhs_forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -1918,10 +1912,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(MatrixVectorMul::new(lhs_forward, rhs_forward.clone())),
             Rc::new(MatrixVectorMulBackwardLeft::new(lhs_backward, rhs_forward)),
         );
         self.forward_path
@@ -1956,10 +1947,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(MatrixVectorMul::new(lhs_forward.clone(), rhs_forward)),
             Rc::new(MatrixVectorMulBackwardRight::new(lhs_forward, rhs_backward)),
         );
         self.forward_path
@@ -1991,10 +1979,7 @@ where
 
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(MatrixVectorMul::new(lhs_forward, rhs_forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -2069,10 +2054,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(VectorMatrixMul::new(lhs_forward, rhs_forward.clone())),
             Rc::new(VectorMatrixMulBackwardLeft::new(lhs_backward, rhs_forward)),
         );
         self.forward_path
@@ -2107,10 +2089,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(VectorMatrixMul::new(lhs_forward.clone(), rhs_forward)),
             Rc::new(VectorMatrixMulBackwardRight::new(lhs_forward, rhs_backward)),
         );
         self.forward_path
@@ -2142,10 +2121,7 @@ where
 
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(VectorMatrixMul::new(lhs_forward, rhs_forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
@@ -2219,10 +2195,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(VectorVectorMul::new(lhs_forward, rhs_forward.clone())),
             Rc::new(VectorVectorMulBackwardUnary::new(lhs_backward, rhs_forward)),
         );
         self.forward_path
@@ -2257,10 +2230,7 @@ where
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(VectorVectorMul::new(lhs_forward.clone(), rhs_forward)),
             Rc::new(VectorVectorMulBackwardUnary::new(rhs_backward, lhs_forward)),
         );
         self.forward_path
@@ -2292,10 +2262,7 @@ where
 
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
+            Rc::new(VectorVectorMul::new(lhs_forward, rhs_forward)),
         );
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);

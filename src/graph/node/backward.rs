@@ -4280,10 +4280,9 @@ where
         let grad = self.gradient.borrow();
         let mut rhs_grad = self.right.gradient_mut();
         let axis = self.axis;
-        let subview_iter = grad.axis_iter(Axis(axis));
-        let rhs_portion = subview_iter
-            .skip(1)
-            .next()
+        let rhs_portion = grad
+            .axis_iter(Axis(axis))
+            .nth(1)
             .unwrap()
             .into_dimensionality::<T::Dim>()
             .unwrap();
