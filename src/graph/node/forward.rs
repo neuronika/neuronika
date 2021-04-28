@@ -999,6 +999,7 @@ impl<T: Data + Forward> Data for Logn<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct ReLU<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
@@ -1054,6 +1055,7 @@ impl<T: Data + Forward> Data for ReLU<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct LeakyReLU<T: Data + Forward> {
     op: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,

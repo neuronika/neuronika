@@ -2850,6 +2850,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ReLUBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct ReLUBackward<T, U>
 where
     T: Gradient<Dim = U::Dim> + Backward,
@@ -2943,7 +2944,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLUBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct LeakyReLUBackward<T, U>
 where
     T: Gradient<Dim = U::Dim> + Backward,

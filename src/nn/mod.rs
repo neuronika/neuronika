@@ -193,6 +193,7 @@ impl Linear {
 }
 
 /// A **long short-term memory (LSTM)** cell.
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct LSTMCell {
     pub weight_ih: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
     pub weight_hh: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
@@ -290,6 +291,7 @@ impl LSTMCell {
 }
 
 /// A **gated recurrent unit (GRU)** cell.
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct GRUCell {
     pub weight_ih: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
     pub weight_hh: VarDiff<Input<Ix2>, InputBackward<Ix2>>,

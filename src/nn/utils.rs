@@ -158,7 +158,7 @@ pub fn as_windows<'a, D: Dimension>(
             }
         });
         let view_strides: &[isize] = view.strides();
-        view_strides.iter().cloned().collect()
+        view_strides.to_vec()
     };
     // Number of in channels doesn't count for the window's strides,
     // it must be left unchanged.

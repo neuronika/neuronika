@@ -18,6 +18,7 @@ pub enum Reduction {
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Square Erorr Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MSELoss<T, U>
 where
     T: Data + Forward,
@@ -98,6 +99,7 @@ where
     }
 }
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MSELossBackward<T, U, V>
 where
     T: Gradient + Backward,
@@ -258,6 +260,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Absolute Error Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MAELoss<T, U>
 where
     T: Data + Forward,
@@ -338,6 +341,7 @@ where
     }
 }
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MAELossBackward<T, U, V>
 where
     T: Gradient + Backward,
@@ -506,6 +510,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCELoss<T, U>
 where
     T: Data + Forward,
@@ -591,6 +596,7 @@ where
     }
 }
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCELossBackward<T, U, V>
 where
     T: Gradient + Backward,
@@ -761,6 +767,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy With Logits Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCEWithLogitsLoss<T, U>
 where
     T: Data + Forward,
@@ -846,6 +853,7 @@ where
     }
 }
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCEWithLogitsLossBackward<T, U, V>
 where
     T: Gradient + Backward,
@@ -1027,6 +1035,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
@@ -1116,6 +1125,7 @@ where
     }
 }
 
+#[allow(clippy::clippy::upper_case_acronyms)]
 pub struct NLLLossBackward<T, U>
 where
     T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
