@@ -1,5 +1,6 @@
 mod graph;
 pub mod nn;
+pub mod optim;
 pub use graph::{
     node::{Input, InputBackward},
     Cat, MatMatMul, MatVecMul, Stack, VecMatMul, VecVecMul,

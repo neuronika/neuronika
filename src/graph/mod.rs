@@ -126,6 +126,14 @@ where
     fn zero_grad(&self) {
         self.input_diff.zero_grad();
     }
+
+    pub(crate) fn data_mut(&self) -> RefMut<Tensor<D>> {
+        self.input.data_mut()
+    }
+
+    pub(crate) fn grad(&self) -> Ref<Tensor<D>> {
+        self.input_diff.gradient()
+    }
 }
 
 impl<D> Clone for Param<D>
@@ -184,6 +192,28 @@ impl Parameters {
             + self.fived.len()
             + self.sixd.len()
             + self.dynd.len()
+    }
+
+    pub(crate) fn get_oned(&self) -> &[Param<Ix1>] {
+        &self.oned
+    }
+    pub(crate) fn get_twod(&self) -> &[Param<Ix2>] {
+        &self.twod
+    }
+    pub(crate) fn get_threed(&self) -> &[Param<Ix3>] {
+        &self.threed
+    }
+    pub(crate) fn get_fourd(&self) -> &[Param<Ix4>] {
+        &self.fourd
+    }
+    pub(crate) fn get_fived(&self) -> &[Param<Ix5>] {
+        &self.fived
+    }
+    pub(crate) fn get_sixd(&self) -> &[Param<Ix6>] {
+        &self.sixd
+    }
+    pub(crate) fn get_dynd(&self) -> &[Param<IxDyn>] {
+        &self.dynd
     }
 }
 
