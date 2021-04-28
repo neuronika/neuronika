@@ -143,6 +143,7 @@ pub mod init {
 }
 
 pub mod loss;
+pub mod utils;
 
 /// Applies a linear transformation to the incoming data.
 ///
@@ -191,7 +192,7 @@ impl Linear {
     }
 }
 
-// A **long short-term memory (LSTM)** cell.
+/// A **long short-term memory (LSTM)** cell.
 pub struct LSTMCell {
     pub weight_ih: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
     pub weight_hh: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
@@ -244,7 +245,7 @@ impl LSTMCell {
     ///
     /// `input` - a tensor containing the input features of shape `(batch, input_size)`.
     ///
-    /// The **output** is a tuple of tensors made of the next hiddent state for each element in
+    /// The **output** is a tuple of tensors made of the next hidden state for each element in
     /// the batch, of shape `(batch, hidden_size)` and the next cell's state for each element in
     /// the batch, of shape `(batch, hidden_size)`.
     pub fn forward<Cf, Cb, Hf, Hb, I, T, U>(
@@ -274,16 +275,104 @@ impl LSTMCell {
             let (gates_shape_rows, gates_shape_cols) = gates.data().dim();
             (gates_shape_rows, gates_shape_cols / 4)
         };
-        let mut chunked_gates = gates.chunks(gate_shape);
-        let (output_gate, cell_state_gate, forget_gate, input_gate) = (
-            chunked_gates.pop().unwrap().sigmoid(),
-            chunked_gates.pop().unwrap().tanh(),
-            chunked_gates.pop().unwrap().sigmoid(),
-            chunked_gates.pop().unwrap().sigmoid(),
+        let chunked_gates = gates.chunks(gate_shape);
+        let (input_gate, forget_gate, cell_state_gate, output_gate) = (
+            chunked_gates[0].clone().sigmoid(),
+            chunked_gates[1].clone().tanh(),
+            chunked_gates[2].clone().sigmoid(),
+            chunked_gates[3].clone().sigmoid(),
         );
         let new_cell_state = forget_gate * cell_state + (input_gate * cell_state_gate);
         let new_hidden = output_gate * new_cell_state.clone().tanh();
 
         (new_cell_state, new_hidden)
+    }
+}
+
+/// A **gated recurrent unit (GRU)** cell.
+pub struct GRUCell {
+    pub weight_ih: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
+    pub weight_hh: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
+    pub bias_ih: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub bias_hh: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+}
+
+impl GRUCell {
+    /// Creates a new GRUCell.
+    ///
+    /// `input_size` - The number of expected features in the input.
+    ///
+    /// `hidden_size` - The number of features in the hidden state.
+    ///
+    /// All the weight and biases are initialised from **U(-k, k)** where
+    /// `k = 1. /(`hidden_size` as f32).sqrt()`.
+    pub fn new(input_size: usize, hidden_size: usize) -> Self {
+        let (weight_ih_shape, weight_hh_shape, bias_shape) = {
+            let xhidden_size = 3 * hidden_size;
+            (
+                (xhidden_size, input_size),
+                (xhidden_size, hidden_size),
+                xhidden_size,
+            )
+        };
+        let mut weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
+        let mut weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
+        let mut bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let mut bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+
+        let k = 1. / (hidden_size as f32).sqrt();
+        init::uniform(&mut weight_ih, -k, k);
+        init::uniform(&mut weight_hh, -k, k);
+        init::uniform(&mut bias_ih, -k, k);
+        init::uniform(&mut bias_hh, -k, k);
+
+        Self {
+            weight_ih,
+            weight_hh,
+            bias_ih,
+            bias_hh,
+        }
+    }
+
+    /// Computes a single **GRU step**.
+    ///
+    /// `hidden` - a tensor of shape `(batch, hidden_size)`, containing the initial hidden state
+    /// for each element in the batch.
+    ///
+    /// `input` - a tensor containing the input features of shape `(batch, input_size)`.
+    ///
+    /// The **output** is  a tensor made of the next hidden state for each element in
+    /// the batch, of shape `(batch, hidden_size)`.
+    pub fn forward<Hf, Hb, I, T, U>(
+        &self,
+        hidden: VarDiff<Hf, Hb>,
+        input: I,
+    ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Backward>
+    where
+        Hf: Data<Dim = Ix2> + Forward,
+        Hb: Gradient<Dim = Ix2> + Backward,
+        I: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
+        I::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix2> + Forward,
+        U: Gradient<Dim = Ix2> + Backward,
+    {
+        let (igates, hgates) = {
+            (
+                input.mm_mul(self.weight_ih.clone().t()).into() + self.bias_ih.clone(),
+                hidden.clone().mm_mul(self.weight_hh.clone().t()) + self.bias_hh.clone(),
+            )
+        };
+        let gate_shape = {
+            let (gates_shape_rows, gates_shape_cols) = hgates.data().dim();
+            (gates_shape_rows, gates_shape_cols / 3)
+        };
+        let (chunked_igates, chunked_hgates) =
+            (igates.chunks(gate_shape), hgates.chunks(gate_shape));
+
+        let reset_gate = (chunked_hgates[0].clone() + chunked_igates[0].clone()).sigmoid();
+        let input_gate = (chunked_hgates[1].clone() + chunked_igates[1].clone()).sigmoid();
+        let new_gate =
+            (chunked_igates[2].clone() + (chunked_hgates[2].clone() * reset_gate)).tanh();
+        (hidden - new_gate.clone()) * input_gate + new_gate
     }
 }

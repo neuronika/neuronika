@@ -589,6 +589,7 @@ impl ReplPad for Ix3 {
 
 #[cfg(test)]
 mod tests {
+
     #[test]
     fn im2col() {
         let input = ndarray::array![
