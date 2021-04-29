@@ -2412,6 +2412,282 @@ mod tests {
         }
     }
 
+    mod matrixmatrixmul {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input((3, 3), vec![1.; 9]);
+            let node = MatrixMatrixMul::new(left.clone(), right.clone());
+
+            assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input((3, 3), vec![1.; 9]);
+            let node = MatrixMatrixMul::new(left.clone(), right.clone());
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn forward() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input((3, 3), vec![1.; 9]);
+            let node = MatrixMatrixMul::new(left, right.clone());
+
+            // ------------------------------------- First Evaluation -------------------------------------
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 3), vec![6., 6., 6., 15., 15., 15., 24., 24., 24.]),
+            );
+
+            // ----------------------------------- No Second Evaluation -----------------------------------
+            *right.data_mut() = new_tensor((3, 3), vec![-2.; 9]);
+            assert_almost_equals(&*right.data(), &new_tensor((3, 3), vec![-2.; 9]));
+
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 3), vec![6., 6., 6., 15., 15., 15., 24., 24., 24.]),
+            );
+
+            // ------------------------------------- Second Evaluation -------------------------------------
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor(
+                    (3, 3),
+                    vec![-12., -12., -12., -30., -30., -30., -48., -48., -48.],
+                ),
+            );
+        }
+    }
+
+    mod matrixvectormul {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input(3, vec![1.; 3]);
+            let node = MatrixVectorMul::new(left.clone(), right.clone());
+
+            assert_eq!(*node.data(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input(3, vec![1.; 3]);
+            let node = MatrixVectorMul::new(left.clone(), right.clone());
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn forward() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input(3, vec![1.; 3]);
+            let node = MatrixVectorMul::new(left, right.clone());
+
+            // ------------------------------------- First Evaluation -------------------------------------
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(3, vec![6., 15., 24.]));
+
+            // ----------------------------------- No Second Evaluation -----------------------------------
+            *right.data_mut() = new_tensor(3, vec![-2.; 3]);
+            assert_almost_equals(&*right.data(), &new_tensor(3, vec![-2.; 3]));
+
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(3, vec![6., 15., 24.]));
+
+            // ------------------------------------- Second Evaluation -------------------------------------
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(3, vec![-12., -30., -48.]));
+        }
+    }
+
+    mod vectormatrixmul {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let left = new_input(3, vec![1.; 3]);
+            let right = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = VectorMatrixMul::new(left.clone(), right.clone());
+
+            assert_eq!(*node.data(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let left = new_input(3, vec![1.; 3]);
+            let right = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = VectorMatrixMul::new(left.clone(), right.clone());
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn forward() {
+            let left = new_input(3, vec![1.; 3]);
+            let right = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = VectorMatrixMul::new(left.clone(), right);
+
+            // ------------------------------------- First Evaluation -------------------------------------
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(3, vec![12., 15., 18.]));
+
+            // ----------------------------------- No Second Evaluation -----------------------------------
+            *left.data_mut() = new_tensor(3, vec![-2.; 3]);
+            assert_almost_equals(&*left.data(), &new_tensor(3, vec![-2.; 3]));
+
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(3, vec![12., 15., 18.]));
+
+            // ------------------------------------- Second Evaluation -------------------------------------
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(3, vec![-24., -30., -36.]));
+        }
+    }
+
+    mod vectorvectormul {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let left = new_input(3, vec![2.; 3]);
+            let right = new_input(3, vec![1., 2., 3.]);
+            let node = VectorVectorMul::new(left.clone(), right.clone());
+
+            assert_eq!(*node.data(), Tensor::from_elem(1, 0.));
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let left = new_input(3, vec![2.; 3]);
+            let right = new_input(3, vec![1., 2., 3.]);
+            let node = VectorVectorMul::new(left.clone(), right.clone());
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert!(Rc::ptr_eq(&node.left_operand(), &left));
+            assert!(Rc::ptr_eq(&node.right_operand(), &right));
+        }
+
+        #[test]
+        fn forward() {
+            let left = new_input(3, vec![2.; 3]);
+            let right = new_input(3, vec![1., 2., 3.]);
+            let node = VectorVectorMul::new(left.clone(), right);
+
+            // ------------------------------------- First Evaluation -------------------------------------
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(1, vec![12.]));
+
+            // ----------------------------------- No Second Evaluation -----------------------------------
+            *left.data_mut() = new_tensor(3, vec![-2.; 3]);
+            assert_almost_equals(&*left.data(), &new_tensor(3, vec![-2.; 3]));
+
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(1, vec![12.]));
+
+            // ------------------------------------- Second Evaluation -------------------------------------
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(1, vec![-12.]));
+        }
+    }
+
     mod power {
         use super::*;
 
