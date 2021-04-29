@@ -1,7 +1,8 @@
 pub mod node;
 use itertools::Itertools;
 use ndarray::{
-    Array, DimMax, Dimension, IntoDimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn, RemoveAxis,
+    Array, ArrayD, DimMax, Dimension, IntoDimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn,
+    RemoveAxis,
 };
 use node::{
     backward::{Backward, Differentiable, Gradient},
@@ -35,6 +36,7 @@ use std::{
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type Tensor<D> = Array<f32, D>;
+pub(crate) type DynTensor = ArrayD<f32>;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Global Var Identifier ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

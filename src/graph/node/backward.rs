@@ -1,5 +1,5 @@
 use super::{
-    super::{BroadTensor, Broadcasted, Tensor},
+    super::{BroadTensor, Broadcasted, DynTensor, Tensor},
     broadcasted_zeros,
     forward::{Data, Forward, Input},
     DotDim,
@@ -14,31 +14,31 @@ use std::rc::Rc;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Utility Functions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-fn sum_axis_inplace(arr: &mut ndarray::ArrayD<f32>, axis: ndarray::Axis) {
+fn sum_axis_inplace(arr: &mut DynTensor, axis: Axis) {
     let (first, rest) = arr.view_mut().split_at(axis, 1);
-    ndarray::Zip::from(first.remove_axis(axis))
+    Zip::from(first.remove_axis(axis))
         .and(rest.lanes(axis))
         .for_each(|dst, src| *dst += src.sum());
     arr.index_axis_inplace(axis, 0);
 }
 
-pub fn reduce<D: ndarray::Dimension, E: ndarray::Dimension>(
-    dest: &ndarray::Array<f32, D>,
-    src: &ndarray::Array<f32, E>,
-) -> ndarray::ArrayD<f32> {
+pub fn reduce<D: Dimension, E: Dimension>(dest: &Tensor<D>, src: &Tensor<E>) -> DynTensor {
     let mut dyn_rhs = src.clone().into_dyn();
+
     unsafe {
-        while (*(&dyn_rhs as *const ndarray::ArrayD<f32>)).ndim() > dest.ndim() {
-            sum_axis_inplace(&mut dyn_rhs, ndarray::Axis(0));
+        while (*(&dyn_rhs as *const DynTensor)).ndim() > dest.ndim() {
+            sum_axis_inplace(&mut dyn_rhs, Axis(0));
         }
-        for (axis, size) in dest.shape().iter().enumerate() {
-            if *size == 1 {
-                sum_axis_inplace(&mut dyn_rhs, ndarray::Axis(axis));
-                dyn_rhs.insert_axis_inplace(ndarray::Axis(axis));
-            }
-        }
-        dyn_rhs
     }
+
+    for (axis, size) in dest.shape().iter().enumerate() {
+        if *size == 1 {
+            sum_axis_inplace(&mut dyn_rhs, ndarray::Axis(axis));
+            dyn_rhs.insert_axis_inplace(ndarray::Axis(axis));
+        }
+    }
+
+    dyn_rhs
 }
 
 fn fill_softmax_jacobian(jacobian: &mut Tensor<Ix2>, array: &ArrayView1<f32>) {
@@ -121,7 +121,6 @@ impl<D: Dimension> Gradient for InputBackward<D> {
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -136,7 +135,7 @@ impl<D: Dimension> Backward for InputBackward<D> {
     }
 
     fn reset_computation(&self) {
-        // Nothing
+        self.can_overwrite.set(true);
     }
 }
 
@@ -189,8 +188,6 @@ impl<T: Gradient + Backward> Gradient for NegationBackward<T> {
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
-
         self.can_overwrite.set(false);
     }
 }
@@ -210,7 +207,7 @@ impl<T: Gradient + Backward> Backward for NegationBackward<T> {
             zip.par_for_each(|dest, src| *dest = -src);
             self.operand.was_overwritten();
         } else {
-            zip.par_for_each(|dest, src| *dest += -src);
+            zip.par_for_each(|dest, src| *dest -= src);
         }
     }
 
@@ -220,6 +217,7 @@ impl<T: Gradient + Backward> Backward for NegationBackward<T> {
 
     fn reset_computation(&self) {
         self.state.set(false);
+        self.can_overwrite.set(true);
     }
 }
 
@@ -261,7 +259,6 @@ impl<T: Gradient + Backward> Gradient for TransposeBackward<T> {
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -375,6 +372,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -400,7 +398,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -472,6 +469,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -496,7 +494,6 @@ where
         self.can_overwrite.get()
     }
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -582,6 +579,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -607,7 +605,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -679,6 +676,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -704,7 +702,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -776,6 +773,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -801,7 +799,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -922,6 +919,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -950,7 +948,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1033,6 +1030,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1058,7 +1056,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1182,6 +1179,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1210,7 +1208,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1288,6 +1285,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1313,7 +1311,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1399,6 +1396,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1425,7 +1423,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1522,6 +1519,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1548,7 +1546,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1613,6 +1610,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1637,7 +1635,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1702,6 +1699,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1726,7 +1724,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1830,6 +1827,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1856,7 +1854,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -1928,6 +1925,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -1952,7 +1950,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2017,6 +2014,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2041,7 +2039,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2145,6 +2142,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2171,7 +2169,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2236,6 +2233,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2260,7 +2258,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2333,6 +2330,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2358,7 +2356,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2457,6 +2454,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2483,7 +2481,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2561,6 +2558,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2585,7 +2583,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2644,7 +2641,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2683,6 +2679,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2725,7 +2722,6 @@ impl<T: Gradient + Backward> Gradient for SumBackward<T> {
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2754,6 +2750,7 @@ impl<T: Gradient + Backward> Backward for SumBackward<T> {
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2810,7 +2807,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2844,6 +2840,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2901,7 +2898,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -2939,6 +2935,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -2995,7 +2992,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3033,6 +3029,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3089,7 +3086,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3139,6 +3135,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3195,7 +3192,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3233,6 +3229,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3289,7 +3286,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3327,6 +3323,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3383,7 +3380,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3419,6 +3415,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3477,7 +3474,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3524,6 +3520,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3582,7 +3579,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3635,6 +3631,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3710,7 +3707,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3757,6 +3753,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3821,7 +3818,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3858,6 +3854,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -3924,7 +3921,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -3959,6 +3955,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -4034,7 +4031,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -4093,6 +4089,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -4157,7 +4154,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -4197,6 +4193,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -4262,7 +4259,6 @@ where
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -4302,6 +4298,7 @@ where
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -4347,7 +4344,6 @@ impl<T: Gradient + Backward> Gradient for UnsqueezeBackward<T> {
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -4383,6 +4379,7 @@ impl<T: Gradient + Backward> Backward for UnsqueezeBackward<T> {
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
     }
 }
@@ -4427,7 +4424,6 @@ impl<T: Gradient + Backward> Gradient for ChunkBackward<T> {
     }
 
     fn was_overwritten(&self) {
-        debug_assert_eq!(self.can_overwrite.get(), true);
         self.can_overwrite.set(false);
     }
 }
@@ -4464,6 +4460,123 @@ impl<T: Gradient + Backward> Backward for ChunkBackward<T> {
     }
 
     fn reset_computation(&self) {
+        self.can_overwrite.set(true);
         self.state.set(false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::StrideShape;
+
+    const F16_EPSILON: f32 = 9.77e-04;
+
+    fn assert_almost_equals<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) {
+        assert!(
+            Zip::from(our).and(their).all(|l, r| {
+                (*l == 0. && *r == 0.)
+                    || (!l.is_finite() && !r.is_finite())
+                    || ((1. - r / l).abs() <= F16_EPSILON)
+            }),
+            "\nLeft:\n{}\nRight:\n{}",
+            our,
+            their
+        );
+    }
+
+    fn new_backward_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<InputBackward<D>>
+    where
+        D: Dimension + 'static,
+        Sh: Into<StrideShape<D>>,
+    {
+        Rc::new(
+            Input::new(new_tensor(shape, elems))
+                .forward
+                .differentiable(),
+        )
+    }
+
+    fn new_tensor<D, Sh>(shape: Sh, elems: Vec<f32>) -> Tensor<D>
+    where
+        D: Dimension + 'static,
+        Sh: Into<StrideShape<D>>,
+    {
+        Tensor::from_shape_vec(shape, elems).unwrap()
+    }
+
+    mod backward_negation {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_backward_input((3, 3), vec![0.; 9]);
+            let node = NegationBackward::new(input);
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.was_computed(), false);
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let input = new_backward_input((3, 3), vec![0.; 9]);
+            let node = NegationBackward::new(input.clone());
+
+            node.backward();
+            assert_eq!(node.was_computed(), true);
+            assert_eq!(input.was_computed(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.was_computed(), true);
+            assert_eq!(input.was_computed(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert_eq!(input.was_computed(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert_eq!(input.was_computed(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            input.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert_eq!(input.was_computed(), false);
+            assert_eq!(input.can_overwrite(), true);
+
+            input.reset_computation();
+            assert_eq!(node.was_computed(), false);
+            assert_eq!(input.was_computed(), false);
+            assert_eq!(input.can_overwrite(), true);
+        }
+
+        #[test]
+        fn backward() {
+            let input = new_backward_input((3, 3), vec![0.; 9]);
+            let node = NegationBackward::new(input.clone());
+
+            // -------------------------------------- Seed Gradient --------------------------------------
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
+            // ------------------------------------- First Evaluation -------------------------------------
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+
+            // ----------------------------------- No Second Evaluation -----------------------------------
+            *node.gradient_mut() = new_tensor((3, 3), vec![-1.; 9]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+
+            // ------------------------------------- Second Evaluation -------------------------------------
+            input.reset_computation();
+            node.reset_computation();
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+        }
     }
 }
