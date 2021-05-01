@@ -1,9 +1,11 @@
-use crate::graph::node::Overwrite;
+use crate::variable::node::Overwrite;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ losses module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-use super::{graph::OPERATIONS_COUNTER, Backward, Data, Forward, Gradient, Tensor, Var, VarDiff};
+use super::{
+    variable::OPERATIONS_COUNTER, Backward, Data, Forward, Gradient, Tensor, Var, VarDiff,
+};
 use ndarray::{Axis, Dimension, IntoDimension, Ix1, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},

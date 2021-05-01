@@ -1,5 +1,5 @@
 use super::{Input, InputBackward};
-use crate::graph::{
+use crate::variable::{
     self,
     node::{Backward, Data, Forward, Gradient, Overwrite, Transpose, TransposeBackward},
     MatMatMul, Tensor, Var, VarDiff,
@@ -10,7 +10,7 @@ use ndarray::{Ix1, Ix2};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub mod init {
-    use super::super::{graph::parameters::ParamDim, graph::VarDiff, Input, InputBackward};
+    use super::super::{variable::parameters::ParamDim, variable::VarDiff, Input, InputBackward};
     use ndarray::{Axis, Ix2};
     use rand::thread_rng;
     use rand_distr::{Distribution, Normal, Uniform};

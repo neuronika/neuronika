@@ -1,4 +1,4 @@
-use crate::{graph::Tensor, Input, InputBackward};
+use crate::{variable::Tensor, Input, InputBackward};
 use itertools::Itertools;
 use ndarray::{Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn};
 use std::{

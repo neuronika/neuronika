@@ -5251,7 +5251,7 @@ mod tests {
 
     mod backward_sigmoid {
         use super::*;
-        use crate::graph::node::{Forward, Sigmoid};
+        use crate::variable::node::{Forward, Sigmoid};
         #[test]
         fn backward() {
             let (input, input_diff) = (
@@ -5286,7 +5286,7 @@ mod tests {
 
     mod backward_tanh {
         use super::*;
-        use crate::graph::node::{Forward, TanH};
+        use crate::variable::node::{Forward, TanH};
         #[test]
         fn backward() {
             let (input, input_diff) = (
@@ -5321,7 +5321,7 @@ mod tests {
 
     mod backward_exp {
         use super::*;
-        use crate::graph::node::{Exp, Forward};
+        use crate::variable::node::{Exp, Forward};
 
         #[allow(clippy::clippy::approx_constant)]
         #[test]
@@ -5358,7 +5358,7 @@ mod tests {
 
     mod backward_softmax {
         use super::*;
-        use crate::graph::node::{Forward, Softmax};
+        use crate::variable::node::{Forward, Softmax};
 
         #[test]
         fn backward() {
@@ -5410,7 +5410,7 @@ mod tests {
 
     mod backward_logsoftmax {
         use super::*;
-        use crate::graph::node::{Forward, LogSoftmax};
+        use crate::variable::node::{Forward, LogSoftmax};
 
         #[test]
         fn backward() {
