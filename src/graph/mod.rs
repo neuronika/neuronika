@@ -862,13 +862,13 @@ where
         }
     }
 
-    pub fn sigmoid(mut self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, T>> {
+    pub fn sigmoid(mut self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, Sigmoid<T>>> {
         let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
+        let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Sigmoid::new(forward.clone())),
-            Rc::new(SigmoidBackward::new(backward, forward)),
+            Rc::new(Sigmoid::new(forward)),
         );
+        let backward = Rc::new(SigmoidBackward::new(backward, forward.clone()));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -884,13 +884,13 @@ where
         }
     }
 
-    pub fn tanh(mut self) -> VarDiff<TanH<T>, TanHBackward<U, T>> {
+    pub fn tanh(mut self) -> VarDiff<TanH<T>, TanHBackward<U, TanH<T>>> {
         let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
+        let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(TanH::new(forward.clone())),
-            Rc::new(TanHBackward::new(backward, forward)),
+            Rc::new(TanH::new(forward)),
         );
+        let backward = Rc::new(TanHBackward::new(backward, forward.clone()));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -927,13 +927,13 @@ where
             parameters: self.parameters,
         }
     }
-    pub fn exp(mut self) -> VarDiff<Exp<T>, ExpBackward<U, T>> {
+    pub fn exp(mut self) -> VarDiff<Exp<T>, ExpBackward<U, Exp<T>>> {
         let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
+        let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Exp::new(forward.clone())),
-            Rc::new(ExpBackward::new(backward, forward)),
+            Rc::new(Exp::new(forward)),
         );
+        let backward = Rc::new(ExpBackward::new(backward, forward.clone()));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -949,13 +949,13 @@ where
         }
     }
 
-    pub fn softmax(mut self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, T>> {
+    pub fn softmax(mut self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, Softmax<T>>> {
         let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
+        let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Softmax::new(forward.clone(), axis)),
-            Rc::new(SoftmaxBackward::new(backward, forward, axis)),
+            Rc::new(Softmax::new(forward, axis)),
         );
+        let backward = Rc::new(SoftmaxBackward::new(backward, forward.clone(), axis));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
