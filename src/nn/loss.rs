@@ -1,3 +1,5 @@
+use crate::graph::node::Overwrite;
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ losses module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -21,20 +23,20 @@ pub enum Reduction {
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MSELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     input: Rc<T>,
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<T, U> MSELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
@@ -42,15 +44,15 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
     }
 }
 
 impl<T, U> Data for MSELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     type Dim = Ix1;
 
@@ -61,15 +63,15 @@ where
 
 impl<T, U> Forward for MSELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -89,37 +91,34 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        debug_assert_eq!(self.state.get(), true);
-
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MSELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
 {
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    can_overwrite: Cell<bool>,
-    state: Cell<bool>,
+    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> MSELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
 {
     pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
         Self {
@@ -128,17 +127,16 @@ where
             target,
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
-            can_overwrite: Cell::new(true),
-            state: Cell::new(false),
+            overwrite: Cell::new(false),
         }
     }
 }
 
 impl<T, U, V> Gradient for MSELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
 {
     type Dim = Ix1;
 
@@ -149,27 +147,30 @@ where
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
         self.gradient.borrow_mut()
     }
+}
 
+impl<T, U, V> Overwrite for MSELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
     fn can_overwrite(&self) -> bool {
-        self.can_overwrite.get()
+        self.overwrite.get()
     }
-    fn was_overwritten(&self) {
-        self.can_overwrite.set(true)
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
 impl<T, U, V> Backward for MSELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data<Dim = T::Dim> + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
-        if self.state.get() {
-            return;
-        }
-
-        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -195,14 +196,6 @@ where
             }),
         }
     }
-
-    fn was_computed(&self) -> bool {
-        self.state.get()
-    }
-
-    fn reset_computation(&self) {
-        self.state.set(false);
-    }
 }
 
 /// Computes a criterion that measures the **mean squared error** *(squared L2 norm)*
@@ -217,16 +210,16 @@ pub fn mse_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     mut target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Backward>
+) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
-    T: Data + Forward,
-    U: Gradient<Dim = T::Dim> + Backward,
-    V: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Gradient<Dim = T::Dim> + Overwrite,
+    V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.forward_path);
+    input.forward_path.append(&mut target.path);
 
     let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.forward;
+    let target_forward = target.last;
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
@@ -255,6 +248,8 @@ where
         backward,
         forward_path: input.forward_path,
         backward_path: input.backward_path,
+        forward_buffer: Vec::new(),
+        backward_buffer: Vec::new(),
         parameters: input.parameters,
     }
 }
@@ -263,20 +258,20 @@ where
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MAELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     input: Rc<T>,
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<T, U> MAELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
@@ -284,15 +279,15 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
     }
 }
 
 impl<T, U> Data for MAELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     type Dim = Ix1;
 
@@ -303,15 +298,15 @@ where
 
 impl<T, U> Forward for MAELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -331,37 +326,34 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        debug_assert_eq!(self.state.get(), true);
-
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct MAELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    can_overwrite: Cell<bool>,
-    state: Cell<bool>,
+    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> MAELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
         Self {
@@ -370,17 +362,16 @@ where
             target,
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
-            can_overwrite: Cell::new(true),
-            state: Cell::new(false),
+            overwrite: Cell::new(false),
         }
     }
 }
 
 impl<T, U, V> Gradient for MAELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     type Dim = Ix1;
 
@@ -391,27 +382,30 @@ where
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
         self.gradient.borrow_mut()
     }
+}
 
+impl<T, U, V> Overwrite for MAELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
     fn can_overwrite(&self) -> bool {
-        self.can_overwrite.get()
+        self.overwrite.get()
     }
-    fn was_overwritten(&self) {
-        self.can_overwrite.set(true)
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
 impl<T, U, V> Backward for MAELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data<Dim = T::Dim> + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
-        if self.state.get() {
-            return;
-        }
-
-        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -444,14 +438,6 @@ where
             }),
         }
     }
-
-    fn was_computed(&self) -> bool {
-        self.state.get()
-    }
-
-    fn reset_computation(&self) {
-        self.state.set(false);
-    }
 }
 
 /// Computes a criterion that measures the **mean absolute error** *(MAE)* between
@@ -466,16 +452,16 @@ pub fn mae_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     mut target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Backward>
+) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
-    T: Data + Forward,
-    U: Gradient<Dim = T::Dim> + Backward,
-    V: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Gradient<Dim = T::Dim> + Overwrite,
+    V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.forward_path);
+    input.forward_path.append(&mut target.path);
 
     let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.forward;
+    let target_forward = target.last;
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
@@ -504,6 +490,8 @@ where
         backward,
         forward_path: input.forward_path,
         backward_path: input.backward_path,
+        forward_buffer: Vec::new(),
+        backward_buffer: Vec::new(),
         parameters: input.parameters,
     }
 }
@@ -513,20 +501,20 @@ where
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     input: Rc<T>,
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<T, U> BCELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
@@ -534,15 +522,15 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
     }
 }
 
 impl<T, U> Data for BCELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     type Dim = Ix1;
 
@@ -553,15 +541,15 @@ where
 
 impl<T, U> Forward for BCELoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -586,37 +574,34 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        debug_assert_eq!(self.state.get(), true);
-
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    can_overwrite: Cell<bool>,
-    state: Cell<bool>,
+    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> BCELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
         Self {
@@ -625,17 +610,16 @@ where
             target,
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
-            can_overwrite: Cell::new(true),
-            state: Cell::new(false),
+            overwrite: Cell::new(false),
         }
     }
 }
 
 impl<T, U, V> Gradient for BCELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     type Dim = Ix1;
 
@@ -646,27 +630,30 @@ where
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
         self.gradient.borrow_mut()
     }
+}
 
+impl<T, U, V> Overwrite for BCELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
     fn can_overwrite(&self) -> bool {
-        self.can_overwrite.get()
+        self.overwrite.get()
     }
-    fn was_overwritten(&self) {
-        self.can_overwrite.set(true)
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
 impl<T, U, V> Backward for BCELossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data<Dim = T::Dim> + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
 {
     fn backward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -695,14 +682,6 @@ where
             }),
         }
     }
-
-    fn was_computed(&self) -> bool {
-        self.state.get()
-    }
-
-    fn reset_computation(&self) {
-        self.state.set(false);
-    }
 }
 
 /// Computes a criterion that measures the **binary cross entropy** between
@@ -724,16 +703,16 @@ pub fn bce_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     mut target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Backward>
+) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
-    T: Data + Forward,
-    U: Gradient<Dim = T::Dim> + Backward,
-    V: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Gradient<Dim = T::Dim> + Overwrite,
+    V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.forward_path);
+    input.forward_path.append(&mut target.path);
 
     let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.forward;
+    let target_forward = target.last;
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
@@ -762,6 +741,8 @@ where
         backward,
         forward_path: input.forward_path,
         backward_path: input.backward_path,
+        forward_buffer: Vec::new(),
+        backward_buffer: Vec::new(),
         parameters: input.parameters,
     }
 }
@@ -770,8 +751,8 @@ where
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCEWithLogitsLoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     input: Rc<T>,
     target: Rc<U>,
@@ -782,8 +763,8 @@ where
 
 impl<T, U> BCEWithLogitsLoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
@@ -798,8 +779,8 @@ where
 
 impl<T, U> Data for BCEWithLogitsLoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     type Dim = Ix1;
 
@@ -810,13 +791,14 @@ where
 
 impl<T, U> Forward for BCEWithLogitsLoss<T, U>
 where
-    T: Data + Forward,
-    U: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Data<Dim = T::Dim>,
 {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
+
         self.state.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
@@ -847,8 +829,6 @@ where
     }
 
     fn reset_computation(&self) {
-        debug_assert_eq!(self.state.get(), true);
-
         self.state.set(false);
     }
 }
@@ -856,24 +836,23 @@ where
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    can_overwrite: Cell<bool>,
-    state: Cell<bool>,
+    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
         Self {
@@ -882,17 +861,16 @@ where
             target,
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
-            can_overwrite: Cell::new(true),
-            state: Cell::new(false),
+            overwrite: Cell::new(false),
         }
     }
 }
 
 impl<T, U, V> Gradient for BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     type Dim = Ix1;
 
@@ -903,27 +881,30 @@ where
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
         self.gradient.borrow_mut()
     }
+}
 
+impl<T, U, V> Overwrite for BCEWithLogitsLossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
     fn can_overwrite(&self) -> bool {
-        self.can_overwrite.get()
+        self.overwrite.get()
     }
-    fn was_overwritten(&self) {
-        self.can_overwrite.set(true)
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
 impl<T, U, V> Backward for BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Backward,
-    U: Data<Dim = T::Dim> + Forward,
-    V: Data<Dim = U::Dim> + Forward,
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.state.set(true);
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -964,14 +945,6 @@ where
             }),
         }
     }
-
-    fn was_computed(&self) -> bool {
-        self.state.get()
-    }
-
-    fn reset_computation(&self) {
-        self.state.set(false);
-    }
 }
 
 /// Computes a criterion that measures the **binary cross entropy** between
@@ -992,16 +965,16 @@ pub fn bce_with_logits_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     mut target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Backward>
+) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
-    T: Data + Forward,
-    U: Gradient<Dim = T::Dim> + Backward,
-    V: Data<Dim = T::Dim> + Forward,
+    T: Data,
+    U: Gradient<Dim = T::Dim> + Overwrite,
+    V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.forward_path);
+    input.forward_path.append(&mut target.path);
 
     let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.forward;
+    let target_forward = target.last;
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
@@ -1030,6 +1003,8 @@ where
         backward,
         forward_path: input.forward_path,
         backward_path: input.backward_path,
+        forward_buffer: Vec::new(),
+        backward_buffer: Vec::new(),
         parameters: input.parameters,
     }
 }
@@ -1038,22 +1013,22 @@ where
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct NLLLoss<T, U>
 where
-    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
-    U: Data + Forward,
+    U: Data,
 {
     input: Rc<T>,
     target: Rc<U>,
     data: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<T, U> NLLLoss<T, U>
 where
-    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
-    U: Data + Forward,
+    U: Data,
 {
     pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
@@ -1061,16 +1036,16 @@ where
             target,
             data: RefCell::new(Tensor::zeros(1)),
             reduction,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
     }
 }
 
 impl<T, U> Data for NLLLoss<T, U>
 where
-    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
-    U: Data + Forward,
+    U: Data,
 {
     type Dim = Ix1;
 
@@ -1081,15 +1056,15 @@ where
 
 impl<T, U> Forward for NLLLoss<T, U>
 where
-    T: Data<Dim = <U::Dim as Dimension>::Larger> + Forward,
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
-    U: Data + Forward,
+    U: Data,
 {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
-        self.state.set(true);
+        self.computed.set(true);
         let (mut loss_data, input_data, target_data) = {
             (
                 self.data.borrow_mut(),
@@ -1115,36 +1090,33 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        debug_assert_eq!(self.state.get(), true);
-
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
     T::Dim: Copy,
-    U: Data + Forward,
 {
     diff_input: Rc<T>,
     target: Rc<U>,
     gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    can_overwrite: Cell<bool>,
-    state: Cell<bool>,
+    overwrite: Cell<bool>,
 }
 
 impl<T, U> NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
     T::Dim: Copy,
-    U: Data + Forward,
 {
     pub fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
@@ -1152,17 +1124,16 @@ where
             target,
             gradient: RefCell::new(Tensor::zeros(1)),
             reduction,
-            can_overwrite: Cell::new(true),
-            state: Cell::new(false),
+            overwrite: Cell::new(false),
         }
     }
 }
 
 impl<T, U> Gradient for NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
     T::Dim: Copy,
-    U: Data + Forward,
 {
     type Dim = Ix1;
 
@@ -1173,27 +1144,30 @@ where
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
         self.gradient.borrow_mut()
     }
+}
 
+impl<T, U> Overwrite for NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
+    T::Dim: Copy,
+{
     fn can_overwrite(&self) -> bool {
-        self.can_overwrite.get()
+        self.overwrite.get()
     }
-    fn was_overwritten(&self) {
-        self.can_overwrite.set(true)
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
 impl<T, U> Backward for NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Backward,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
     T::Dim: Copy,
-    U: Data + Forward,
 {
     fn backward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.state.set(true);
         let (mut operand_gradient, gradient, target_data) = {
             (
                 self.diff_input.gradient_mut(),
@@ -1225,14 +1199,6 @@ where
             }),
         }
     }
-
-    fn was_computed(&self) -> bool {
-        self.state.get()
-    }
-
-    fn reset_computation(&self) {
-        self.state.set(false);
-    }
 }
 
 /// Computes a criterion that measures the **negative log likelihood** between
@@ -1260,17 +1226,17 @@ pub fn nll_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     mut target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Backward>
+) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
-    T: Data<Dim = <V::Dim as Dimension>::Larger> + Forward,
-    U: Gradient<Dim = T::Dim> + Backward,
-    V: Data + Forward,
+    T: Data<Dim = <V::Dim as Dimension>::Larger>,
+    U: Gradient<Dim = T::Dim> + Overwrite,
+    V: Data,
     T::Dim: Copy,
 {
-    input.forward_path.append(&mut target.forward_path);
+    input.forward_path.append(&mut target.path);
 
     let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.forward;
+    let target_forward = target.last;
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
@@ -1298,6 +1264,8 @@ where
         backward,
         forward_path: input.forward_path,
         backward_path: input.backward_path,
+        forward_buffer: Vec::new(),
+        backward_buffer: Vec::new(),
         parameters: input.parameters,
     }
 }

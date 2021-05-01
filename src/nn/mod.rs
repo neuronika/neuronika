@@ -1,7 +1,7 @@
 use super::{Input, InputBackward};
 use crate::graph::{
     self,
-    node::{Backward, Data, Forward, Gradient, Transpose, TransposeBackward},
+    node::{Backward, Data, Forward, Gradient, Overwrite, Transpose, TransposeBackward},
     MatMatMul, Tensor, Var, VarDiff,
 };
 use ndarray::{Ix1, Ix2};
@@ -10,7 +10,7 @@ use ndarray::{Ix1, Ix2};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub mod init {
-    use super::super::{graph::ParamDim, graph::VarDiff, Input, InputBackward};
+    use super::super::{graph::parameters::ParamDim, graph::VarDiff, Input, InputBackward};
     use ndarray::{Axis, Ix2};
     use rand::thread_rng;
     use rand_distr::{Distribution, Normal, Uniform};
@@ -178,15 +178,12 @@ impl Linear {
     /// Applies the linear transformation **y = xA^T + b** to the incoming data.
     ///
     /// `data` - `(N, in_features)`, the output will be `(N, out_features)`.
-    pub fn forward<W, T, U>(
-        &self,
-        input: W,
-    ) -> VarDiff<impl Data + Forward, impl Backward + Gradient>
+    pub fn forward<W, T, U>(&self, input: W) -> VarDiff<impl Data, impl Gradient + Overwrite>
     where
         W: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
         W::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix2> + Forward,
-        U: Gradient<Dim = Ix2> + Backward,
+        T: Data<Dim = Ix2>,
+        U: Gradient<Dim = Ix2> + Overwrite,
     {
         input.mm_mul(self.weight.clone().t()).into() + self.bias.clone()
     }
@@ -254,18 +251,18 @@ impl LSTMCell {
         state: (VarDiff<Cf, Cb>, VarDiff<Hf, Hb>),
         input: I,
     ) -> (
-        VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Backward>,
-        VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Backward>,
+        VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>,
+        VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>,
     )
     where
-        Cf: Data<Dim = Ix2> + Forward,
-        Cb: Gradient<Dim = Ix2> + Backward,
-        Hf: Data<Dim = Ix2> + Forward,
-        Hb: Gradient<Dim = Ix2> + Backward,
+        Cf: Data<Dim = Ix2>,
+        Cb: Gradient<Dim = Ix2> + Overwrite,
+        Hf: Data<Dim = Ix2>,
+        Hb: Gradient<Dim = Ix2> + Overwrite,
         I: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix2> + Forward,
-        U: Gradient<Dim = Ix2> + Backward,
+        T: Data<Dim = Ix2>,
+        U: Gradient<Dim = Ix2> + Overwrite,
     {
         let (cell_state, hidden) = state;
         let gates = hidden.mm_mul(self.weight_hh.clone().t())
@@ -349,14 +346,14 @@ impl GRUCell {
         &self,
         hidden: VarDiff<Hf, Hb>,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>
     where
-        Hf: Data<Dim = Ix2> + Forward,
-        Hb: Gradient<Dim = Ix2> + Backward,
+        Hf: Data<Dim = Ix2>,
+        Hb: Gradient<Dim = Ix2> + Overwrite,
         I: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix2> + Forward,
-        U: Gradient<Dim = Ix2> + Backward,
+        T: Data<Dim = Ix2>,
+        U: Gradient<Dim = Ix2> + Overwrite,
     {
         let (igates, hgates) = {
             (
