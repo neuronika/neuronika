@@ -1630,7 +1630,8 @@ where
         let forward = Rc::new(MatrixMatrixMul::new(self.last.clone(), rhs.forward));
         let backward = Rc::new(MatrixMatrixMulBackwardRight::new(self.last, rhs.backward));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
         VarDiff {
             id,
             forward,
@@ -1762,7 +1763,8 @@ where
         let forward = Rc::new(MatrixVectorMul::new(self.last.clone(), rhs.forward));
         let backward = Rc::new(MatrixVectorMulBackwardRight::new(self.last, rhs.backward));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
         VarDiff {
             id,
             forward,
@@ -1893,7 +1895,8 @@ where
         let forward = Rc::new(VectorMatrixMul::new(self.last.clone(), rhs.forward));
         let backward = Rc::new(VectorMatrixMulBackwardRight::new(self.last, rhs.backward));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
         VarDiff {
             id,
             forward,
@@ -2023,6 +2026,8 @@ where
         let forward = Rc::new(VectorVectorMul::new(self.last.clone(), rhs.forward));
         let backward = Rc::new(VectorVectorMulBackwardUnary::new(rhs.backward, self.last));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
 
         VarDiff {
             id,
@@ -2155,6 +2160,8 @@ where
         let forward = Rc::new(Concatenate::new(self.last.clone(), rhs.forward, axis));
         let backward = Rc::new(ConcatenateBackwardRight::new(self.last, rhs.backward, axis));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
 
         VarDiff {
             id,
@@ -2283,6 +2290,8 @@ where
         let forward = Rc::new(StackF::new(self.last.clone(), rhs.forward, axis));
         let backward = Rc::new(StackBackwardRight::new(self.last, rhs.backward, axis));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
 
         VarDiff {
             id,
