@@ -5,7 +5,7 @@ authors = ["frjnn <f.iannelli.francesco229@gmail.com>", "stepac <stefanopacchini
 edition = "2018"
 
 [dependencies]
-ndarray = {version = "0.15.1", features = ["rayon", "blas"]}
+ndarray = {version = "0.15.1", features = ["rayon"]}
 ndarray-rand = "0.14.0"
 itertools = "0.10.0"
 rand = "0.8.3"
