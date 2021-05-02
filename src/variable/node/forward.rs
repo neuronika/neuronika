@@ -32,12 +32,14 @@ pub trait Forward {
 
 pub struct Input<D: Dimension> {
     data: RefCell<Tensor<D>>,
+    computed: Cell<bool>,
 }
 
 impl<D: Dimension> Input<D> {
     pub fn new(data: Tensor<D>) -> Var<Self> {
         let input = Self {
             data: RefCell::new(data),
+            computed: Cell::new(false),
         };
 
         Var::new(input)
@@ -58,64 +60,60 @@ impl<D: Dimension> Data for Input<D> {
 
 impl<D: Dimension> Forward for Input<D> {
     fn forward(&self) {
-        // Nothing
+        self.computed.set(true);
     }
 
     fn was_computed(&self) -> bool {
-        false
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        // Nothing
+        self.computed.set(false);
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Negation<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Negation<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Negation<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+impl<T: Data> Negation<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = Tensor::zeros(operand.data().raw_dim());
 
         Self {
-            op,
+            operand,
             data: RefCell::new(data),
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Negation<T> {
+impl<T: Data> Forward for Negation<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| *v = -o);
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Negation<T> {
+impl<T: Data> Data for Negation<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -125,50 +123,46 @@ impl<T: Data + Forward> Data for Negation<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Transpose ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Transpose<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Transpose<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Transpose<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = Tensor::zeros(op.data().t().raw_dim());
+impl<T: Data> Transpose<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = Tensor::zeros(operand.data().t().raw_dim());
 
         Self {
-            op,
+            operand,
             data: RefCell::new(data),
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Transpose<T> {
+impl<T: Data> Forward for Transpose<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(self.op.data().t())
+            .and(self.operand.data().t())
             .par_for_each(|v, o| *v = *o);
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Transpose<T> {
+impl<T: Data> Data for Transpose<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -180,20 +174,20 @@ impl<T: Data + Forward> Data for Transpose<T> {
 
 pub struct Addition<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Addition<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
@@ -203,23 +197,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for Addition<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
@@ -231,8 +217,8 @@ where
 
 impl<Lhs, Rhs> Forward for Addition<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&self) {
@@ -240,7 +226,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -248,11 +234,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -260,20 +246,20 @@ where
 
 pub struct Subtraction<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Subtraction<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
@@ -283,23 +269,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for Subtraction<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
@@ -311,8 +289,8 @@ where
 
 impl<Lhs, Rhs> Forward for Subtraction<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&self) {
@@ -320,7 +298,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -328,11 +306,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -340,20 +318,20 @@ where
 
 pub struct Multiplication<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Multiplication<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
@@ -363,23 +341,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for Multiplication<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
@@ -391,8 +361,8 @@ where
 
 impl<Lhs, Rhs> Forward for Multiplication<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&self) {
@@ -400,7 +370,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -408,11 +378,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -420,20 +390,20 @@ where
 
 pub struct Division<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Division<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
@@ -443,23 +413,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for Division<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
@@ -471,8 +433,8 @@ where
 
 impl<Lhs, Rhs> Forward for Division<Lhs, Rhs>
 where
-    Lhs: Data + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data,
+    Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&self) {
@@ -480,7 +442,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
@@ -488,11 +450,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -500,19 +462,19 @@ where
 
 pub struct MatrixMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix2>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> MatrixMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
@@ -522,23 +484,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for MatrixMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
 {
     type Dim = Ix2;
 
@@ -549,15 +503,15 @@ where
 
 impl<Lhs, Rhs> Forward for MatrixMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
 {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         general_mat_mul(
             1.0,
             &*self.left.data(),
@@ -568,11 +522,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -580,19 +534,19 @@ where
 
 pub struct MatrixVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> MatrixVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
@@ -602,23 +556,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for MatrixVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
 {
     type Dim = Ix1;
 
@@ -629,8 +575,8 @@ where
 
 impl<Lhs, Rhs> Forward for MatrixVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix2> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&self) {
@@ -638,7 +584,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         general_mat_vec_mul(
             1.0,
             &*self.left.data(),
@@ -649,11 +595,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -661,19 +607,19 @@ where
 
 pub struct VectorMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix2>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> VectorMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix2>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
@@ -683,23 +629,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for VectorMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix2>,
 {
     type Dim = Ix1;
 
@@ -710,8 +648,8 @@ where
 
 impl<Lhs, Rhs> Forward for VectorMatrixMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix2> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix2>,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&self) {
@@ -719,7 +657,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         general_mat_vec_mul(
             1.0,
             &self.right.data().t(),
@@ -730,11 +668,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -742,19 +680,19 @@ where
 
 pub struct VectorVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     data: RefCell<Tensor<Ix1>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> VectorVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
@@ -764,23 +702,15 @@ where
             left,
             right,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for VectorVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
 {
     type Dim = Ix1;
 
@@ -791,8 +721,8 @@ where
 
 impl<Lhs, Rhs> Forward for VectorVectorMul<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Ix1> + Forward,
-    Rhs: Data<Dim = Ix1> + Forward,
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn forward(&self) {
@@ -800,68 +730,64 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         self.data.borrow_mut()[0] = self.left.data().dot(&*self.right.data());
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Power ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Power<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Power<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     exp: i32,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Power<T> {
-    pub fn new(op: Rc<T>, exp: i32) -> Self {
-        let data = Tensor::zeros(op.data().raw_dim());
+impl<T: Data> Power<T> {
+    pub fn new(operand: Rc<T>, exp: i32) -> Self {
+        let data = Tensor::zeros(operand.data().raw_dim());
 
         Self {
-            op,
+            operand,
             data: RefCell::new(data),
             exp,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Power<T> {
+impl<T: Data> Forward for Power<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let exp = self.exp;
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| *v = o.powi(exp));
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Power<T> {
+impl<T: Data> Data for Power<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -871,48 +797,44 @@ impl<T: Data + Forward> Data for Power<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Sum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Sum<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Sum<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<Ix1>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Sum<T> {
-    pub fn new(op: Rc<T>) -> Self {
+impl<T: Data> Sum<T> {
+    pub fn new(operand: Rc<T>) -> Self {
         let data = RefCell::new(Tensor::zeros(1));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Sum<T> {
+impl<T: Data> Forward for Sum<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
-        self.data.borrow_mut()[0] = self.op.data().sum();
+        self.computed.set(true);
+        self.data.borrow_mut()[0] = self.operand.data().sum();
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Sum<T> {
+impl<T: Data> Data for Sum<T> {
     type Dim = Ix1;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -922,50 +844,46 @@ impl<T: Data + Forward> Data for Sum<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Logn ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Logn<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Logn<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Logn<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> Logn<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Logn<T> {
+impl<T: Data> Forward for Logn<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| *v = o.ln());
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Logn<T> {
+impl<T: Data> Data for Logn<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -976,50 +894,46 @@ impl<T: Data + Forward> Data for Logn<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct ReLU<T: Data + Forward> {
-    op: Rc<T>,
+pub struct ReLU<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> ReLU<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> ReLU<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for ReLU<T> {
+impl<T: Data> Forward for ReLU<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| *v = o.max(0.));
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for ReLU<T> {
+impl<T: Data> Data for ReLU<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1030,50 +944,46 @@ impl<T: Data + Forward> Data for ReLU<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct LeakyReLU<T: Data + Forward> {
-    op: Rc<T>,
+pub struct LeakyReLU<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> LeakyReLU<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> LeakyReLU<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for LeakyReLU<T> {
+impl<T: Data> Forward for LeakyReLU<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| *v = if *o > 0.0 { *o } else { 0.01 * o });
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for LeakyReLU<T> {
+impl<T: Data> Data for LeakyReLU<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1083,37 +993,33 @@ impl<T: Data + Forward> Data for LeakyReLU<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SoftPlus ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct SoftPlus<T: Data + Forward> {
-    op: Rc<T>,
+pub struct SoftPlus<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> SoftPlus<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> SoftPlus<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for SoftPlus<T> {
+impl<T: Data> Forward for SoftPlus<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| {
                 *v = if *o < -15.0 {
                     0.0
@@ -1126,15 +1032,15 @@ impl<T: Data + Forward> Forward for SoftPlus<T> {
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for SoftPlus<T> {
+impl<T: Data> Data for SoftPlus<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1144,37 +1050,33 @@ impl<T: Data + Forward> Data for SoftPlus<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Sigmoid ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Sigmoid<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Sigmoid<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Sigmoid<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> Sigmoid<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Sigmoid<T> {
+impl<T: Data> Forward for Sigmoid<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| {
                 *v = if *o >= 15.0 {
                     1.0
@@ -1187,15 +1089,15 @@ impl<T: Data + Forward> Forward for Sigmoid<T> {
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Sigmoid<T> {
+impl<T: Data> Data for Sigmoid<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1205,50 +1107,46 @@ impl<T: Data + Forward> Data for Sigmoid<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ TanH ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct TanH<T: Data + Forward> {
-    op: Rc<T>,
+pub struct TanH<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> TanH<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> TanH<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for TanH<T> {
+impl<T: Data> Forward for TanH<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| *v = o.tanh());
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for TanH<T> {
+impl<T: Data> Data for TanH<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1258,50 +1156,46 @@ impl<T: Data + Forward> Data for TanH<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Exp ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Exp<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Exp<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Exp<T> {
-    pub fn new(op: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> Exp<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Exp<T> {
+impl<T: Data> Forward for Exp<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
-            .and(&*self.op.data())
+            .and(&*self.operand.data())
             .par_for_each(|v, o| *v = o.exp());
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Exp<T> {
+impl<T: Data> Data for Exp<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1311,40 +1205,36 @@ impl<T: Data + Forward> Data for Exp<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Softmax ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Softmax<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Softmax<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     axis: usize,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Softmax<T> {
-    pub fn new(op: Rc<T>, axis: usize) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> Softmax<T> {
+    pub fn new(operand: Rc<T>, axis: usize) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
             axis,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Softmax<T> {
+impl<T: Data> Forward for Softmax<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let axis = self.axis;
         Zip::from(self.data.borrow_mut().lanes_mut(Axis(axis)))
-            .and(self.op.data().lanes(Axis(axis)))
+            .and(self.operand.data().lanes(Axis(axis)))
             .for_each(|lane_v, lane_o| {
                 let max = lane_o.fold(std::f32::MIN, |x, y| x.max(*y));
                 let num = &lane_o.map(|el| (el - max).exp());
@@ -1356,15 +1246,15 @@ impl<T: Data + Forward> Forward for Softmax<T> {
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Softmax<T> {
+impl<T: Data> Data for Softmax<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1374,40 +1264,36 @@ impl<T: Data + Forward> Data for Softmax<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmax ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct LogSoftmax<T: Data + Forward> {
-    op: Rc<T>,
+pub struct LogSoftmax<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     axis: usize,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> LogSoftmax<T> {
-    pub fn new(op: Rc<T>, axis: usize) -> Self {
-        let data = RefCell::new(Tensor::zeros(op.data().raw_dim()));
+impl<T: Data> LogSoftmax<T> {
+    pub fn new(operand: Rc<T>, axis: usize) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
         Self {
-            op,
+            operand,
             data,
             axis,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for LogSoftmax<T> {
+impl<T: Data> Forward for LogSoftmax<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let axis = self.axis;
         Zip::from(self.data.borrow_mut().lanes_mut(Axis(axis)))
-            .and(self.op.data().lanes(Axis(axis)))
+            .and(self.operand.data().lanes(Axis(axis)))
             .for_each(|lane_v, lane_o| {
                 let max = lane_o.fold(std::f32::MIN, |x, y| x.max(*y));
                 let exp = &lane_o.map(|el| (el - max).exp());
@@ -1419,15 +1305,15 @@ impl<T: Data + Forward> Forward for LogSoftmax<T> {
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for LogSoftmax<T> {
+impl<T: Data> Data for LogSoftmax<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1439,21 +1325,21 @@ impl<T: Data + Forward> Data for LogSoftmax<T> {
 
 pub struct Concatenate<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     axis: usize,
     data: RefCell<Tensor<Lhs::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Concatenate<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
@@ -1473,23 +1359,15 @@ where
             right,
             data,
             axis,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for Concatenate<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     type Dim = Lhs::Dim;
@@ -1501,8 +1379,8 @@ where
 
 impl<Lhs, Rhs> Forward for Concatenate<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     fn forward(&self) {
@@ -1510,7 +1388,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let lhs_data = self.left.data();
         let rhs_data = self.right.data();
         let mut data = self.data.borrow_mut();
@@ -1527,11 +1405,11 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
@@ -1539,21 +1417,21 @@ where
 
 pub struct Stack<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     axis: usize,
     data: RefCell<Tensor<<Lhs::Dim as Dimension>::Larger>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
 impl<Lhs, Rhs> Stack<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
@@ -1573,23 +1451,15 @@ where
             right,
             data,
             axis,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
     }
 }
 
 impl<Lhs, Rhs> Data for Stack<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     type Dim = <Lhs::Dim as Dimension>::Larger;
@@ -1601,8 +1471,8 @@ where
 
 impl<Lhs, Rhs> Forward for Stack<Lhs, Rhs>
 where
-    Lhs: Data<Dim = Rhs::Dim> + Forward,
-    Rhs: Data + Forward,
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
     Lhs::Dim: RemoveAxis,
 {
     fn forward(&self) {
@@ -1610,7 +1480,7 @@ where
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let lhs_data = self.left.data();
         let rhs_data = self.right.data();
         let mut data = self.data.borrow_mut();
@@ -1637,48 +1507,44 @@ where
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Unsqueeze ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct Unsqueeze<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Unsqueeze<T: Data> {
+    operand: Rc<T>,
     data: RefCell<Tensor<<<T as Data>::Dim as Dimension>::Larger>>,
     axis: usize,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Unsqueeze<T> {
-    pub fn new(op: Rc<T>, axis: usize) -> Self {
-        let shape = op.data().raw_dim();
+impl<T: Data> Unsqueeze<T> {
+    pub fn new(operand: Rc<T>, axis: usize) -> Self {
+        let shape = operand.data().raw_dim();
         let data = RefCell::new(Tensor::zeros(shape.insert_axis(Axis(axis))));
 
         Self {
-            op,
+            operand,
             data,
             axis,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Unsqueeze<T> {
+impl<T: Data> Forward for Unsqueeze<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let mut data = self.data.borrow_mut();
         let mut unsqueezed = data
             .axis_iter_mut(Axis(self.axis))
@@ -1686,22 +1552,24 @@ impl<T: Data + Forward> Forward for Unsqueeze<T> {
             .unwrap()
             .into_dimensionality::<T::Dim>()
             .unwrap();
-        let operand_data = self.op.data();
+        let operanderand_data = self.operand.data();
         Zip::from(&mut unsqueezed)
-            .and(&*operand_data)
-            .par_for_each(|unsqueezed_el, operand_data_el| *unsqueezed_el = *operand_data_el);
+            .and(&*operanderand_data)
+            .par_for_each(|unsqueezed_el, operanderand_data_el| {
+                *unsqueezed_el = *operanderand_data_el
+            });
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Unsqueeze<T> {
+impl<T: Data> Data for Unsqueeze<T> {
     type Dim = <T::Dim as Dimension>::Larger;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1710,41 +1578,37 @@ impl<T: Data + Forward> Data for Unsqueeze<T> {
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Chunk ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Chunk<T: Data + Forward> {
-    op: Rc<T>,
+pub struct Chunk<T: Data> {
+    operand: Rc<T>,
     chunk_no: usize,
     chunk_shape: T::Dim,
     data: RefCell<Tensor<T::Dim>>,
-    state: Cell<bool>,
+    computed: Cell<bool>,
 }
 
-impl<T: Data + Forward> Chunk<T> {
-    pub fn new(op: Rc<T>, chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
+impl<T: Data> Chunk<T> {
+    pub fn new(operand: Rc<T>, chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
         Self {
-            op,
+            operand,
             chunk_shape: chunk.raw_dim(),
             data: RefCell::new(chunk),
             chunk_no,
-            state: Cell::new(false),
+            computed: Cell::new(false),
         }
-    }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.op.clone()
     }
 }
 
-impl<T: Data + Forward> Forward for Chunk<T> {
+impl<T: Data> Forward for Chunk<T> {
     fn forward(&self) {
         if self.was_computed() {
             return;
         }
 
-        self.state.set(true);
+        self.computed.set(true);
         let mut data = self.data.borrow_mut();
-        let op_data = self.op.data();
+        let operand_data = self.operand.data();
         let (chunk_shape, chunk_no) = (&self.chunk_shape, self.chunk_no);
-        let operand_data_chunk = op_data
+        let operanderand_data_chunk = operand_data
             .exact_chunks(chunk_shape.clone())
             .into_iter()
             .skip(chunk_no)
@@ -1752,20 +1616,22 @@ impl<T: Data + Forward> Forward for Chunk<T> {
             .next()
             .unwrap();
         Zip::from(&mut *data)
-            .and(&operand_data_chunk)
-            .par_for_each(|chunk_el, operand_data_chunk_el| *chunk_el = *operand_data_chunk_el);
+            .and(&operanderand_data_chunk)
+            .par_for_each(|chunk_el, operanderand_data_chunk_el| {
+                *chunk_el = *operanderand_data_chunk_el
+            });
     }
 
     fn was_computed(&self) -> bool {
-        self.state.get()
+        self.computed.get()
     }
 
     fn reset_computation(&self) {
-        self.state.set(false);
+        self.computed.set(false);
     }
 }
 
-impl<T: Data + Forward> Data for Chunk<T> {
+impl<T: Data> Data for Chunk<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -1802,7 +1668,7 @@ mod tests {
         D: Dimension + 'static,
         Sh: Into<StrideShape<D>>,
     {
-        Input::new(new_tensor(shape, elems)).forward
+        Input::new(new_tensor(shape, elems)).last
     }
 
     fn new_tensor<D, Sh>(shape: Sh, elems: Vec<f32>) -> Tensor<D>
@@ -1819,33 +1685,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Negation::new(input.clone());
+            let node = Negation::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Negation::new(input.clone());
+            let node = Negation::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -1892,33 +1753,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Transpose::new(input.clone());
+            let node = Transpose::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Transpose::new(input.clone());
+            let node = Transpose::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -1966,39 +1822,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input((3, 3), vec![1.; 9]);
-            let node = Addition::new(left.clone(), right.clone());
+            let node = Addition::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input((3, 3), vec![1.; 9]);
-            let node = Addition::new(left.clone(), right.clone());
+            let node = Addition::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2081,39 +1927,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((3, 3), vec![1.; 9]);
-            let node = Subtraction::new(left.clone(), right.clone());
+            let node = Subtraction::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((3, 3), vec![1.; 9]);
-            let node = Subtraction::new(left.clone(), right.clone());
+            let node = Subtraction::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2196,39 +2032,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((3, 3), vec![-1.; 9]);
-            let node = Multiplication::new(left.clone(), right.clone());
+            let node = Multiplication::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((3, 3), vec![-1.; 9]);
-            let node = Multiplication::new(left.clone(), right.clone());
+            let node = Multiplication::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2305,39 +2131,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input((3, 3), vec![2.; 9]);
-            let node = Division::new(left.clone(), right.clone());
+            let node = Division::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input((3, 3), vec![2.; 9]);
-            let node = Division::new(left.clone(), right.clone());
+            let node = Division::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2419,39 +2235,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input((3, 3), vec![1.; 9]);
-            let node = MatrixMatrixMul::new(left.clone(), right.clone());
+            let node = MatrixMatrixMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input((3, 3), vec![1.; 9]);
-            let node = MatrixMatrixMul::new(left.clone(), right.clone());
+            let node = MatrixMatrixMul::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2497,39 +2303,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input(3, vec![1.; 3]);
-            let node = MatrixVectorMul::new(left.clone(), right.clone());
+            let node = MatrixVectorMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem(3, 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let right = new_input(3, vec![1.; 3]);
-            let node = MatrixVectorMul::new(left.clone(), right.clone());
+            let node = MatrixVectorMul::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2563,39 +2359,29 @@ mod tests {
         fn creation() {
             let left = new_input(3, vec![1.; 3]);
             let right = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = VectorMatrixMul::new(left.clone(), right.clone());
+            let node = VectorMatrixMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem(3, 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input(3, vec![1.; 3]);
             let right = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = VectorMatrixMul::new(left.clone(), right.clone());
+            let node = VectorMatrixMul::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2629,39 +2415,29 @@ mod tests {
         fn creation() {
             let left = new_input(3, vec![2.; 3]);
             let right = new_input(3, vec![1., 2., 3.]);
-            let node = VectorVectorMul::new(left.clone(), right.clone());
+            let node = VectorVectorMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem(1, 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input(3, vec![2.; 3]);
             let right = new_input(3, vec![1., 2., 3.]);
-            let node = VectorVectorMul::new(left.clone(), right.clone());
+            let node = VectorVectorMul::new(left, right);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -2694,33 +2470,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Power::new(input.clone(), 2);
+            let node = Power::new(input, 2);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Power::new(input.clone(), 2);
+            let node = Power::new(input, 2);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -2770,33 +2541,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Sum::new(input.clone());
+            let node = Sum::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem(1, 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Sum::new(input.clone());
+            let node = Sum::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -2834,35 +2600,31 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Logn::new(input.clone());
+            let node = Logn::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Logn::new(input.clone());
+            let node = Logn::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
+        #[allow(clippy::clippy::clippy::approx_constant)]
         #[test]
         fn forward() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
@@ -2922,33 +2684,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = ReLU::new(input.clone());
+            let node = ReLU::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = ReLU::new(input.clone());
+            let node = ReLU::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -2995,33 +2752,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = LeakyReLU::new(input.clone());
+            let node = LeakyReLU::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = LeakyReLU::new(input.clone());
+            let node = LeakyReLU::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -3068,35 +2820,31 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = SoftPlus::new(input.clone());
+            let node = SoftPlus::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = SoftPlus::new(input.clone());
+            let node = SoftPlus::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
+        #[allow(clippy::clippy::clippy::approx_constant)]
         #[test]
         fn forward() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
@@ -3159,33 +2907,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Sigmoid::new(input.clone());
+            let node = Sigmoid::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Sigmoid::new(input.clone());
+            let node = Sigmoid::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -3247,33 +2990,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = TanH::new(input.clone());
+            let node = TanH::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = TanH::new(input.clone());
+            let node = TanH::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -3338,33 +3076,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Exp::new(input.clone());
+            let node = Exp::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Exp::new(input.clone());
+            let node = Exp::new(input);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -3450,33 +3183,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Softmax::new(input.clone(), 0);
+            let node = Softmax::new(input, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Softmax::new(input.clone(), 0);
+            let node = Softmax::new(input, 0);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -3596,33 +3324,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = LogSoftmax::new(input.clone(), 0);
+            let node = LogSoftmax::new(input, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = LogSoftmax::new(input.clone(), 0);
+            let node = LogSoftmax::new(input, 0);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
@@ -3743,39 +3466,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((2, 3), vec![1.; 6]);
-            let node = Concatenate::new(left.clone(), right.clone(), 0);
+            let node = Concatenate::new(left, right, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((5, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((2, 3), vec![1.; 6]);
-            let node = Concatenate::new(left.clone(), right.clone(), 0);
+            let node = Concatenate::new(left, right, 0);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -3912,39 +3625,29 @@ mod tests {
         fn creation() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((3, 3), vec![0.; 9]);
-            let node = Stack::new(left.clone(), right.clone(), 0);
+            let node = Stack::new(left, right, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((2, 3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let right = new_input((3, 3), vec![0.; 9]);
-            let node = Stack::new(left.clone(), right.clone(), 0);
+            let node = Stack::new(left, right, 0);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.left_operand(), &left));
-            assert!(Rc::ptr_eq(&node.right_operand(), &right));
         }
 
         #[test]
@@ -4080,33 +3783,28 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Unsqueeze::new(input.clone(), 0);
+            let node = Unsqueeze::new(input, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((1, 3, 3), 0.));
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]
-        fn computation_state_transition() {
+        fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-            let node = Unsqueeze::new(input.clone(), 0);
+            let node = Unsqueeze::new(input, 0);
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
 
             node.reset_computation();
             assert_eq!(node.was_computed(), false);
-            assert!(Rc::ptr_eq(&node.operand(), &input));
         }
 
         #[test]

@@ -1,13 +1,13 @@
-mod graph;
 pub mod nn;
 pub mod optim;
-pub use graph::{
-    node::{Input, InputBackward},
-    Cat, MatMatMul, MatVecMul, Stack, VecMatMul, VecVecMul,
-};
+mod variable;
 pub use ndarray;
 pub use ndarray_rand::rand_distr::Uniform;
 pub use ndarray_rand::RandomExt;
+pub use variable::{
+    node::{Input, InputBackward},
+    Cat, MatMatMul, MatVecMul, Stack, VecMatMul, VecVecMul,
+};
 
 /// Creates an Input node with one, two or three dimensions.
 ///

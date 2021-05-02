@@ -2,24 +2,25 @@ use ndarray::{arr1, Array, Array1};
 
 #[test]
 fn scalar_add() {
+    // ------------------------------ Begin ------------------------------
     let x = neuronika::tensor!([1.], true);
     let y = neuronika::tensor!([1.], true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
+    assert_eq!(*z.data(), Array::from_elem(1, 0.));
 
     z.forward();
+    z.forward();
+    assert_eq!(*z.data(), Array::from_elem(1, 2.));
+
     z.backward(1.);
-
-    let x_grad = x.grad();
-    let y_grad = y.grad();
-
-    assert_eq!(*x_grad, arr1(&[1.]));
-    assert_eq!(*y_grad, arr1(&[1.]));
+    assert_eq!(*x.grad(), Array::from_elem(1, 1.));
+    assert_eq!(*y.grad(), Array::from_elem(1, 1.));
 
     let x = neuronika::tensor!([1.], true);
     let y = neuronika::full!(10, 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
 
     z.forward();
     z.backward(1.);
@@ -34,7 +35,7 @@ fn scalar_add() {
     let x = neuronika::tensor!([1.], true);
     let y = neuronika::full!((10, 10), 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
 
     z.forward();
     z.backward(1.);
@@ -51,7 +52,7 @@ fn scalar_sub() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::tensor!([3.], true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
 
     z.forward();
     z.backward(1.);
@@ -65,7 +66,7 @@ fn scalar_sub() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::full!(10, 3., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
 
     z.forward();
     z.backward(1.);
@@ -79,7 +80,7 @@ fn scalar_sub() {
     let x = neuronika::tensor!([1.], true);
     let y = neuronika::full!((10, 10), 1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
 
     z.forward();
     z.backward(1.);
@@ -96,7 +97,7 @@ fn scalar_mul() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::tensor!([3.], true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
 
     z.forward();
     z.backward(1.);
@@ -110,7 +111,7 @@ fn scalar_mul() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::full!(10, 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
 
     z.forward();
     z.backward(1.);
@@ -124,7 +125,7 @@ fn scalar_mul() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::full!((10, 10), 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
 
     z.forward();
     z.backward(1.);
@@ -141,7 +142,7 @@ fn scalar_div() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::tensor!([5.], true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
 
     z.forward();
     z.backward(1.);
@@ -155,7 +156,7 @@ fn scalar_div() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::full!(10, 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
 
     z.forward();
     z.backward(1.);
@@ -169,7 +170,7 @@ fn scalar_div() {
     let x = neuronika::tensor!([5.], true);
     let y = neuronika::full!((5, 5), 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
 
     z.forward();
     z.backward(1.);
@@ -187,7 +188,7 @@ fn vector_add() {
     let x = neuronika::full!(10, 1., true);
     let y = neuronika::tensor!([1.], true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -201,7 +202,7 @@ fn vector_add() {
     let x = neuronika::full!(10, 1., true);
     let y = neuronika::full!(10, 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -215,7 +216,7 @@ fn vector_add() {
     let x = neuronika::full!(10, 10., true);
     let y = neuronika::full!((10, 10), 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem((10, 10), 0.));
 
     z.forward();
@@ -229,7 +230,7 @@ fn vector_add() {
     let x = neuronika::full!(10, 1., true);
     let y = neuronika::full!((10, 1), 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem((10, 10), 0.));
 
     z.forward();
@@ -246,7 +247,7 @@ fn vector_sub() {
     let x = neuronika::full!(10, 1., true);
     let y = neuronika::tensor!([1.], true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -260,7 +261,7 @@ fn vector_sub() {
     let x = neuronika::full!(10, 1., true);
     let y = neuronika::full!(10, 1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -274,7 +275,7 @@ fn vector_sub() {
     let x = neuronika::full!(10, 1., true);
     let y = neuronika::full!((10, 10), -1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem((10, 10), 0.));
 
     z.forward();
@@ -288,7 +289,7 @@ fn vector_sub() {
     let x = neuronika::full!(10, 1., true);
     let y = neuronika::full!((10, 1), 1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem((10, 10), 0.));
 
     z.forward();
@@ -305,7 +306,7 @@ fn vector_mul() {
     let x = neuronika::full!(10, 5., true);
     let y = neuronika::tensor!([3.], true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -319,7 +320,7 @@ fn vector_mul() {
     let x = neuronika::full!(10, 5., true);
     let y = neuronika::full!(10, 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -333,7 +334,7 @@ fn vector_mul() {
     let x = neuronika::full!(10, 5., true);
     let y = neuronika::full!((10, 10), 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((10, 10), 0.));
 
     z.forward();
@@ -347,7 +348,7 @@ fn vector_mul() {
     let x = neuronika::full!(10, 5., true);
     let y = neuronika::full!((10, 1), 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((10, 10), 0.));
 
     z.forward();
@@ -364,7 +365,7 @@ fn vector_div() {
     let x = neuronika::full!(10, 5., true);
     let y = neuronika::tensor!([5.], true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -378,7 +379,7 @@ fn vector_div() {
     let x = neuronika::full!(10, 5., true);
     let y = neuronika::full!(10, 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem(10, 0.));
 
     z.forward();
@@ -392,7 +393,7 @@ fn vector_div() {
     let x = neuronika::full!(5, 5., true);
     let y = neuronika::full!((5, 5), 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -406,7 +407,7 @@ fn vector_div() {
     let x = neuronika::full!(5, 5., true);
     let y = neuronika::full!((5, 1), 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -423,7 +424,7 @@ fn matrix_add() {
     let x = neuronika::full!((5, 5), 1., true);
     let y = neuronika::tensor!([1.], true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -437,7 +438,7 @@ fn matrix_add() {
     let x = neuronika::full!((5, 5), 1., true);
     let y = neuronika::full!(5, 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -451,7 +452,7 @@ fn matrix_add() {
     let x = neuronika::full!((5, 5), 1., true);
     let y = neuronika::full!((5, 5), 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -465,7 +466,7 @@ fn matrix_add() {
     let x = neuronika::full!((5, 1), 1., true);
     let y = neuronika::full!((1, 5), 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -479,7 +480,7 @@ fn matrix_add() {
     let x = neuronika::full!((1, 1), 1., true);
     let y = neuronika::full!((5, 5), 1., true);
 
-    let z = x.clone() + y.clone();
+    let mut z = x.clone() + y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -496,7 +497,7 @@ fn matrix_sub() {
     let x = neuronika::full!((5, 5), 1., true);
     let y = neuronika::tensor!([1.], true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -510,7 +511,7 @@ fn matrix_sub() {
     let x = neuronika::full!((5, 5), 1., true);
     let y = neuronika::full!(5, -1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -524,7 +525,7 @@ fn matrix_sub() {
     let x = neuronika::full!((5, 5), 1., true);
     let y = neuronika::full!((5, 5), -1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -538,7 +539,7 @@ fn matrix_sub() {
     let x = neuronika::full!((5, 5), 1., true);
     let y = neuronika::full!((1, 5), -1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -552,7 +553,7 @@ fn matrix_sub() {
     let x = neuronika::full!((1, 1), 1., true);
     let y = neuronika::full!((5, 5), 1., true);
 
-    let z = x.clone() - y.clone();
+    let mut z = x.clone() - y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -569,7 +570,7 @@ fn matrix_mul() {
     let x = neuronika::full!((5, 5), 5., true);
     let y = neuronika::tensor!([3.], true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -583,7 +584,7 @@ fn matrix_mul() {
     let x = neuronika::full!((5, 5), 5., true);
     let y = neuronika::tensor!([3.], true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -597,7 +598,7 @@ fn matrix_mul() {
     let x = neuronika::full!((5, 5), 5., true);
     let y = neuronika::full!(5, 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -611,7 +612,7 @@ fn matrix_mul() {
     let x = neuronika::full!((5, 5), 5., true);
     let y = neuronika::full!((5, 5), 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -625,7 +626,7 @@ fn matrix_mul() {
     let x = neuronika::full!((5, 1), 5., true);
     let y = neuronika::full!((1, 5), 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -639,7 +640,7 @@ fn matrix_mul() {
     let x = neuronika::full!((1, 1), 5., true);
     let y = neuronika::full!((5, 5), 3., true);
 
-    let z = x.clone() * y.clone();
+    let mut z = x.clone() * y.clone();
     assert_eq!(*z.data(), Array::from_elem((5, 5), 0.));
 
     z.forward();
@@ -656,7 +657,7 @@ fn matrix_div() {
     let x = neuronika::full!((2, 2), 5., true);
     let y = neuronika::tensor!([5.], true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem((2, 2), 0.));
 
     z.forward();
@@ -670,7 +671,7 @@ fn matrix_div() {
     let x = neuronika::full!((2, 2), 5., true);
     let y = neuronika::full!(2, 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem((2, 2), 0.));
 
     z.forward();
@@ -684,7 +685,7 @@ fn matrix_div() {
     let x = neuronika::full!((2, 2), 5., true);
     let y = neuronika::full!((2, 2), 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem((2, 2), 0.));
 
     z.forward();
@@ -698,7 +699,7 @@ fn matrix_div() {
     let x = neuronika::full!((2, 1), 5., true);
     let y = neuronika::full!((1, 2), 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem((2, 2), 0.));
 
     z.forward();
@@ -712,7 +713,7 @@ fn matrix_div() {
     let x = neuronika::full!((1, 1), 5., true);
     let y = neuronika::full!((2, 2), 5., true);
 
-    let z = x.clone() / y.clone();
+    let mut z = x.clone() / y.clone();
     assert_eq!(*z.data(), Array::from_elem((2, 2), 0.));
 
     z.forward();
@@ -740,13 +741,13 @@ fn stack() {
     let x = neuronika::full!(2, 1., true);
     let y = neuronika::full!(2, 1., true);
 
-    let res = x.clone().stack(y.clone(), 0);
+    let mut res = x.clone().stack(y.clone(), 0);
     assert_eq!(*res.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
     res.forward();
     assert_eq!(*res.data(), ndarray::array![[1., 1.], [1., 1.]]);
 
-    let res = x.stack(y, 1);
+    let mut res = x.stack(y, 1);
     assert_eq!(*res.data(), ndarray::array![[0., 0.], [0., 0.]]);
     res.forward();
     assert_eq!(*res.data(), ndarray::array![[1., 1.], [1., 1.]]);
@@ -758,7 +759,7 @@ fn concatenate() {
     let x = neuronika::full!(2, 1., true);
     let y = neuronika::full!(2, 1., false);
 
-    let res = x.cat(y, 0);
+    let mut res = x.cat(y, 0);
     assert_eq!(*res.data(), ndarray::array![0., 0., 0., 0.]);
 
     res.forward();
