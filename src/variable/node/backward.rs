@@ -98,7 +98,7 @@ impl<D: Dimension> Differentiable for Input<D> {
     fn differentiable(&self) -> Self::Output {
         Self::Output {
             gradient: RefCell::new(Tensor::zeros(self.data().raw_dim())),
-            overwrite: Cell::new(false),
+            overwrite: Cell::new(true),
         }
     }
 }
@@ -275,7 +275,7 @@ where
             Zip::from(&mut *lhs_grad)
                 .and_broadcast(&gradient_lhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest = *src);
-            self.left.set_overwrite(true);
+            self.left.set_overwrite(false);
         } else {
             Zip::from(&mut *lhs_grad)
                 .and_broadcast(&gradient_lhs.as_standard_layout())
@@ -286,7 +286,7 @@ where
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest = *src);
-            self.right.set_overwrite(true);
+            self.right.set_overwrite(false);
         } else {
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
@@ -464,7 +464,7 @@ where
             Zip::from(&mut *lhs_grad)
                 .and_broadcast(&gradient_lhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest = *src);
-            self.left.set_overwrite(true);
+            self.left.set_overwrite(false);
         } else {
             Zip::from(&mut *lhs_grad)
                 .and_broadcast(&gradient_lhs.as_standard_layout())
@@ -475,7 +475,7 @@ where
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
                 .par_for_each(|dest, src| *dest = -src);
-            self.right.set_overwrite(true);
+            self.right.set_overwrite(false);
         } else {
             Zip::from(&mut *rhs_grad)
                 .and_broadcast(&gradient_rhs.as_standard_layout())
@@ -2463,7 +2463,7 @@ impl<T: Gradient + Overwrite> Backward for SumBackward<T> {
         let zip = Zip::from(&mut *op_grad).and_broadcast(&*grad);
         if self.operand.can_overwrite() {
             zip.par_for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
-            self.operand.can_overwrite();
+            self.operand.set_overwrite(false);
         } else {
             zip.par_for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
         }
@@ -3363,7 +3363,7 @@ where
         let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
         if self.left.can_overwrite() {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(true);
+            self.left.set_overwrite(false);
         } else {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
         }
@@ -3371,7 +3371,7 @@ where
         let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
         if self.right.can_overwrite() {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(true);
+            self.right.set_overwrite(false);
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
@@ -3463,7 +3463,7 @@ where
         let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
         if self.left.can_overwrite() {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(true);
+            self.left.set_overwrite(false);
         } else {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
         }
@@ -3554,7 +3554,7 @@ where
         let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
         if self.right.can_overwrite() {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(true);
+            self.right.set_overwrite(false);
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
@@ -3670,7 +3670,7 @@ where
         let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
         if self.left.can_overwrite() {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(true);
+            self.left.set_overwrite(false);
         } else {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
         }
@@ -3678,7 +3678,7 @@ where
         let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
         if self.right.can_overwrite() {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(true);
+            self.right.set_overwrite(false);
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
@@ -3773,7 +3773,7 @@ where
         let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
         if self.left.can_overwrite() {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(true);
+            self.left.set_overwrite(false);
         } else {
             zip_lhs.par_for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
         }
@@ -3868,7 +3868,7 @@ where
         let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
         if self.right.can_overwrite() {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(true);
+            self.right.set_overwrite(false);
         } else {
             zip_rhs.par_for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
         }
@@ -3939,7 +3939,7 @@ impl<T: Gradient + Overwrite> Backward for UnsqueezeBackward<T> {
         let zip = Zip::from(&mut *operand_grad).and(&unsqueezed_gradient);
         if self.operand.can_overwrite() {
             zip.par_for_each(|dest, src| *dest = *src);
-            self.operand.can_overwrite();
+            self.operand.set_overwrite(false);
         } else {
             zip.par_for_each(|dest, src| *dest += src);
         }
@@ -4006,7 +4006,7 @@ impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
         let zip = Zip::from(&mut op_gradient_chunk).and(&*grad);
         if self.operand.can_overwrite() {
             zip.par_for_each(|dest, src| *dest = *src);
-            self.operand.can_overwrite();
+            self.operand.set_overwrite(false);
         } else {
             zip.par_for_each(|dest, src| *dest += src);
         }
