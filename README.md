@@ -17,3 +17,5 @@
   <img src="https://img.shields.io/badge/License-MPL%202.0-ff69b4.svg"/>
 </a>
 </p>
+
+![](./misc/neuronika_ad.gif)
