@@ -7,7 +7,8 @@ use super::{
 use ndarray::{
     concatenate,
     linalg::{general_mat_mul, general_mat_vec_mul},
-    s, stack, Axis, DimMax, Dimension, Ix1, Ix2, NewAxis, RemoveAxis, Zip,
+    s, stack, ArrayBase, ArrayView, Axis, DimMax, Dimension, IntoNdProducer, Ix1, Ix2, NewAxis,
+    RemoveAxis, Zip,
 };
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::rc::Rc;
@@ -39,6 +40,90 @@ pub fn reduce<D: Dimension, E: Dimension>(dest: &Tensor<D>, src: &Tensor<E>) -> 
     }
 
     dyn_rhs
+}
+
+pub fn push_gradient<'a, T, P, D>(node: &T, src: P)
+where
+    T: Gradient + Overwrite,
+    P: IntoNdProducer<Dim = D, Output = ArrayView<'a, f32, D>, Item = &'a f32>,
+    D: Dimension,
+{
+    let mut dest = node.gradient_mut();
+    let zip = Zip::from(&mut *dest).and_broadcast(src);
+    if node.can_overwrite() {
+        zip.for_each(|d, s| *d = *s);
+        node.set_overwrite(false);
+    } else {
+        zip.for_each(|d, s| *d += *s);
+    }
+}
+
+pub fn push_mat_mat_gradient<T, S1, S2>(
+    dest: &T,
+    fst: &ArrayBase<S1, Ix2>,
+    snd: &ArrayBase<S2, Ix2>,
+) where
+    T: Gradient<Dim = Ix2> + Overwrite,
+    S1: ndarray::Data<Elem = f32>,
+    S2: ndarray::Data<Elem = f32>,
+{
+    if dest.can_overwrite() {
+        general_mat_mul(1., fst, snd, 0., &mut dest.gradient_mut());
+        dest.set_overwrite(false);
+    } else {
+        general_mat_mul(1., fst, snd, 1., &mut dest.gradient_mut());
+    }
+}
+
+pub fn push_mat_vec_gradient<T, S1, S2>(
+    node: &T,
+    fst: &ArrayBase<S1, Ix2>,
+    snd: &ArrayBase<S2, Ix1>,
+) where
+    T: Gradient<Dim = Ix2> + Overwrite,
+    S1: ndarray::Data<Elem = f32>,
+    S2: ndarray::Data<Elem = f32>,
+{
+    let mut dest = node.gradient_mut();
+    let zip = Zip::from(&mut *dest).and_broadcast(fst).and_broadcast(snd);
+    if node.can_overwrite() {
+        zip.for_each(|d, f, s| *d = f * s);
+        node.set_overwrite(false);
+    } else {
+        zip.for_each(|d, f, s| *d += f * s);
+    }
+}
+
+pub fn push_vec_mat_gradient<T, S1, S2>(
+    dest: &T,
+    fst: &ArrayBase<S1, Ix2>,
+    snd: &ArrayBase<S2, Ix1>,
+) where
+    T: Gradient<Dim = Ix1> + Overwrite,
+    S1: ndarray::Data<Elem = f32>,
+    S2: ndarray::Data<Elem = f32>,
+{
+    if dest.can_overwrite() {
+        general_mat_vec_mul(1., fst, snd, 0., &mut dest.gradient_mut());
+        dest.set_overwrite(false);
+    } else {
+        general_mat_vec_mul(1., fst, snd, 1., &mut dest.gradient_mut());
+    }
+}
+
+pub fn push_vec_vec_gradient<T, S>(node: &T, fst: &ArrayBase<S, Ix1>, snd: &f32)
+where
+    T: Gradient<Dim = Ix1> + Overwrite,
+    S: ndarray::Data<Elem = f32>,
+{
+    let mut dest = node.gradient_mut();
+    let zip = Zip::from(&mut *dest).and_broadcast(fst);
+    if node.can_overwrite() {
+        zip.for_each(|d, f| *d = f * snd);
+        node.set_overwrite(false);
+    } else {
+        zip.for_each(|d, f| *d += f * snd);
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -147,15 +232,7 @@ impl<T: Gradient + Overwrite> Gradient for NegationBackward<T> {
 
 impl<T: Gradient + Overwrite> Backward for NegationBackward<T> {
     fn backward(&self) {
-        let operand = &mut *self.operand.gradient_mut();
-        let gradient = &*self.gradient.borrow();
-        let zip = Zip::from(operand).and(gradient);
-        if self.operand.can_overwrite() {
-            zip.for_each(|dest, src| *dest = -src);
-            self.operand.set_overwrite(false);
-        } else {
-            zip.for_each(|dest, src| *dest -= src);
-        }
+        push_gradient(&*self.operand, &-(&*self.gradient()));
     }
 }
 
@@ -203,15 +280,7 @@ impl<T: Gradient + Overwrite> Gradient for TransposeBackward<T> {
 
 impl<T: Gradient + Overwrite> Backward for TransposeBackward<T> {
     fn backward(&self) {
-        let operand = &mut *self.operand.gradient_mut();
-        let gradient = &*self.gradient.borrow();
-        let zip = Zip::from(operand).and(gradient.t());
-        if self.operand.can_overwrite() {
-            self.operand.set_overwrite(false);
-            zip.for_each(|dest, src| *dest = *src);
-        } else {
-            zip.for_each(|dest, src| *dest += *src);
-        }
+        push_gradient(&*self.operand, self.gradient().t());
     }
 }
 
@@ -235,7 +304,7 @@ where
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
-    gradient: RefCell<Tensor<Broadcasted<Lhs::Dim, Rhs::Dim>>>,
+    gradient: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
     overwrite: Cell<bool>,
 }
 
@@ -264,34 +333,11 @@ where
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn backward(&self) {
-        let (mut lhs_grad, mut rhs_grad) =
-            { (self.left.gradient_mut(), self.right.gradient_mut()) };
-        let (gradient_lhs, gradient_rhs) = {
-            let grad = self.gradient.borrow();
-            (reduce(&*lhs_grad, &grad), reduce(&*rhs_grad, &grad))
-        };
+        let reduced = reduce(&*self.left.gradient_mut(), &self.gradient());
+        push_gradient(&*self.left, &reduced.as_standard_layout());
 
-        if self.left.can_overwrite() {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&gradient_lhs.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.left.set_overwrite(false);
-        } else {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&gradient_lhs.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
-
-        if self.right.can_overwrite() {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&gradient_rhs.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.right.set_overwrite(false);
-        } else {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&gradient_rhs.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
+        let reduced = reduce(&*self.right.gradient_mut(), &self.gradient());
+        push_gradient(&*self.right, &reduced.as_standard_layout());
     }
 }
 
@@ -367,18 +413,8 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     fn backward(&self) {
-        let mut operand_grad = self.diff_operand.gradient_mut();
-        let gradient = reduce(&operand_grad, &*self.gradient.borrow());
-        if self.diff_operand.can_overwrite() {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.diff_operand.set_overwrite(false);
-        } else {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
+        let reduced = reduce(&*self.diff_operand.gradient(), &*self.gradient());
+        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -453,34 +489,11 @@ where
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn backward(&self) {
-        let (mut lhs_grad, mut rhs_grad) =
-            { (self.left.gradient_mut(), self.right.gradient_mut()) };
-        let (gradient_lhs, gradient_rhs) = {
-            let grad = self.gradient.borrow();
-            (reduce(&*lhs_grad, &grad), reduce(&*rhs_grad, &grad))
-        };
+        let reduced = reduce(&*self.left.gradient_mut(), &self.gradient());
+        push_gradient(&*self.left, &reduced.as_standard_layout());
 
-        if self.left.can_overwrite() {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&gradient_lhs.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.left.set_overwrite(false);
-        } else {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&gradient_lhs.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
-
-        if self.right.can_overwrite() {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&gradient_rhs.as_standard_layout())
-                .for_each(|dest, src| *dest = -src);
-            self.right.set_overwrite(false);
-        } else {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&gradient_rhs.as_standard_layout())
-                .for_each(|dest, src| *dest += -src);
-        }
+        let reduced = -reduce(&*self.right.gradient_mut(), &self.gradient());
+        push_gradient(&*self.right, &reduced.as_standard_layout());
     }
 }
 
@@ -556,19 +569,8 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     fn backward(&self) {
-        let mut operand_grad = self.diff_operand.gradient_mut();
-        let gradient = reduce(&operand_grad, &*self.gradient.borrow());
-
-        if self.diff_operand.can_overwrite() {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient)
-                .for_each(|dest, src| *dest = *src);
-            self.diff_operand.set_overwrite(false);
-        } else {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient)
-                .for_each(|dest, src| *dest += *src);
-        }
+        let reduced = reduce(&*self.diff_operand.gradient_mut(), &self.gradient());
+        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -644,20 +646,8 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     fn backward(&self) {
-        self.overwrite.set(true);
-        let mut operand_grad = self.diff_operand.gradient_mut();
-        let gradient = reduce(&operand_grad, &*self.gradient.borrow());
-
-        if self.diff_operand.can_overwrite() {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient)
-                .for_each(|dest, src| *dest = -src);
-            self.diff_operand.set_overwrite(false);
-        } else {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient)
-                .for_each(|dest, src| *dest += -src);
-        }
+        let reduced = -reduce(&*self.diff_operand.gradient_mut(), &self.gradient());
+        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -759,48 +749,21 @@ where
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     fn backward(&self) {
-        let (mut lhs_grad, mut rhs_grad) = {
-            (
-                self.left_grad.gradient_mut(),
-                self.right_grad.gradient_mut(),
-            )
-        };
-        let grad = self.gradient.borrow();
-        let mut tmp = self.buffer.borrow_mut();
-
-        Zip::from(&mut *tmp)
-            .and(&*grad)
+        let gradient = self.gradient();
+        let mut buffer = self.buffer.borrow_mut();
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
             .and_broadcast(&*self.right_data.data())
-            .for_each(|tmp_el, grad_el, rhs_data_el| *tmp_el = grad_el * rhs_data_el);
+            .for_each(|d, g, r| *d = g * r);
+        let reduced = reduce(&*self.left_grad.gradient(), &buffer);
+        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
 
-        let to_left_grad = reduce(&*lhs_grad, &tmp);
-        if self.left_grad.can_overwrite() {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&to_left_grad.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.left_grad.set_overwrite(false);
-        } else {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&to_left_grad.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
-
-        Zip::from(&mut *tmp)
-            .and(&*grad)
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
             .and_broadcast(&*self.left_data.data())
-            .for_each(|tmp_el, grad_el, lhs_data_el| *tmp_el = grad_el * lhs_data_el);
-
-        let to_right_grad = reduce(&*rhs_grad, &tmp);
-        if self.right_grad.can_overwrite() {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&to_right_grad.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.right_grad.set_overwrite(false);
-        } else {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&to_right_grad.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
+            .for_each(|d, g, l| *d = g * l);
+        let reduced = reduce(&*self.right_grad.gradient(), &buffer);
+        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -890,26 +853,15 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     fn backward(&self) {
-        let mut operand_grad = self.diff_operand.gradient_mut();
-        let grad = self.gradient.borrow();
-        let mut tmp = self.buffer.borrow_mut();
+        let gradient = self.gradient();
+        let mut buffer = self.buffer.borrow_mut();
 
-        Zip::from(&mut *tmp)
-            .and(&*grad)
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
             .and_broadcast(&*self.no_diff_operand.data())
-            .for_each(|tmp_el, grad_el, no_diff_operand_el| *tmp_el = grad_el * no_diff_operand_el);
-
-        let gradient = reduce(&operand_grad, &tmp);
-        if self.diff_operand.can_overwrite() {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.diff_operand.set_overwrite(false);
-        } else {
-            Zip::from(&mut *operand_grad)
-                .and_broadcast(&gradient.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
+            .for_each(|d, g, v| *d = g * v);
+        let reduced = reduce(&self.diff_operand.gradient_mut(), &buffer);
+        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -1011,51 +963,23 @@ where
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     fn backward(&self) {
-        let (mut lhs_grad, mut rhs_grad) = {
-            (
-                self.left_grad.gradient_mut(),
-                self.right_grad.gradient_mut(),
-            )
-        };
-        let grad = self.gradient.borrow();
-        let mut tmp = self.buffer.borrow_mut();
+        let gradient = self.gradient();
+        let mut buffer = self.buffer.borrow_mut();
 
-        Zip::from(&mut *tmp)
-            .and(&*grad)
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
             .and_broadcast(&*self.right_data.data())
-            .for_each(|tmp_el, grad_el, rhs_data_el| *tmp_el = grad_el / rhs_data_el);
+            .for_each(|d, g, r| *d = g / r);
+        let reduced = reduce(&*self.left_grad.gradient(), &buffer);
+        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
 
-        let to_left_grad = reduce(&*lhs_grad, &tmp);
-        if self.left_grad.can_overwrite() {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&to_left_grad.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.left_grad.set_overwrite(false);
-        } else {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&to_left_grad.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
-
-        Zip::from(&mut *tmp)
-            .and(&*grad)
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
             .and_broadcast(&*self.left_data.data())
             .and_broadcast(&*self.right_data.data())
-            .for_each(|tmp_el, grad_el, lhs_data_el, rhs_data_el| {
-                *tmp_el = -grad_el * lhs_data_el / rhs_data_el.powi(2)
-            });
-
-        let to_right_grad = reduce(&*rhs_grad, &tmp);
-        if self.right_grad.can_overwrite() {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&to_right_grad.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.right_grad.set_overwrite(false);
-        } else {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&to_right_grad.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
+            .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
+        let reduced = reduce(&*self.right_grad.gradient(), &buffer);
+        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -1139,26 +1063,15 @@ where
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     fn backward(&self) {
-        let mut lhs_grad = { self.left_grad.gradient_mut() };
-        let grad = self.gradient.borrow();
-        let mut tmp = self.buffer.borrow_mut();
+        let gradient = self.gradient();
+        let mut buffer = self.buffer.borrow_mut();
 
-        Zip::from(&mut *tmp)
-            .and(&*grad)
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
             .and_broadcast(&*self.right_data.data())
-            .for_each(|tmp_el, grad_el, rhs_data_el| *tmp_el = grad_el / rhs_data_el);
-
-        let to_left_grad = reduce(&*lhs_grad, &tmp);
-        if self.left_grad.can_overwrite() {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&to_left_grad.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.left_grad.set_overwrite(false);
-        } else {
-            Zip::from(&mut *lhs_grad)
-                .and_broadcast(&to_left_grad.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
+            .for_each(|d, g, r| *d = g / r);
+        let reduced = reduce(&*self.left_grad.gradient(), &buffer);
+        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -1241,29 +1154,16 @@ where
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     fn backward(&self) {
-        let mut rhs_grad = self.right_grad.gradient_mut();
-        let grad = self.gradient.borrow();
-        let mut tmp = self.buffer.borrow_mut();
+        let gradient = self.gradient();
+        let mut buffer = self.buffer.borrow_mut();
 
-        Zip::from(&mut *tmp)
-            .and(&*grad)
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
             .and_broadcast(&*self.left_data.data())
             .and_broadcast(&*self.right_data.data())
-            .for_each(|tmp_el, grad_el, lhs_data_el, rhs_data_el| {
-                *tmp_el = -grad_el * lhs_data_el / rhs_data_el.powi(2)
-            });
-
-        let to_right_grad = reduce(&*rhs_grad, &tmp);
-        if self.right_grad.can_overwrite() {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&to_right_grad.as_standard_layout())
-                .for_each(|dest, src| *dest = *src);
-            self.right_grad.set_overwrite(false);
-        } else {
-            Zip::from(&mut *rhs_grad)
-                .and_broadcast(&to_right_grad.as_standard_layout())
-                .for_each(|dest, src| *dest += *src);
-        }
+            .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
+        let reduced = reduce(&*self.right_grad.gradient(), &buffer);
+        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -1356,29 +1256,9 @@ where
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
-            (
-                self.left_grad.gradient_mut(),
-                self.left_data.data(),
-                self.right_grad.gradient_mut(),
-                self.right_data.data(),
-            )
-        };
-        let grad = self.gradient.borrow();
-
-        if self.left_grad.can_overwrite() {
-            general_mat_mul(1.0, &grad, &rhs_data.t(), 0., &mut lhs_grad);
-            self.left_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(1.0, &grad, &rhs_data.t(), 1., &mut lhs_grad);
-        }
-
-        if self.right_grad.can_overwrite() {
-            general_mat_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
-            self.right_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
-        }
+        let gradient = self.gradient();
+        push_mat_mat_gradient(&*self.left_grad, &gradient, &self.right_data.data().t());
+        push_mat_mat_gradient(&*self.right_grad, &self.left_data.data().t(), &gradient);
     }
 }
 
@@ -1453,15 +1333,11 @@ where
     LhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
-        let grad = self.gradient.borrow();
-
-        if self.left_grad.can_overwrite() {
-            general_mat_mul(1.0, &grad, &rhs_data.t(), 0., &mut lhs_grad);
-            self.left_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(1.0, &grad, &rhs_data.t(), 1., &mut lhs_grad);
-        }
+        push_mat_mat_gradient(
+            &*self.left_grad,
+            &self.gradient(),
+            &self.right_data.data().t(),
+        );
     }
 }
 
@@ -1532,15 +1408,11 @@ where
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
-        let grad = self.gradient.borrow();
-
-        if self.right_grad.can_overwrite() {
-            general_mat_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
-            self.right_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
-        }
+        push_mat_mat_gradient(
+            &*self.right_grad,
+            &self.left_data.data().t(),
+            &self.gradient(),
+        );
     }
 }
 
@@ -1574,7 +1446,7 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MattrixMatrixMulBackwardT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MattrixMatrixMulTBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
 where
@@ -1629,41 +1501,9 @@ where
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
-            (
-                self.left_grad.gradient_mut(),
-                self.left_data.data(),
-                self.right_grad.gradient_mut(),
-                self.right_data.data(),
-            )
-        };
-        let grad = self.gradient.borrow();
-
-        if self.left_grad.can_overwrite() {
-            general_mat_mul(1.0, &grad, &rhs_data, 0., &mut lhs_grad);
-            self.left_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(1.0, &grad, &rhs_data, 1., &mut lhs_grad);
-        }
-
-        if self.right_grad.can_overwrite() {
-            general_mat_mul(
-                1.0,
-                &lhs_data.t(),
-                &grad,
-                0.,
-                &mut rhs_grad.view_mut().reversed_axes(),
-            );
-            self.right_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(
-                1.0,
-                &lhs_data.t(),
-                &grad,
-                1.,
-                &mut rhs_grad.view_mut().reversed_axes(),
-            );
-        }
+        let gradient = self.gradient();
+        push_mat_mat_gradient(&*self.left_grad, &gradient, &self.right_data.data());
+        push_mat_mat_gradient(&*self.right_grad, &gradient.t(), &self.left_data.data());
     }
 }
 
@@ -1701,7 +1541,7 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulTBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
 where
@@ -1741,15 +1581,7 @@ where
     LhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
-        let grad = self.gradient.borrow();
-
-        if self.left_grad.can_overwrite() {
-            general_mat_mul(1.0, &grad, &rhs_data, 0., &mut lhs_grad);
-            self.left_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(1.0, &grad, &rhs_data, 1., &mut lhs_grad);
-        }
+        push_mat_mat_gradient(&*self.left_grad, &self.gradient(), &self.right_data.data());
     }
 }
 
@@ -1823,27 +1655,11 @@ where
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
-        let grad = self.gradient.borrow();
-
-        if self.right_grad.can_overwrite() {
-            general_mat_mul(
-                1.0,
-                &lhs_data.t(),
-                &grad,
-                0.,
-                &mut rhs_grad.view_mut().reversed_axes(),
-            );
-            self.right_grad.set_overwrite(false);
-        } else {
-            general_mat_mul(
-                1.0,
-                &lhs_data.t(),
-                &grad,
-                1.,
-                &mut rhs_grad.view_mut().reversed_axes(),
-            );
-        }
+        push_mat_mat_gradient(
+            &*self.right_grad,
+            &self.gradient().t(),
+            &self.left_data.data(),
+        );
     }
 }
 
@@ -1932,32 +1748,13 @@ where
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
-            (
-                self.left_grad.gradient_mut(),
-                self.left_data.data(),
-                self.right_grad.gradient_mut(),
-                self.right_data.data(),
-            )
-        };
-        let grad = self.gradient.borrow();
-        let zip = Zip::from(&mut *lhs_grad)
-            .and_broadcast(grad.slice(s![.., NewAxis]))
-            .and_broadcast(&*rhs_data);
-
-        if self.left_grad.can_overwrite() {
-            zip.for_each(|lhs_grad_el, grad_el, rhs_data_el| *lhs_grad_el = grad_el * rhs_data_el);
-            self.left_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|lhs_grad_el, grad_el, rhs_data_el| *lhs_grad_el += grad_el * rhs_data_el);
-        }
-
-        if self.right_grad.can_overwrite() {
-            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
-            self.right_grad.set_overwrite(false);
-        } else {
-            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
-        }
+        let gradient = self.gradient();
+        push_mat_vec_gradient(
+            &*self.left_grad,
+            &gradient.slice(s![.., NewAxis]),
+            &self.right_data.data(),
+        );
+        push_vec_mat_gradient(&*self.right_grad, &self.left_data.data().t(), &gradient);
     }
 }
 
@@ -2032,18 +1829,11 @@ where
     LhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
-        let grad = self.gradient.borrow();
-        let zip = Zip::from(&mut *lhs_grad)
-            .and_broadcast(grad.slice(s![.., NewAxis]))
-            .and_broadcast(&*rhs_data);
-
-        if self.left_grad.can_overwrite() {
-            zip.for_each(|lhs_grad_el, grad_el, rhs_data_el| *lhs_grad_el = grad_el * rhs_data_el);
-            self.left_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|lhs_grad_el, grad_el, rhs_data_el| *lhs_grad_el += grad_el * rhs_data_el);
-        }
+        push_mat_vec_gradient(
+            &*self.left_grad,
+            &self.gradient().slice(s![.., NewAxis]),
+            &self.right_data.data(),
+        );
     }
 }
 
@@ -2114,15 +1904,11 @@ where
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
     fn backward(&self) {
-        let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
-
-        let grad = self.gradient.borrow();
-        if self.right_grad.can_overwrite() {
-            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 0., &mut rhs_grad);
-            self.right_grad.set_overwrite(false);
-        } else {
-            general_mat_vec_mul(1.0, &lhs_data.t(), &grad, 1., &mut rhs_grad);
-        }
+        push_vec_mat_gradient(
+            &*self.right_grad,
+            &self.left_data.data().t(),
+            &self.gradient(),
+        );
     }
 }
 
@@ -2210,33 +1996,13 @@ where
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
-            (
-                self.left_grad.gradient_mut(),
-                self.left_data.data(),
-                self.right_grad.gradient_mut(),
-                self.right_data.data(),
-            )
-        };
-        let grad = self.gradient.borrow();
-
-        if self.left_grad.can_overwrite() {
-            general_mat_vec_mul(1.0, &rhs_data, &grad, 0., &mut lhs_grad);
-            self.left_grad.set_overwrite(false);
-        } else {
-            general_mat_vec_mul(1.0, &rhs_data, &grad, 1., &mut lhs_grad);
-        }
-
-        let zip = Zip::from(&mut *rhs_grad)
-            .and_broadcast(&*grad)
-            .and_broadcast(lhs_data.slice(s![.., NewAxis]));
-
-        if self.right_grad.can_overwrite() {
-            zip.for_each(|rhs_grad_el, grad_el, lhs_data_el| *rhs_grad_el = grad_el * lhs_data_el);
-            self.right_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|rhs_grad_el, grad_el, lhs_data_el| *rhs_grad_el += grad_el * lhs_data_el);
-        }
+        let gradient = self.gradient();
+        push_vec_mat_gradient(&*self.left_grad, &self.right_data.data(), &gradient);
+        push_mat_vec_gradient(
+            &*self.right_grad,
+            &self.left_data.data().slice(s![.., NewAxis]),
+            &gradient,
+        );
     }
 }
 
@@ -2311,15 +2077,7 @@ where
     LhsG: Gradient<Dim = Ix1> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, rhs_data) = { (self.left_grad.gradient_mut(), self.right_data.data()) };
-        let grad = self.gradient.borrow();
-
-        if self.left_grad.can_overwrite() {
-            general_mat_vec_mul(1.0, &rhs_data, &grad, 0., &mut lhs_grad);
-            self.left_grad.set_overwrite(false);
-        } else {
-            general_mat_vec_mul(1.0, &rhs_data, &grad, 1., &mut lhs_grad);
-        }
+        push_vec_mat_gradient(&*self.left_grad, &self.right_data.data(), &self.gradient());
     }
 }
 
@@ -2390,19 +2148,11 @@ where
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
     fn backward(&self) {
-        let (lhs_data, mut rhs_grad) = { (self.left_data.data(), self.right_grad.gradient_mut()) };
-        let grad = self.gradient.borrow();
-
-        let zip = Zip::from(&mut *rhs_grad)
-            .and_broadcast(&*grad)
-            .and_broadcast(lhs_data.slice(s![.., NewAxis]));
-
-        if self.right_grad.can_overwrite() {
-            zip.for_each(|rhs_grad_el, grad_el, lhs_data_el| *rhs_grad_el = grad_el * lhs_data_el);
-            self.right_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|rhs_grad_el, grad_el, lhs_data_el| *rhs_grad_el += grad_el * lhs_data_el);
-        }
+        push_mat_vec_gradient(
+            &*self.right_grad,
+            &self.left_data.data().slice(s![.., NewAxis]),
+            &self.gradient(),
+        );
     }
 }
 
@@ -2491,31 +2241,9 @@ where
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
     fn backward(&self) {
-        let (mut lhs_grad, lhs_data, mut rhs_grad, rhs_data) = {
-            (
-                self.left_grad.gradient_mut(),
-                self.left_data.data(),
-                self.right_grad.gradient_mut(),
-                self.right_data.data(),
-            )
-        };
-        let grad = self.gradient.borrow();
-
-        let left_zip = Zip::from(&mut *lhs_grad).and(&*rhs_data);
-        if self.left_grad.can_overwrite() {
-            left_zip.for_each(|lhs_grad_el, rhs_data_el| *lhs_grad_el = rhs_data_el * grad[0]);
-            self.left_grad.set_overwrite(false);
-        } else {
-            left_zip.for_each(|lhs_grad_el, rhs_data_el| *lhs_grad_el += rhs_data_el * grad[0]);
-        }
-
-        let right_zip = Zip::from(&mut *rhs_grad).and(&*lhs_data);
-        if self.right_grad.can_overwrite() {
-            right_zip.for_each(|rhs_grad_el, lhs_data_el| *rhs_grad_el = lhs_data_el * grad[0]);
-            self.right_grad.set_overwrite(false);
-        } else {
-            right_zip.for_each(|rhs_grad_el, lhs_data_el| *rhs_grad_el += lhs_data_el * grad[0]);
-        }
+        let gradient = self.gradient();
+        push_vec_vec_gradient(&*self.left_grad, &self.right_data.data(), &gradient[0]);
+        push_vec_vec_gradient(&*self.right_grad, &self.left_data.data(), &gradient[0]);
     }
 }
 
@@ -2593,25 +2321,11 @@ where
     U: Data<Dim = Ix1>,
 {
     fn backward(&self) {
-        let (mut diff_op_grad, no_diff_op_data) = {
-            (
-                self.diff_operand.gradient_mut(),
-                self.no_diff_operand.data(),
-            )
-        };
-        let grad = self.gradient.borrow();
-
-        let zip = Zip::from(&mut *diff_op_grad).and(&*no_diff_op_data);
-        if self.diff_operand.can_overwrite() {
-            zip.for_each(|diff_op_grad_el, no_diff_op_data_el| {
-                *diff_op_grad_el = no_diff_op_data_el * grad[0]
-            });
-            self.diff_operand.set_overwrite(false);
-        } else {
-            zip.for_each(|diff_op_grad_el, no_diff_op_data_el| {
-                *diff_op_grad_el += no_diff_op_data_el * grad[0]
-            });
-        }
+        push_vec_vec_gradient(
+            &*self.diff_operand,
+            &self.no_diff_operand.data(),
+            &self.gradient()[0],
+        );
     }
 }
 
@@ -3627,14 +3341,6 @@ where
             overwrite: Cell::new(true),
         }
     }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
-    }
 }
 
 impl<Lhs, Rhs> Gradient for ConcatenateBackward<Lhs, Rhs>
@@ -3661,29 +3367,14 @@ where
     Lhs::Dim: RemoveAxis,
 {
     fn backward(&self) {
-        let grad = self.gradient.borrow();
-        let mut lhs_grad = self.left.gradient_mut();
-        let mut rhs_grad = self.right.gradient_mut();
-        let axis = self.axis;
-        let (lhs_portion, rhs_portion) = grad
-            .view()
-            .split_at(Axis(axis), lhs_grad.len_of(Axis(axis)));
+        let gradient = self.gradient();
+        let (lhs_part, rhs_part) = gradient.view().split_at(
+            Axis(self.axis),
+            self.left.gradient_mut().len_of(Axis(self.axis)),
+        );
 
-        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
-        if self.left.can_overwrite() {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(false);
-        } else {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
-        }
-
-        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
-        if self.right.can_overwrite() {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(false);
-        } else {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
-        }
+        push_gradient(&*self.left, lhs_part);
+        push_gradient(&*self.right, rhs_part);
     }
 }
 
@@ -3734,10 +3425,6 @@ where
             overwrite: Cell::new(true),
         }
     }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.left.clone()
-    }
 }
 
 impl<T> Gradient for ConcatenateBackwardLeft<T>
@@ -3762,20 +3449,13 @@ where
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
-        let grad = self.gradient.borrow();
-        let mut lhs_grad = self.left.gradient_mut();
-        let axis = self.axis;
-        let (lhs_portion, _) = grad
-            .view()
-            .split_at(Axis(axis), lhs_grad.len_of(Axis(axis)));
+        let gradient = self.gradient();
+        let (lhs_part, _) = gradient.view().split_at(
+            Axis(self.axis),
+            self.left.gradient_mut().len_of(Axis(self.axis)),
+        );
 
-        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
-        if self.left.can_overwrite() {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(false);
-        } else {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
-        }
+        push_gradient(&*self.left, lhs_part);
     }
 }
 
@@ -3828,9 +3508,6 @@ where
             overwrite: Cell::new(true),
         }
     }
-    pub fn operand(&self) -> Rc<T> {
-        self.right.clone()
-    }
 }
 
 impl<T> Gradient for ConcatenateBackwardRight<T>
@@ -3855,18 +3532,9 @@ where
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
-        let grad = self.gradient.borrow();
-        let mut rhs_grad = self.right.gradient_mut();
-        let axis = self.axis;
-        let (_, rhs_portion) = grad.view().split_at(Axis(axis), self.offset);
-
-        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
-        if self.right.can_overwrite() {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(false);
-        } else {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
-        }
+        let gradient = self.gradient();
+        let (_, rhs_part) = gradient.view().split_at(Axis(self.axis), self.offset);
+        push_gradient(&*self.right, rhs_part);
     }
 }
 
@@ -3922,14 +3590,6 @@ where
             overwrite: Cell::new(true),
         }
     }
-
-    pub fn left_operand(&self) -> Rc<Lhs> {
-        self.left.clone()
-    }
-
-    pub fn right_operand(&self) -> Rc<Rhs> {
-        self.right.clone()
-    }
 }
 
 impl<Lhs, Rhs> Gradient for StackBackward<Lhs, Rhs>
@@ -3956,41 +3616,24 @@ where
     Lhs::Dim: RemoveAxis,
 {
     fn backward(&self) {
-        let grad = self.gradient.borrow();
-        let mut lhs_grad = self.left.gradient_mut();
-        let mut rhs_grad = self.right.gradient_mut();
-        let axis = self.axis;
-        let mut subview_iter = grad.axis_iter(Axis(axis));
-        let (lhs_portion, rhs_portion) = {
-            (
-                subview_iter
-                    .next()
-                    .unwrap()
-                    .into_dimensionality::<Lhs::Dim>()
-                    .unwrap(),
-                subview_iter
-                    .next()
-                    .unwrap()
-                    .into_dimensionality::<Rhs::Dim>()
-                    .unwrap(),
-            )
-        };
-
-        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
-        if self.left.can_overwrite() {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(false);
-        } else {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
-        }
-
-        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
-        if self.right.can_overwrite() {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(false);
-        } else {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
-        }
+        let gradient = self.gradient();
+        let mut subviews = gradient.axis_iter(Axis(self.axis));
+        push_gradient(
+            &*self.left,
+            subviews
+                .next()
+                .unwrap()
+                .into_dimensionality::<Lhs::Dim>()
+                .unwrap(),
+        );
+        push_gradient(
+            &*self.right,
+            subviews
+                .next()
+                .unwrap()
+                .into_dimensionality::<Rhs::Dim>()
+                .unwrap(),
+        );
     }
 }
 
@@ -4041,10 +3684,6 @@ where
             overwrite: Cell::new(true),
         }
     }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.left.clone()
-    }
 }
 
 impl<T> Gradient for StackBackwardLeft<T>
@@ -4069,23 +3708,15 @@ where
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
-        let grad = self.gradient.borrow();
-        let mut lhs_grad = self.left.gradient_mut();
-        let axis = self.axis;
-        let mut subview_iter = grad.axis_iter(Axis(axis));
-        let lhs_portion = subview_iter
-            .next()
-            .unwrap()
-            .into_dimensionality::<T::Dim>()
-            .unwrap();
-
-        let zip_lhs = Zip::from(&mut *lhs_grad).and(&lhs_portion);
-        if self.left.can_overwrite() {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el = *lhs_portion_el);
-            self.left.set_overwrite(false);
-        } else {
-            zip_lhs.for_each(|lhs_grad_el, lhs_portion_el| *lhs_grad_el += *lhs_portion_el);
-        }
+        push_gradient(
+            &*self.left,
+            self.gradient()
+                .axis_iter(Axis(self.axis))
+                .next()
+                .unwrap()
+                .into_dimensionality::<T::Dim>()
+                .unwrap(),
+        );
     }
 }
 
@@ -4136,10 +3767,6 @@ where
             overwrite: Cell::new(true),
         }
     }
-
-    pub fn operand(&self) -> Rc<T> {
-        self.right.clone()
-    }
 }
 
 impl<T> Gradient for StackBackwardRight<T>
@@ -4164,23 +3791,15 @@ where
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
-        let grad = self.gradient.borrow();
-        let mut rhs_grad = self.right.gradient_mut();
-        let axis = self.axis;
-        let rhs_portion = grad
-            .axis_iter(Axis(axis))
-            .nth(1)
-            .unwrap()
-            .into_dimensionality::<T::Dim>()
-            .unwrap();
-
-        let zip_rhs = Zip::from(&mut *rhs_grad).and(&rhs_portion);
-        if self.right.can_overwrite() {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el = *rhs_portion_el);
-            self.right.set_overwrite(false);
-        } else {
-            zip_rhs.for_each(|rhs_grad_el, rhs_portion_el| *rhs_grad_el += *rhs_portion_el);
-        }
+        push_gradient(
+            &*self.right,
+            self.gradient()
+                .axis_iter(Axis(self.axis))
+                .nth(1)
+                .unwrap()
+                .into_dimensionality::<T::Dim>()
+                .unwrap(),
+        );
     }
 }
 
@@ -4235,23 +3854,15 @@ impl<T: Gradient + Overwrite> Gradient for UnsqueezeBackward<T> {
 
 impl<T: Gradient + Overwrite> Backward for UnsqueezeBackward<T> {
     fn backward(&self) {
-        let mut operand_grad = self.operand.gradient_mut();
-        let axis = self.axis;
-        let grad = self.gradient.borrow();
-        let unsqueezed_gradient = grad
-            .axis_iter(Axis(axis))
-            .next()
-            .unwrap()
-            .into_dimensionality::<T::Dim>()
-            .unwrap();
-
-        let zip = Zip::from(&mut *operand_grad).and(&unsqueezed_gradient);
-        if self.operand.can_overwrite() {
-            zip.for_each(|dest, src| *dest = *src);
-            self.operand.set_overwrite(false);
-        } else {
-            zip.for_each(|dest, src| *dest += src);
-        }
+        push_gradient(
+            &*self.operand,
+            self.gradient()
+                .axis_iter(Axis(self.axis))
+                .next()
+                .unwrap()
+                .into_dimensionality::<T::Dim>()
+                .unwrap(),
+        );
     }
 }
 

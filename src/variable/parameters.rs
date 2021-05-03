@@ -200,7 +200,7 @@ impl Default for Parameters {
 // ~~~~~~~~~~~~~~~~~~~~~~~ Functions to keep track of differentiable history ~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub(crate) fn merge_parameters(lhs_params: Parameters, rhs_params: Parameters) -> Parameters {
-    let res = Parameters {
+    Parameters {
         oned: merge(&lhs_params.oned, &rhs_params.oned),
         twod: merge(&lhs_params.twod, &rhs_params.twod),
         threed: merge(&lhs_params.threed, &rhs_params.threed),
@@ -208,9 +208,7 @@ pub(crate) fn merge_parameters(lhs_params: Parameters, rhs_params: Parameters) -
         fived: merge(&lhs_params.fived, &rhs_params.fived),
         sixd: merge(&lhs_params.sixd, &rhs_params.sixd),
         dynd: merge(&lhs_params.dynd, &rhs_params.dynd),
-    };
-
-    res
+    }
 }
 
 pub(crate) fn merge<D: ParamDim>(lhs_up: &[Param<D>], rhs_up: &[Param<D>]) -> Vec<Param<D>> {
