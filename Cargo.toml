@@ -5,8 +5,6 @@ authors = ["frjnn <f.iannelli.francesco229@gmail.com>", "stepac <stefanopacchini
 edition = "2018"
 
 [dependencies]
-blas-src = { version = "0.8", features = ["openblas"] }
-openblas-src = { version = "0.10", features = ["cblas", "system"] }
 ndarray = {version = "0.15.1", features = ["rayon"]}
 ndarray-rand = "0.14.0"
 itertools = "0.10.0"
