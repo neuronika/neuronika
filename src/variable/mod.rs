@@ -10,15 +10,17 @@ use node::{
     DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, LeakyReLU,
     LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul,
     MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight,
-    MatrixVectorMul, MatrixVectorMulBackward, MatrixVectorMulBackwardLeft,
-    MatrixVectorMulBackwardRight, Multiplication, MultiplicationBackward,
-    MultiplicationBackwardUnary, Negation, NegationBackward, Power, PowerBackward, ReLU,
-    ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
-    Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction,
-    SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH,
-    TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
-    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
-    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
+    MatrixMatrixMulT, MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft,
+    MatrixMatrixMulTBackwardRight, MatrixVectorMul, MatrixVectorMulBackward,
+    MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight, Multiplication,
+    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Power,
+    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
+    Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
+    StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
+    SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
+    Unsqueeze, UnsqueezeBackward, VectorMatrixMul, VectorMatrixMulBackward,
+    VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight, VectorVectorMul,
+    VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 use parameters::{merge_parameters, Param, ParamDim, Parameters};
 use std::{
@@ -64,6 +66,13 @@ pub trait MatMatMul<Rhs> {
     type Output;
 
     fn mm_mul(self, other: Rhs) -> Self::Output;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub trait MatMatMulT<Rhs> {
+    type Output;
+    fn mm_mul_t(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1657,6 +1666,140 @@ where
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
         let last = Rc::new(MatrixMatrixMul::new(self.last, other.last));
+        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            last,
+            path: self.path,
+            buffer: Vec::new(),
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition  ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, B1, F2, B2> MatMatMulT<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + 'static,
+    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    F2: Data<Dim = Ix2> + 'static,
+    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
+{
+    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackward<F1, B1, F2, B2>>;
+
+    fn mm_mul_t(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
+        self.forward_path.append(&mut other.forward_path);
+        self.backward_path.append(&mut other.backward_path);
+
+        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
+        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
+
+        let (id, forward, backward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(MatrixMatrixMulT::new(
+                lhs_forward.clone(),
+                rhs_forward.clone(),
+            )),
+            Rc::new(MatrixMatrixMulTBackward::new(
+                lhs_forward,
+                lhs_backward,
+                rhs_forward,
+                rhs_backward,
+            )),
+        );
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            forward_buffer: Vec::new(),
+            backward_buffer: Vec::new(),
+            parameters: merge_parameters(self.parameters, other.parameters),
+        }
+    }
+}
+
+impl<F1, B1, F2> MatMatMulT<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + 'static,
+    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    F2: Data<Dim = Ix2> + 'static,
+{
+    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardLeft<B1, F2>>;
+
+    fn mm_mul_t(mut self, mut rhs: Var<F2>) -> Self::Output {
+        self.forward_path.append(&mut rhs.path);
+
+        let id = unsafe { OPERATIONS_COUNTER.next() };
+        let forward = Rc::new(MatrixMatrixMulT::new(self.forward, rhs.last.clone()));
+        let backward = Rc::new(MatrixMatrixMulTBackwardLeft::new(self.backward, rhs.last));
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            forward_buffer: Vec::new(),
+            backward_buffer: Vec::new(),
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<F1, F2, B2> MatMatMulT<VarDiff<F2, B2>> for Var<F1>
+where
+    F1: Data<Dim = Ix2> + 'static,
+    F2: Data<Dim = Ix2> + 'static,
+    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
+{
+    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardRight<F1, B2>>;
+
+    fn mm_mul_t(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.path.append(&mut rhs.forward_path);
+
+        let id = unsafe { OPERATIONS_COUNTER.next() };
+        let forward = Rc::new(MatrixMatrixMulT::new(self.last.clone(), rhs.forward));
+        let backward = Rc::new(MatrixMatrixMulTBackwardRight::new(self.last, rhs.backward));
+        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
+        rhs.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.path,
+            backward_path: rhs.backward_path,
+            forward_buffer: Vec::new(),
+            backward_buffer: Vec::new(),
+            parameters: rhs.parameters,
+        }
+    }
+}
+
+impl<F1, F2> MatMatMulT<Var<F2>> for Var<F1>
+where
+    F1: Data<Dim = Ix2> + 'static,
+    F2: Data<Dim = Ix2> + 'static,
+{
+    type Output = Var<MatrixMatrixMulT<F1, F2>>;
+
+    fn mm_mul_t(mut self, mut other: Var<F2>) -> Self::Output {
+        self.path.append(&mut other.path);
+
+        let id = unsafe { OPERATIONS_COUNTER.next() };
+        let last = Rc::new(MatrixMatrixMulT::new(self.last, other.last));
         self.path.insert(id, last.clone() as Rc<dyn Forward>);
 
         Var {

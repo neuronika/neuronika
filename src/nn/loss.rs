@@ -190,11 +190,11 @@ where
             Reduction::Mean => {
                 let n = input_data.len() as f32;
                 zip.for_each(|op_grad, grad, input, target| {
-                    *op_grad = (2.0 * (input - target) * input) * grad / n
+                    *op_grad = (2.0 * (input - target)) * grad / n
                 });
             }
             Reduction::Sum => zip.for_each(|op_grad, grad, input, target| {
-                *op_grad = (2.0 * (input - target) * input) * grad
+                *op_grad = (2.0 * (input - target)) * grad
             }),
         }
     }
@@ -569,8 +569,8 @@ where
                             + (1. - target) * (1. - input).ln().clamp(MIN_LOG, std::f32::MAX))
                     });
             match self.reduction {
-                Reduction::Mean => total_loss / input_data.len() as f32,
-                Reduction::Sum => total_loss,
+                Reduction::Mean => -total_loss / input_data.len() as f32,
+                Reduction::Sum => -total_loss,
             }
         };
     }
@@ -674,13 +674,12 @@ where
             Reduction::Mean => {
                 let n = input_data.len() as f32;
                 zip.for_each(|op_grad, grad, input, target| {
-                    *op_grad = (1. - 2. * target) / ((1. - input) * input).max(std::f32::EPSILON)
-                        * grad
-                        / n
+                    *op_grad =
+                        (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad / n
                 });
             }
             Reduction::Sum => zip.for_each(|op_grad, grad, input, target| {
-                *op_grad = (1. - 2. * target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
+                *op_grad = (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
             }),
         }
     }
@@ -1269,5 +1268,302 @@ where
         forward_buffer: Vec::new(),
         backward_buffer: Vec::new(),
         parameters: input.parameters,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{variable::node::Differentiable, Input, InputBackward};
+    use ndarray::{Dimension, StrideShape};
+
+    const F16_EPSILON: f32 = 9.77e-04;
+
+    fn assert_almost_equals<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) {
+        assert!(
+            Zip::from(our).and(their).all(|l, r| {
+                (*l == 0. && *r == 0.)
+                    || (!l.is_finite() && !r.is_finite())
+                    || ((1. - r / l).abs() <= F16_EPSILON)
+            }),
+            "\nLeft:\n{}\nRight:\n{}",
+            our,
+            their
+        );
+    }
+
+    fn new_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<Input<D>>
+    where
+        D: Dimension + 'static,
+        Sh: Into<StrideShape<D>>,
+    {
+        Input::new(new_tensor(shape, elems)).last
+    }
+
+    fn new_backward_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<InputBackward<D>>
+    where
+        D: Dimension + 'static,
+        Sh: Into<StrideShape<D>>,
+    {
+        Rc::new(Input::new(new_tensor(shape, elems)).last.differentiable())
+    }
+
+    fn new_tensor<D, Sh>(shape: Sh, elems: Vec<f32>) -> Tensor<D>
+    where
+        D: Dimension + 'static,
+        Sh: Into<StrideShape<D>>,
+    {
+        Tensor::from_shape_vec(shape, elems).unwrap()
+    }
+
+    #[test]
+    fn mae_loss_mean() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]);
+        let loss = MAELoss::new(input.clone(), target.clone(), Reduction::Mean);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![9.]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward =
+            MAELossBackward::new(input_diff.clone(), input, target, Reduction::Mean);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor((3, 3), vec![0.1111; 9]),
+        );
+    }
+
+    #[test]
+    fn mae_loss_sum() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]);
+        let loss = MAELoss::new(input.clone(), target.clone(), Reduction::Sum);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![81.]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward = MAELossBackward::new(input_diff.clone(), input, target, Reduction::Sum);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+    }
+
+    #[test]
+    fn mse_loss_mean() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]);
+        let loss = MSELoss::new(input.clone(), target.clone(), Reduction::Mean);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![81.]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward =
+            MSELossBackward::new(input_diff.clone(), input, target, Reduction::Mean);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+    }
+
+    #[test]
+    fn mse_loss_sum() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]);
+        let loss = MSELoss::new(input.clone(), target.clone(), Reduction::Sum);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![729.]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward = MSELossBackward::new(input_diff.clone(), input, target, Reduction::Sum);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![18.; 9]));
+    }
+
+    #[test]
+    fn bce_loss_mean() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
+        let input = new_input((3, 3), vec![0.1, 0.9, 0.9, 0., 0., 0., 0.8, 0., 0.]);
+        let loss = BCELoss::new(input.clone(), target.clone(), Reduction::Mean);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![22.9244]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward =
+            BCELossBackward::new(input_diff.clone(), input, target, Reduction::Mean);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (3, 3),
+                vec![
+                    -1.1111e+00,
+                    -1.2346e-01,
+                    1.1111e+00,
+                    0.0000e+00,
+                    0.0000e+00,
+                    -9.3206756e+05,
+                    5.5556e-01,
+                    0.0000e+00,
+                    -9.3206756e+05,
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn bce_loss_sum() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
+        let input = new_input((3, 3), vec![0.1, 0.9, 0.9, 0., 0., 0., 0.8, 0., 0.]);
+        let loss = BCELoss::new(input.clone(), target.clone(), Reduction::Sum);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![206.3199]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward = BCELossBackward::new(input_diff.clone(), input, target, Reduction::Sum);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (3, 3),
+                vec![
+                    -1.0000e+01,
+                    -1.1111e+00,
+                    1.0000e+01,
+                    0.0000e+00,
+                    0.0000e+00,
+                    -8.388608e+6,
+                    5.0000e+00,
+                    0.0000e+00,
+                    -8.388608e+6,
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn bce_with_logits_loss_mean() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
+        let input = new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]);
+        let loss = BCEWithLogitsLoss::new(input.clone(), target.clone(), Reduction::Mean);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![8.]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward =
+            BCEWithLogitsLossBackward::new(input_diff.clone(), input, target, Reduction::Mean);
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (3, 3),
+                vec![
+                    -5.0465e-06,
+                    -1.8544e-06,
+                    1.1111e-01,
+                    1.1111e-01,
+                    1.1111e-01,
+                    0.0000e+00,
+                    1.1111e-01,
+                    1.1111e-01,
+                    0.0000e+00,
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn bce_with_logits_loss_sum() {
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
+        let input = new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]);
+        let loss = BCEWithLogitsLoss::new(input.clone(), target.clone(), Reduction::Sum);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![72.0001]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let input_diff = new_backward_input((3, 3), vec![0.; 9]);
+        let loss_backward =
+            BCEWithLogitsLossBackward::new(input_diff.clone(), input, target, Reduction::Sum);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (3, 3),
+                vec![
+                    -4.5419e-05,
+                    -1.6689e-05,
+                    9.9999e-01,
+                    1.0000e+00,
+                    1.0000e+00,
+                    0.0000e+00,
+                    1.0000e+00,
+                    1.0000e+00,
+                    0.0000e+00,
+                ],
+            ),
+        );
     }
 }

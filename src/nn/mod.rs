@@ -1,8 +1,8 @@
 use super::{Input, InputBackward};
 use crate::variable::{
     self,
-    node::{Backward, Data, Forward, Gradient, Overwrite, Transpose, TransposeBackward},
-    MatMatMul, Tensor, Var, VarDiff,
+    node::{Backward, Data, Forward, Gradient, Overwrite},
+    MatMatMulT, Tensor, Var, VarDiff,
 };
 use ndarray::{Ix1, Ix2};
 
@@ -183,12 +183,12 @@ impl Linear {
         input: W,
     ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>
     where
-        W: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
+        W: MatMatMulT<VarDiff<Input<Ix2>, InputBackward<Ix2>>>,
         W::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
     {
-        input.mm_mul(self.weight.clone().t()).into() + self.bias.clone()
+        input.mm_mul_t(self.weight.clone()).into() + self.bias.clone()
     }
 }
 
@@ -262,15 +262,15 @@ impl LSTMCell {
         Cb: Gradient<Dim = Ix2> + Overwrite,
         Hf: Data<Dim = Ix2>,
         Hb: Gradient<Dim = Ix2> + Overwrite,
-        I: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
+        I: MatMatMulT<VarDiff<Input<Ix2>, InputBackward<Ix2>>>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
     {
         let (cell_state, hidden) = state;
-        let gates = hidden.mm_mul(self.weight_hh.clone().t())
+        let gates = hidden.mm_mul_t(self.weight_hh.clone())
             + self.bias_hh.clone()
-            + input.mm_mul(self.weight_ih.clone().t()).into()
+            + input.mm_mul_t(self.weight_ih.clone()).into()
             + self.bias_ih.clone();
         let gate_shape = {
             let (gates_shape_rows, gates_shape_cols) = gates.data().dim();
@@ -353,15 +353,15 @@ impl GRUCell {
     where
         Hf: Data<Dim = Ix2>,
         Hb: Gradient<Dim = Ix2> + Overwrite,
-        I: MatMatMul<VarDiff<Transpose<Input<Ix2>>, TransposeBackward<InputBackward<Ix2>>>>,
+        I: MatMatMulT<VarDiff<Input<Ix2>, InputBackward<Ix2>>>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
     {
         let (igates, hgates) = {
             (
-                input.mm_mul(self.weight_ih.clone().t()).into() + self.bias_ih.clone(),
-                hidden.clone().mm_mul(self.weight_hh.clone().t()) + self.bias_hh.clone(),
+                input.mm_mul_t(self.weight_ih.clone()).into() + self.bias_ih.clone(),
+                hidden.clone().mm_mul_t(self.weight_hh.clone()) + self.bias_hh.clone(),
             )
         };
         let gate_shape = {

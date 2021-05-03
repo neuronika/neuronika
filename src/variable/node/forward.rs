@@ -101,7 +101,7 @@ impl<T: Data> Forward for Negation<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| *v = -o);
+            .for_each(|v, o| *v = -o);
     }
 
     fn was_computed(&self) -> bool {
@@ -150,7 +150,7 @@ impl<T: Data> Forward for Transpose<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(self.operand.data().t())
-            .par_for_each(|v, o| *v = *o);
+            .for_each(|v, o| *v = *o);
     }
 
     fn was_computed(&self) -> bool {
@@ -230,7 +230,7 @@ where
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
-            .par_for_each(|v, l, r| *v = l + r);
+            .for_each(|v, l, r| *v = l + r);
     }
 
     fn was_computed(&self) -> bool {
@@ -302,7 +302,7 @@ where
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
-            .par_for_each(|v, l, r| *v = l - r);
+            .for_each(|v, l, r| *v = l - r);
     }
 
     fn was_computed(&self) -> bool {
@@ -374,7 +374,7 @@ where
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
-            .par_for_each(|v, l, r| *v = l * r);
+            .for_each(|v, l, r| *v = l * r);
     }
 
     fn was_computed(&self) -> bool {
@@ -446,7 +446,7 @@ where
         Zip::from(&mut *self.data.borrow_mut())
             .and_broadcast(&*self.left.data())
             .and_broadcast(&*self.right.data())
-            .par_for_each(|v, l, r| *v = l / r);
+            .for_each(|v, l, r| *v = l / r);
     }
 
     fn was_computed(&self) -> bool {
@@ -516,6 +516,78 @@ where
             1.0,
             &*self.left.data(),
             &*self.right.data(),
+            0.0,
+            &mut *self.data.borrow_mut(),
+        );
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transpose  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct MatrixMatrixMulT<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
+{
+    left: Rc<Lhs>,
+    right: Rc<Rhs>,
+    data: RefCell<Tensor<Ix2>>,
+    computed: Cell<bool>,
+}
+
+impl<Lhs, Rhs> MatrixMatrixMulT<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
+{
+    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
+        let shape = DotDim::shape(left.data().raw_dim(), right.data().t().raw_dim());
+        let data = RefCell::new(Tensor::zeros((shape[0], shape[1])));
+
+        Self {
+            left,
+            right,
+            data,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<Lhs, Rhs> Data for MatrixMatrixMulT<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
+{
+    type Dim = Ix2;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+impl<Lhs, Rhs> Forward for MatrixMatrixMulT<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix2>,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        general_mat_mul(
+            1.0,
+            &*self.left.data(),
+            &self.right.data().t(),
             0.0,
             &mut *self.data.borrow_mut(),
         );
@@ -775,7 +847,7 @@ impl<T: Data> Forward for Power<T> {
         let exp = self.exp;
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| *v = o.powi(exp));
+            .for_each(|v, o| *v = o.powi(exp));
     }
 
     fn was_computed(&self) -> bool {
@@ -871,7 +943,7 @@ impl<T: Data> Forward for Logn<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| *v = o.ln());
+            .for_each(|v, o| *v = o.ln());
     }
 
     fn was_computed(&self) -> bool {
@@ -921,7 +993,7 @@ impl<T: Data> Forward for ReLU<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| *v = o.max(0.));
+            .for_each(|v, o| *v = o.max(0.));
     }
 
     fn was_computed(&self) -> bool {
@@ -971,7 +1043,7 @@ impl<T: Data> Forward for LeakyReLU<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| *v = if *o > 0.0 { *o } else { 0.01 * o });
+            .for_each(|v, o| *v = if *o > 0.0 { *o } else { 0.01 * o });
     }
 
     fn was_computed(&self) -> bool {
@@ -1020,7 +1092,7 @@ impl<T: Data> Forward for SoftPlus<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| {
+            .for_each(|v, o| {
                 *v = if *o < -15.0 {
                     0.0
                 } else if *o > 15.0 {
@@ -1077,7 +1149,7 @@ impl<T: Data> Forward for Sigmoid<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| {
+            .for_each(|v, o| {
                 *v = if *o >= 15.0 {
                     1.0
                 } else if *o <= -15.0 {
@@ -1134,7 +1206,7 @@ impl<T: Data> Forward for TanH<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| *v = o.tanh());
+            .for_each(|v, o| *v = o.tanh());
     }
 
     fn was_computed(&self) -> bool {
@@ -1183,7 +1255,7 @@ impl<T: Data> Forward for Exp<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .par_for_each(|v, o| *v = o.exp());
+            .for_each(|v, o| *v = o.exp());
     }
 
     fn was_computed(&self) -> bool {
@@ -1555,9 +1627,7 @@ impl<T: Data> Forward for Unsqueeze<T> {
         let operanderand_data = self.operand.data();
         Zip::from(&mut unsqueezed)
             .and(&*operanderand_data)
-            .par_for_each(|unsqueezed_el, operanderand_data_el| {
-                *unsqueezed_el = *operanderand_data_el
-            });
+            .for_each(|unsqueezed_el, operanderand_data_el| *unsqueezed_el = *operanderand_data_el);
     }
 
     fn was_computed(&self) -> bool {
@@ -1617,7 +1687,7 @@ impl<T: Data> Forward for Chunk<T> {
             .unwrap();
         Zip::from(&mut *data)
             .and(&operanderand_data_chunk)
-            .par_for_each(|chunk_el, operanderand_data_chunk_el| {
+            .for_each(|chunk_el, operanderand_data_chunk_el| {
                 *chunk_el = *operanderand_data_chunk_el
             });
     }
@@ -1714,14 +1784,14 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Negation::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -1737,7 +1807,7 @@ mod tests {
                 &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -1782,14 +1852,14 @@ mod tests {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let node = Transpose::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![1., 4., 7., 2., 5., 8., 3., 6., 9.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -1805,7 +1875,7 @@ mod tests {
                 &new_tensor((3, 3), vec![1., 4., 7., 2., 5., 8., 3., 6., 9.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -1853,14 +1923,14 @@ mod tests {
             let right = new_input((3, 3), vec![1.; 9]);
             let node = Addition::new(left.clone(), right);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = left.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 10.);
@@ -1876,7 +1946,7 @@ mod tests {
                 &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -1958,14 +2028,14 @@ mod tests {
             let right = new_input((3, 3), vec![1.; 9]);
             let node = Subtraction::new(left.clone(), right);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![-5., -4., -3., -2., -1., 0., 1., 2., 3.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = left.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -1981,7 +2051,7 @@ mod tests {
                 &new_tensor((3, 3), vec![-5., -4., -3., -2., -1., 0., 1., 2., 3.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2063,14 +2133,14 @@ mod tests {
             let right = new_input((3, 3), vec![-1.; 9]);
             let node = Multiplication::new(left, right.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *right.data_mut() = new_tensor((3, 3), vec![2.; 9]);
             assert_almost_equals(&*right.data(), &new_tensor((3, 3), vec![2.; 9]));
 
@@ -2080,7 +2150,7 @@ mod tests {
                 &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2162,14 +2232,14 @@ mod tests {
             let right = new_input((3, 3), vec![2.; 9]);
             let node = Division::new(left, right.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *right.data_mut() = new_tensor((3, 3), vec![-2.; 9]);
             assert_almost_equals(&*right.data(), &new_tensor((3, 3), vec![-2.; 9]));
 
@@ -2179,7 +2249,7 @@ mod tests {
                 &new_tensor((3, 3), vec![0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2266,14 +2336,14 @@ mod tests {
             let right = new_input((3, 3), vec![1.; 9]);
             let node = MatrixMatrixMul::new(left, right.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![6., 6., 6., 15., 15., 15., 24., 24., 24.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *right.data_mut() = new_tensor((3, 3), vec![-2.; 9]);
             assert_almost_equals(&*right.data(), &new_tensor((3, 3), vec![-2.; 9]));
 
@@ -2283,7 +2353,7 @@ mod tests {
                 &new_tensor((3, 3), vec![6., 6., 6., 15., 15., 15., 24., 24., 24.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2292,6 +2362,71 @@ mod tests {
                     (3, 3),
                     vec![-12., -12., -12., -30., -30., -30., -48., -48., -48.],
                 ),
+            );
+        }
+    }
+
+    mod matrixmatrixmult {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input((2, 3), vec![1.; 6]);
+            let node = MatrixMatrixMulT::new(left, right);
+
+            assert_eq!(*node.data(), Tensor::from_elem((3, 2), 0.));
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input((2, 3), vec![1.; 6]);
+            let node = MatrixMatrixMulT::new(left, right);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward() {
+            let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let right = new_input((2, 3), vec![1.; 6]);
+            let node = MatrixMatrixMulT::new(left, right.clone());
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 2), vec![6., 6., 15., 15., 24., 24.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *right.data_mut() = new_tensor((2, 3), vec![-2.; 6]);
+            assert_almost_equals(&*right.data(), &new_tensor((2, 3), vec![-2.; 6]));
+
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 2), vec![6., 6., 15., 15., 24., 24.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 2), vec![-12., -12., -30., -30., -48., -48.]),
             );
         }
     }
@@ -2334,18 +2469,18 @@ mod tests {
             let right = new_input(3, vec![1.; 3]);
             let node = MatrixVectorMul::new(left, right.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(3, vec![6., 15., 24.]));
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *right.data_mut() = new_tensor(3, vec![-2.; 3]);
             assert_almost_equals(&*right.data(), &new_tensor(3, vec![-2.; 3]));
 
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(3, vec![6., 15., 24.]));
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(3, vec![-12., -30., -48.]));
@@ -2390,18 +2525,18 @@ mod tests {
             let right = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let node = VectorMatrixMul::new(left.clone(), right);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(3, vec![12., 15., 18.]));
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *left.data_mut() = new_tensor(3, vec![-2.; 3]);
             assert_almost_equals(&*left.data(), &new_tensor(3, vec![-2.; 3]));
 
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(3, vec![12., 15., 18.]));
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(3, vec![-24., -30., -36.]));
@@ -2446,18 +2581,18 @@ mod tests {
             let right = new_input(3, vec![1., 2., 3.]);
             let node = VectorVectorMul::new(left.clone(), right);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(1, vec![12.]));
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *left.data_mut() = new_tensor(3, vec![-2.; 3]);
             assert_almost_equals(&*left.data(), &new_tensor(3, vec![-2.; 3]));
 
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(1, vec![12.]));
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(1, vec![-12.]));
@@ -2499,14 +2634,14 @@ mod tests {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let node = Power::new(input.clone(), 3);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![1., 8., 27., 64., 125., 216., 343., 512., 729.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -2522,7 +2657,7 @@ mod tests {
                 &new_tensor((3, 3), vec![1., 8., 27., 64., 125., 216., 343., 512., 729.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2570,11 +2705,11 @@ mod tests {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let node = Sum::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(1, vec![45.]));
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -2587,7 +2722,7 @@ mod tests {
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(1, vec![45.]));
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(1, vec![54.]));
@@ -2630,7 +2765,7 @@ mod tests {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             let node = Logn::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -2642,7 +2777,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -2663,7 +2798,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2713,14 +2848,14 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = ReLU::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![0., 0., 0., 0., 0., 1., 2., 3., 4.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -2736,7 +2871,7 @@ mod tests {
                 &new_tensor((3, 3), vec![0., 0., 0., 0., 0., 1., 2., 3., 4.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2781,14 +2916,14 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = LeakyReLU::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3), vec![-0.04, -0.03, -0.02, -0.01, 0., 1., 2., 3., 4.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -2804,7 +2939,7 @@ mod tests {
                 &new_tensor((3, 3), vec![-0.04, -0.03, -0.02, -0.01, 0., 1., 2., 3., 4.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2850,7 +2985,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = SoftPlus::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -2863,7 +2998,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -2885,7 +3020,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -2936,7 +3071,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Sigmoid::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -2948,7 +3083,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -2969,7 +3104,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3019,7 +3154,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = TanH::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3032,7 +3167,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3054,7 +3189,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3105,7 +3240,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Exp::new(input.clone());
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3125,7 +3260,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3154,7 +3289,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3212,7 +3347,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Softmax::new(input.clone(), 0);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3225,7 +3360,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3247,7 +3382,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3267,7 +3402,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Softmax::new(input.clone(), 1);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3280,7 +3415,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3302,7 +3437,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3353,7 +3488,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = LogSoftmax::new(input.clone(), 0);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3366,7 +3501,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3388,7 +3523,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3408,7 +3543,7 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = LogSoftmax::new(input.clone(), 1);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3421,7 +3556,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3443,7 +3578,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3517,7 +3652,7 @@ mod tests {
             let right = new_input((2, 3), vec![1.; 6]);
             let node = Concatenate::new(left.clone(), right, 0);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3529,7 +3664,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = left.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3550,7 +3685,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3570,7 +3705,7 @@ mod tests {
             let right = new_input((3, 2), vec![1.; 6]);
             let node = Concatenate::new(left.clone(), right, 1);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3582,7 +3717,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = left.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3603,7 +3738,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3676,7 +3811,7 @@ mod tests {
             let right = new_input((3, 3), vec![0.; 9]);
             let node = Stack::new(left.clone(), right, 0);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3688,7 +3823,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = left.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3709,7 +3844,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3729,7 +3864,7 @@ mod tests {
             let right = new_input((3, 3), vec![0.; 9]);
             let node = Stack::new(left.clone(), right, 1);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
@@ -3741,7 +3876,7 @@ mod tests {
                 ),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = left.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3762,7 +3897,7 @@ mod tests {
                 ),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3821,14 +3956,14 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Unsqueeze::new(input.clone(), 0);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((1, 3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3844,7 +3979,7 @@ mod tests {
                 &new_tensor((1, 3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3858,14 +3993,14 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Unsqueeze::new(input.clone(), 1);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 1, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3881,7 +4016,7 @@ mod tests {
                 &new_tensor((3, 1, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
@@ -3895,14 +4030,14 @@ mod tests {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
             let node = Unsqueeze::new(input.clone(), 2);
 
-            // ------------------------------------- First Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3, 1), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]),
             );
 
-            // ----------------------------------- No Second Evaluation -----------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             {
                 let mut data = input.data_mut();
                 *data = &*data + &Tensor::from_elem(1, 1.);
@@ -3918,7 +4053,7 @@ mod tests {
                 &new_tensor((3, 3, 1), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]),
             );
 
-            // ------------------------------------- Second Evaluation -------------------------------------
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.reset_computation();
             node.forward();
             assert_almost_equals(
