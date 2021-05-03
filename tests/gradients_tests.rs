@@ -1,6 +1,32 @@
 use ndarray::{arr1, Array, Array1};
 
 #[test]
+fn bench() {
+    extern crate blas_src;
+
+    let lin1 = neuronika::nn::Linear::new(100, 75);
+    let lin2 = neuronika::nn::Linear::new(75, 50);
+    let lin3 = neuronika::nn::Linear::new(50, 1);
+
+    let data = neuronika::rand((100, 100));
+
+    let out1 = lin1.forward(data).relu();
+    let out2 = lin2.forward(out1).relu();
+    let mut out3 = lin3.forward(out2);
+    let mut times: Vec<u128> = Vec::new();
+    for _ in 0..100 {
+        let now = std::time::SystemTime::now();
+        for _ in 0..10000 {
+            out3.forward();
+            out3.backward(1.0);
+        }
+        times.push(now.elapsed().unwrap().as_millis());
+    }
+    let mean: u128 = times.iter().sum::<u128>() / times.len() as u128;
+    println!("10K epochs mean: {}", mean);
+}
+
+#[test]
 fn scalar_add() {
     // ------------------------------ Begin ------------------------------
     let x = neuronika::tensor!([1.]).requires_grad();
