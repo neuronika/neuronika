@@ -2415,7 +2415,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
         let exp = self.exp;
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
@@ -2481,7 +2481,7 @@ impl<T: Gradient + Overwrite> Gradient for SumBackward<T> {
 impl<T: Gradient + Overwrite> Backward for SumBackward<T> {
     fn backward(&self) {
         let mut op_grad = self.operand.gradient_mut();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and_broadcast(&*grad);
         if self.operand.can_overwrite() {
@@ -2557,7 +2557,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.operand_grad.can_overwrite() {
@@ -2638,7 +2638,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.operand_grad.can_overwrite() {
@@ -2723,7 +2723,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.operand_grad.can_overwrite() {
@@ -2807,7 +2807,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let op_data = self.operand_data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.operand_grad.can_overwrite() {
@@ -2903,7 +2903,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let data = self.data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
         if self.operand_grad.can_overwrite() {
@@ -2987,7 +2987,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let data = self.data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
         if self.operand_grad.can_overwrite() {
@@ -3071,7 +3071,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let data = self.data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
         if self.operand_grad.can_overwrite() {
@@ -3153,7 +3153,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let data = self.data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
         let axis = self.axis;
         let zip = Zip::from(op_grad.lanes_mut(Axis(axis)))
             .and(grad.lanes(Axis(axis)))
@@ -3258,7 +3258,7 @@ where
     fn backward(&self) {
         let mut op_grad = self.operand_grad.gradient_mut();
         let data = self.forward_data.data();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
         let axis = self.axis;
 
         let zip = Zip::from(op_grad.lanes_mut(Axis(axis)))
@@ -3913,7 +3913,7 @@ impl<T: Gradient + Overwrite> Gradient for ChunkBackward<T> {
 impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
     fn backward(&self) {
         let mut operand_grad = self.operand.gradient_mut();
-        let grad = self.gradient.borrow();
+        let grad = self.gradient();
         let (chunk_no, chunk_shape) = (self.chunk_no, &self.chunk_shape);
         let mut op_gradient_chunk = operand_grad
             .exact_chunks_mut(chunk_shape.clone())
@@ -3987,15 +3987,44 @@ mod tests {
         Tensor::from_shape_vec(shape, elems).unwrap()
     }
 
-    mod backward_negation {
+    mod backward_input {
         use super::*;
 
         #[test]
         fn creation() {
             let input = new_backward_input((3, 3), vec![0.; 9]);
-            let node = NegationBackward::new(input);
+            assert_eq!(*input.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*input.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(input.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let input = new_backward_input((3, 3), vec![0.; 9]);
+
+            input.set_overwrite(true);
+            assert_eq!(input.can_overwrite(), true);
+
+            input.set_overwrite(true);
+            assert_eq!(input.can_overwrite(), true);
+
+            input.set_overwrite(false);
+            assert_eq!(input.can_overwrite(), false);
+
+            input.set_overwrite(false);
+            assert_eq!(input.can_overwrite(), false);
+        }
+    }
+
+    mod backward_negation {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let node = NegationBackward::new(new_backward_input((3, 3), vec![0.; 9]));
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.can_overwrite(), true);
         }
 
@@ -4005,22 +4034,44 @@ mod tests {
             let node = NegationBackward::new(input.clone());
 
             node.backward();
+            assert_eq!(node.can_overwrite(), true);
             assert_eq!(input.can_overwrite(), false);
 
             node.backward();
-            assert_eq!(input.can_overwrite(), false);
-
-            node.set_overwrite(true);
-            assert_eq!(input.can_overwrite(), false);
-
-            node.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
             assert_eq!(input.can_overwrite(), false);
 
             input.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
             assert_eq!(input.can_overwrite(), true);
 
             input.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
             assert_eq!(input.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            input.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            input.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
         }
 
         #[test]
@@ -4028,49 +4079,120 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             let node = NegationBackward::new(input.clone());
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            *node.gradient_mut() = new_tensor((3, 3), vec![-1.; 9]);
-            assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
-            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Accumulation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![-2.; 9]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             input.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
-            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
         }
     }
+
     mod backward_addition {
         use super::*;
 
         #[test]
-        fn backward() {
-            let (lhs, rhs) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
+        fn creation() {
+            let node = AdditionBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
             let node = AdditionBackward::new(lhs.clone(), rhs.clone());
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = AdditionBackward::new(lhs.clone(), rhs.clone());
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Accumulation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
@@ -4078,24 +4200,27 @@ mod tests {
 
         #[test]
         fn backward_broadcast_left() {
-            let (lhs, rhs) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
             let node = AdditionBackward::new(lhs.clone(), rhs.clone());
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![3.; 3]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Accumulation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![6.; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![3.; 3]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
@@ -4103,24 +4228,27 @@ mod tests {
 
         #[test]
         fn backward_broadcast_right() {
-            let (lhs, rhs) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_backward_input(3, vec![0.; 3]),
-                )
-            };
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
             let node = AdditionBackward::new(lhs.clone(), rhs.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![3.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![6.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![3.; 3]));
@@ -4128,71 +4256,148 @@ mod tests {
 
         #[test]
         fn backward_unary() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = AdditionBackwardUnary::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let not_diff = new_input((3, 3), vec![0.; 9]);
+            let node = AdditionBackwardUnary::new(diff.clone(), not_diff);
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
         }
 
         #[test]
         fn backward_unary_broadcast() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = AdditionBackwardUnary::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let not_diff = new_input((3, 3), vec![0.; 9]);
+            let node = AdditionBackwardUnary::new(diff.clone(), not_diff);
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![3.; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![3.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![3.; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![6.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![3.; 3]));
         }
     }
 
     mod backward_subtraction {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = SubtractionBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = SubtractionBackward::new(lhs.clone(), rhs.clone());
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs, rhs) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
             let node = SubtractionBackward::new(lhs.clone(), rhs.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
@@ -4200,24 +4405,27 @@ mod tests {
 
         #[test]
         fn backward_broadcast_left() {
-            let (lhs, rhs) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
             let node = SubtractionBackward::new(lhs.clone(), rhs.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![3.; 3]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![6.; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![3.; 3]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
@@ -4225,24 +4433,27 @@ mod tests {
 
         #[test]
         fn backward_broadcast_right() {
-            let (lhs, rhs) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_backward_input(3, vec![0.; 3]),
-                )
-            };
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
             let node = SubtractionBackward::new(lhs.clone(), rhs.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![-3.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![-6.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![1.; 9]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![-3.; 3]));
@@ -4250,488 +4461,799 @@ mod tests {
 
         #[test]
         fn backward_left() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = SubtractionBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = SubtractionBackwardLeft::new(diff.clone(), new_input((3, 3), vec![0.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
         }
 
         #[test]
         fn backward_left_broadcast() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = SubtractionBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = SubtractionBackwardLeft::new(diff.clone(), new_input((3, 3), vec![0.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![3.; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![3.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![3.; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![6.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![3.; 3]));
         }
 
         #[test]
         fn backward_right() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = SubtractionBackwardRight::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = SubtractionBackwardRight::new(diff.clone(), new_input((3, 3), vec![0.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![-2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
         }
 
         #[test]
         fn backward_right_broadcast() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = SubtractionBackwardRight::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = SubtractionBackwardRight::new(diff.clone(), new_input((3, 3), vec![0.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![-3.; 3]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-3.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![-3.; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-6.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-3.; 3]));
         }
     }
 
     mod backward_multiplication {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = MultiplicationBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![5.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MultiplicationBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                lhs.clone(),
+                new_input((3, 3), vec![5.; 9]),
+                rhs.clone(),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input((3, 3), vec![3.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![5.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = MultiplicationBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MultiplicationBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                lhs.clone(),
+                new_input((3, 3), vec![5.; 9]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![3.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![3.; 9]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![10.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![6.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
         }
 
         #[test]
         fn backward_broadcast_left() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input(3, vec![3.; 3]),
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![5.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = MultiplicationBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MultiplicationBackward::new(
+                new_input(3, vec![3.; 3]),
+                lhs.clone(),
+                new_input((3, 3), vec![5.; 9]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![15.; 3]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![3.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![15.; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![15.; 3]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![3.; 9]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![30.; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![6.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![15.; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
         }
 
         #[test]
         fn backward_broadcast_right() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input((3, 3), vec![3.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input(3, vec![5.; 3]),
-                    new_backward_input(3, vec![0.; 3]),
-                )
-            };
-            let node = MultiplicationBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
+            let node = MultiplicationBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                lhs.clone(),
+                new_input(3, vec![5.; 3]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![9.; 3]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![9.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![9.; 3]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![10.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![18.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![9.; 3]));
         }
 
         #[test]
         fn backward_unary() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![5.; 9]),
-                )
-            };
-            let node = MultiplicationBackwardUnary::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node =
+                MultiplicationBackwardUnary::new(diff.clone(), new_input((3, 3), vec![5.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![5.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![5.; 9]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![10.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![5.; 9]));
         }
 
         #[test]
         fn backward_unary_broadcast() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![5.; 9]),
-                )
-            };
-            let node = MultiplicationBackwardUnary::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node =
+                MultiplicationBackwardUnary::new(diff.clone(), new_input((3, 3), vec![5.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![15.; 3]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![15.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![15.; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![30.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![15.; 3]));
         }
     }
 
     mod backward_division {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = DivisionBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![5.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DivisionBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                lhs.clone(),
+                new_input((3, 3), vec![5.; 9]),
+                rhs.clone(),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input((3, 3), vec![3.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![5.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = DivisionBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DivisionBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                lhs.clone(),
+                new_input((3, 3), vec![5.; 9]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![0.4; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-0.24; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
         }
 
         #[test]
         fn backward_broadcast_left() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input(3, vec![3.; 3]),
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![5.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = DivisionBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DivisionBackward::new(
+                new_input(3, vec![3.; 3]),
+                lhs.clone(),
+                new_input((3, 3), vec![5.; 9]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![0.6; 3]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![0.6; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![0.6; 3]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![1.2; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-0.24; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![0.6; 3]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
         }
 
         #[test]
         fn backward_broadcast_right() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input((3, 3), vec![3.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input(3, vec![5.; 3]),
-                    new_backward_input(3, vec![0.; 3]),
-                )
-            };
-            let node = DivisionBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
+            let node = DivisionBackward::new(
+                new_input((3, 3), vec![3.; 9]),
+                lhs.clone(),
+                new_input(3, vec![5.; 3]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![-0.36; 3]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![-0.36; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![-0.36; 3]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![0.4; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![-0.72; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![-0.36; 3]));
         }
 
         #[test]
         fn backward_left() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![5.; 9]),
-                )
-            };
-            let node = DivisionBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DivisionBackwardLeft::new(diff.clone(), new_input((3, 3), vec![5.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![0.4; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![0.2; 9]));
         }
 
         #[test]
         fn backward_left_broadcast() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![5.; 9]),
-                )
-            };
-            let node = DivisionBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = DivisionBackwardLeft::new(diff.clone(), new_input((3, 3), vec![5.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![0.6; 3]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.6; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![0.6; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![1.2; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.6; 3]));
         }
 
         #[test]
         fn backward_right() {
-            let (input, input_diff, input_not_diff) = {
-                (
-                    new_input((3, 3), vec![5.; 9]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![3.; 9]),
-                )
-            };
-            let node = DivisionBackwardRight::new(input_not_diff, input, input_diff.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DivisionBackwardRight::new(
+                new_input((3, 3), vec![3.; 9]),
+                new_input((3, 3), vec![5.; 9]),
+                diff.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![-0.24; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![-0.12; 9]));
         }
 
         #[test]
         fn backward_right_broadcast() {
-            let (input, input_diff, input_not_diff) = {
-                (
-                    new_input((3, 3), vec![5.; 9]),
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![3.; 9]),
-                )
-            };
-            let node = DivisionBackwardRight::new(input_not_diff, input, input_diff.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = DivisionBackwardRight::new(
+                new_input((3, 3), vec![3.; 9]),
+                new_input((3, 3), vec![5.; 9]),
+                diff.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![-0.36; 3]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-0.36; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![-0.36; 3]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-0.72; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-0.36; 3]));
         }
     }
 
     mod backward_matrix_matrix_mul {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = MatrixMatrixMulBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MatrixMatrixMulBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                lhs.clone(),
+                new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+                rhs.clone(),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = MatrixMatrixMulBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MatrixMatrixMulBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                lhs.clone(),
+                new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*lhs_b.gradient(),
+                &*lhs.gradient(),
                 &new_tensor((3, 3), vec![33., 42., 51., 33., 42., 51., 33., 42., 51.]),
             );
             assert_almost_equals(
-                &*rhs_b.gradient(),
+                &*rhs.gradient(),
                 &new_tensor((3, 3), vec![12., 12., 12., 15., 15., 15., 18., 18., 18.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*lhs_b.gradient(),
+                &*lhs.gradient(),
+                &new_tensor((3, 3), vec![66., 84., 102., 66., 84., 102., 66., 84., 102.]),
+            );
+            assert_almost_equals(
+                &*rhs.gradient(),
+                &new_tensor((3, 3), vec![24., 24., 24., 30., 30., 30., 36., 36., 36.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*lhs.gradient(),
                 &new_tensor((3, 3), vec![33., 42., 51., 33., 42., 51., 33., 42., 51.]),
             );
             assert_almost_equals(
-                &*rhs_b.gradient(),
+                &*rhs.gradient(),
                 &new_tensor((3, 3), vec![12., 12., 12., 15., 15., 15., 18., 18., 18.]),
             );
         }
 
         #[test]
         fn backward_left() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
-                )
-            };
-            let node = MatrixMatrixMulBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MatrixMatrixMulBackwardLeft::new(
+                diff.clone(),
+                new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![33., 42., 51., 33., 42., 51., 33., 42., 51.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor((3, 3), vec![66., 84., 102., 66., 84., 102., 66., 84., 102.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![33., 42., 51., 33., 42., 51., 33., 42., 51.]),
             );
         }
 
         #[test]
         fn backward_right() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                )
-            };
-            let node = MatrixMatrixMulBackwardRight::new(input_not_diff, input_diff.clone());
-            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MatrixMatrixMulBackwardRight::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                diff.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![12., 12., 12., 15., 15., 15., 18., 18., 18.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor((3, 3), vec![24., 24., 24., 30., 30., 30., 36., 36., 36.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![12., 12., 12., 15., 15., 15., 18., 18., 18.]),
             );
         }
@@ -4739,97 +5261,200 @@ mod tests {
 
     mod backward_matrix_matrix_mul_t {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = MatrixMatrixMulTBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((2, 3), vec![10., 11., 12., 13., 14., 15.]),
+                new_backward_input((2, 3), vec![0.; 6]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 2), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 2), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((2, 3), vec![0.; 6]);
+            let node = MatrixMatrixMulTBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                lhs.clone(),
+                new_input((2, 3), vec![10., 11., 12., 13., 14., 15.]),
+                rhs.clone(),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((2, 3), vec![10., 11., 12., 13., 14., 15.]),
-                    new_backward_input((2, 3), vec![0.; 6]),
-                )
-            };
-            let node = MatrixMatrixMulTBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor((3, 2), vec![1.; 6]);
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input((2, 3), vec![0.; 6]);
+            let node = MatrixMatrixMulTBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                lhs.clone(),
+                new_input((2, 3), vec![10., 11., 12., 13., 14., 15.]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 2), vec![1.; 6]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 2), vec![1.; 6]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*lhs_b.gradient(),
+                &*lhs.gradient(),
                 &new_tensor((3, 3), vec![23., 25., 27., 23., 25., 27., 23., 25., 27.]),
             );
             assert_almost_equals(
-                &*rhs_b.gradient(),
+                &*rhs.gradient(),
                 &new_tensor((2, 3), vec![12., 15., 18., 12., 15., 18.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*lhs_b.gradient(),
+                &*lhs.gradient(),
+                &new_tensor((3, 3), vec![46., 50., 54., 46., 50., 54., 46., 50., 54.]),
+            );
+            assert_almost_equals(
+                &*rhs.gradient(),
+                &new_tensor((2, 3), vec![24., 30., 36., 24., 30., 36.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*lhs.gradient(),
                 &new_tensor((3, 3), vec![23., 25., 27., 23., 25., 27., 23., 25., 27.]),
             );
             assert_almost_equals(
-                &*rhs_b.gradient(),
+                &*rhs.gradient(),
                 &new_tensor((2, 3), vec![12., 15., 18., 12., 15., 18.]),
             );
         }
 
         #[test]
         fn backward_left() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input((2, 3), vec![10., 11., 12., 13., 14., 15.]),
-                )
-            };
-            let node = MatrixMatrixMulTBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor((3, 2), vec![1.; 6]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = MatrixMatrixMulTBackwardLeft::new(
+                diff.clone(),
+                new_input((2, 3), vec![10., 11., 12., 13., 14., 15.]),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 2), vec![1.; 6]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 2), vec![1.; 6]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![23., 25., 27., 23., 25., 27., 23., 25., 27.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor((3, 3), vec![46., 50., 54., 46., 50., 54., 46., 50., 54.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![23., 25., 27., 23., 25., 27., 23., 25., 27.]),
             );
         }
 
         #[test]
         fn backward_right() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((2, 3), vec![0.; 6]),
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                )
-            };
-            let node = MatrixMatrixMulTBackwardRight::new(input_not_diff, input_diff.clone());
-            *node.gradient_mut() = new_tensor((3, 2), vec![1.; 6]);
+            let diff = new_backward_input((2, 3), vec![0.; 6]);
+            let node = MatrixMatrixMulTBackwardRight::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                diff.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 2), vec![1.; 6]);
             assert_almost_equals(&*node.gradient(), &new_tensor((3, 2), vec![1.; 6]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor((2, 3), vec![12., 15., 18., 12., 15., 18.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor((2, 3), vec![24., 30., 36., 24., 30., 36.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor((2, 3), vec![12., 15., 18., 12., 15., 18.]),
             );
         }
@@ -4837,171 +5462,361 @@ mod tests {
 
     mod backward_matrix_vector_mul {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = MatrixVectorMulBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input(3, vec![1., 2., 3.]),
+                new_backward_input(3, vec![0.; 3]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
+            let node = MatrixVectorMulBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                lhs.clone(),
+                new_input(3, vec![1., 2., 3.]),
+                rhs.clone(),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input(3, vec![1., 2., 3.]),
-                    new_backward_input(3, vec![0.; 3]),
-                )
-            };
-            let node = MatrixVectorMulBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let lhs = new_backward_input((3, 3), vec![0.; 9]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
+            let node = MatrixVectorMulBackward::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                lhs.clone(),
+                new_input(3, vec![1., 2., 3.]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*lhs_b.gradient(),
+                &*lhs.gradient(),
                 &new_tensor((3, 3), vec![1., 2., 3., 1., 2., 3., 1., 2., 3.]),
             );
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![12., 15., 18.]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![12., 15., 18.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*lhs_b.gradient(),
+                &*lhs.gradient(),
+                &new_tensor((3, 3), vec![2., 4., 6., 2., 4., 6., 2., 4., 6.]),
+            );
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![24., 30., 36.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*lhs.gradient(),
                 &new_tensor((3, 3), vec![1., 2., 3., 1., 2., 3., 1., 2., 3.]),
             );
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![12., 15., 18.]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![12., 15., 18.]));
         }
 
         #[test]
         fn backward_left() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input(3, vec![1., 2., 3.]),
-                )
-            };
-            let node = MatrixVectorMulBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node =
+                MatrixVectorMulBackwardLeft::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![1., 2., 3., 1., 2., 3., 1., 2., 3.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor((3, 3), vec![2., 4., 6., 2., 4., 6., 2., 4., 6.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![1., 2., 3., 1., 2., 3., 1., 2., 3.]),
             );
         }
 
         #[test]
         fn backward_right() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                )
-            };
-            let node = MatrixVectorMulBackwardRight::new(input_not_diff, input_diff.clone());
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = MatrixVectorMulBackwardRight::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                diff.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![12., 15., 18.]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![12., 15., 18.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![12., 15., 18.]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![24., 30., 36.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![12., 15., 18.]));
         }
     }
 
     mod backward_vector_matrix_mul {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = VectorMatrixMulBackward::new(
+                new_input(3, vec![1., 2., 3.]),
+                new_backward_input(3, vec![0.; 3]),
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = VectorMatrixMulBackward::new(
+                new_input(3, vec![1., 2., 3.]),
+                lhs.clone(),
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                rhs.clone(),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input(3, vec![1., 2., 3.]),
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                    new_backward_input((3, 3), vec![0.; 9]),
-                )
-            };
-            let node = VectorMatrixMulBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input((3, 3), vec![0.; 9]);
+            let node = VectorMatrixMulBackward::new(
+                new_input(3, vec![1., 2., 3.]),
+                lhs.clone(),
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![6., 15., 24.]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![6., 15., 24.]));
             assert_almost_equals(
-                &*rhs_b.gradient(),
+                &*rhs.gradient(),
                 &new_tensor((3, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![6., 15., 24.]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![12., 30., 48.]));
             assert_almost_equals(
-                &*rhs_b.gradient(),
+                &*rhs.gradient(),
+                &new_tensor((3, 3), vec![2., 2., 2., 4., 4., 4., 6., 6., 6.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![6., 15., 24.]));
+            assert_almost_equals(
+                &*rhs.gradient(),
                 &new_tensor((3, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3.]),
             );
         }
 
         #[test]
         fn backward_left() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
-                )
-            };
-            let node = VectorMatrixMulBackwardLeft::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = VectorMatrixMulBackwardLeft::new(
+                diff.clone(),
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![6., 15., 24.]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![6., 15., 24.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![6., 15., 24.]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![12., 30., 48.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![6., 15., 24.]));
         }
 
         #[test]
         fn backward_right() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input((3, 3), vec![0.; 9]),
-                    new_input(3, vec![1., 2., 3.]),
-                )
-            };
-            let node = VectorMatrixMulBackwardRight::new(input_not_diff, input_diff.clone());
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node =
+                VectorMatrixMulBackwardRight::new(new_input(3, vec![1., 2., 3.]), diff.clone());
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3.]),
             );
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor((3, 3), vec![2., 2., 2., 4., 4., 4., 6., 6., 6.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor((3, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3.]),
             );
         }
@@ -5009,66 +5824,199 @@ mod tests {
 
     mod backward_vector_vector_mul {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = VectorVectorMulBackward::new(
+                new_input(3, vec![1., 2., 3.]),
+                new_backward_input(3, vec![0.; 3]),
+                new_input(3, vec![4., 5., 6.]),
+                new_backward_input(3, vec![0.; 3]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(1, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(1, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
+            let node = VectorVectorMulBackward::new(
+                new_input(3, vec![1., 2., 3.]),
+                lhs.clone(),
+                new_input(3, vec![4., 5., 6.]),
+                rhs.clone(),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (lhs_f, lhs_b, rhs_f, rhs_b) = {
-                (
-                    new_input(3, vec![1., 2., 3.]),
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input(3, vec![4., 5., 6.]),
-                    new_backward_input(3, vec![0.; 3]),
-                )
-            };
-            let node = VectorVectorMulBackward::new(lhs_f, lhs_b.clone(), rhs_f, rhs_b.clone());
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let lhs = new_backward_input(3, vec![0.; 3]);
+            let rhs = new_backward_input(3, vec![0.; 3]);
+            let node = VectorVectorMulBackward::new(
+                new_input(3, vec![1., 2., 3.]),
+                lhs.clone(),
+                new_input(3, vec![4., 5., 6.]),
+                rhs.clone(),
+            );
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![4., 5., 6.]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![1., 2., 3.]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            lhs_b.set_overwrite(true);
-            rhs_b.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![4., 5., 6.]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![1., 2., 3.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*lhs_b.gradient(), &new_tensor(3, vec![4., 5., 6.]));
-            assert_almost_equals(&*rhs_b.gradient(), &new_tensor(3, vec![1., 2., 3.]));
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![8., 10., 12.]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![2., 4., 6.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![4., 5., 6.]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![1., 2., 3.]));
         }
 
         #[test]
         fn backward_unary() {
-            let (input_diff, input_not_diff) = {
-                (
-                    new_backward_input(3, vec![0.; 3]),
-                    new_input(3, vec![1., 2., 3.]),
-                )
-            };
-            let node = VectorVectorMulBackwardUnary::new(input_diff.clone(), input_not_diff);
-            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node =
+                VectorVectorMulBackwardUnary::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
             assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![1., 2., 3.]));
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![1., 2., 3.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![1., 2., 3.]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![2., 4., 6.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![1., 2., 3.]));
         }
     }
 
     mod backward_power {
         use super::*;
+
         #[test]
-        fn backward() {
-            let (input, input_diff, exp) = (
-                new_input(3, vec![1., 2., 3.]),
+        fn creation() {
+            let node = PowerBackward::new(
                 new_backward_input(3, vec![0.; 3]),
+                new_input(3, vec![1., 2., 3.]),
                 3,
             );
-            let node = PowerBackward::new(input_diff.clone(), input, exp);
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = PowerBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]), 3);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = PowerBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]), 3);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
@@ -5076,22 +6024,22 @@ mod tests {
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![3., 12., 27.]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![3., 12., 27.]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![3., 12., 27.]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![6., 24., 54.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![3., 12., 27.]));
         }
+
         #[test]
         fn backward_negative_exp() {
-            let (input, input_diff, exp) = (
-                new_input(3, vec![1., 2., 3.]),
-                new_backward_input(3, vec![0.; 3]),
-                -3,
-            );
-            let node = PowerBackward::new(input_diff.clone(), input, exp);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = PowerBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]), -3);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
@@ -5100,27 +6048,81 @@ mod tests {
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![-3.0000, -0.1875, -0.037037037]),
+                &*diff.gradient(),
+                &new_tensor(3, vec![-3., -0.1875, -0.037037]),
             );
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![-3.0000, -0.1875, -0.037037037]),
+                &*diff.gradient(),
+                &new_tensor(3, vec![-6., -0.375, -0.074075]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(3, vec![-3., -0.1875, -0.037037]),
             );
         }
     }
 
     mod backward_sum {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = SumBackward::new(new_backward_input((10, 10), vec![0.; 100]));
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(1, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(1, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input((10, 10), vec![0.; 100]);
+            let node = SumBackward::new(diff.clone());
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let input_diff = new_backward_input((10, 10), vec![0.; 100]);
-            let node = SumBackward::new(input_diff.clone());
+            let diff = new_backward_input((10, 10), vec![0.; 100]);
+            let node = SumBackward::new(diff.clone());
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor(1, vec![1.]);
@@ -5128,19 +6130,16 @@ mod tests {
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor((10, 10), vec![1.; 100]),
-            );
+            assert_almost_equals(&*diff.gradient(), &new_tensor((10, 10), vec![1.; 100]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor((10, 10), vec![1.; 100]),
-            );
+            assert_almost_equals(&*diff.gradient(), &new_tensor((10, 10), vec![2.; 100]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((10, 10), vec![1.; 100]));
         }
     }
 
@@ -5148,12 +6147,59 @@ mod tests {
         use super::*;
 
         #[test]
-        fn backward() {
-            let (input, input_diff) = (
-                new_input(3, vec![1., 2., 3.]),
+        fn creation() {
+            let node = LognBackward::new(
                 new_backward_input(3, vec![0.; 3]),
+                new_input(3, vec![1., 2., 3.]),
             );
-            let node = LognBackward::new(input_diff.clone(), input);
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = LognBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = LognBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
@@ -5161,31 +6207,77 @@ mod tests {
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![1., 0.5, 0.33333]),
-            );
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![1., 0.5, 0.33333]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![2., 1., 0.66667]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
             node.set_overwrite(true);
             node.backward();
-            assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![1., 0.5, 0.33333]),
-            );
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![1., 0.5, 0.33333]));
         }
     }
 
     mod backward_relu {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = ReLUBackward::new(
+                new_backward_input(3, vec![0.; 3]),
+                new_input(3, vec![-1., 2., -3.]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = ReLUBackward::new(diff.clone(), new_input(3, vec![-1., 2., -3.]));
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (input, input_diff) = (
-                new_input(3, vec![-1., 2., -3.]),
-                new_backward_input(3, vec![0.; 3]),
-            );
-            let node = ReLUBackward::new(input_diff.clone(), input);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = ReLUBackward::new(diff.clone(), new_input(3, vec![-1., 2., -3.]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
@@ -5193,25 +6285,76 @@ mod tests {
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![0., 1., 0.]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0., 1., 0.]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input_diff.gradient(), &new_tensor(3, vec![0., 1., 0.]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0., 2., 0.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0., 1., 0.]));
         }
     }
 
     mod backward_leaky_relu {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = LeakyReLUBackward::new(
+                new_backward_input(3, vec![0.; 3]),
+                new_input(3, vec![-1., 2., -3.]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = LeakyReLUBackward::new(diff.clone(), new_input(3, vec![-1., 2., -3.]));
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (input, input_diff) = (
-                new_input(3, vec![-1., 2., -3.]),
-                new_backward_input(3, vec![0.; 3]),
-            );
-            let node = LeakyReLUBackward::new(input_diff.clone(), input);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = LeakyReLUBackward::new(diff.clone(), new_input(3, vec![-1., 2., -3.]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
@@ -5219,31 +6362,76 @@ mod tests {
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![0.01, 1., 0.01]),
-            );
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.01, 1., 0.01]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![0.01, 1., 0.01]),
-            );
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.02, 2., 0.02]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.01, 1., 0.01]));
         }
     }
 
     mod backward_softplus {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = SoftPlusBackward::new(
+                new_backward_input(3, vec![0.; 3]),
+                new_input(3, vec![1., 2., 3.]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = SoftPlusBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (input, input_diff) = (
-                new_input(3, vec![1., 2., 3.]),
-                new_backward_input(3, vec![0.; 3]),
-            );
-            let node = SoftPlusBackward::new(input_diff.clone(), input);
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = SoftPlusBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
@@ -5252,16 +6440,22 @@ mod tests {
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor(3, vec![0.7311, 0.8808, 0.9526]),
             );
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor(3, vec![1.4622, 1.7616, 1.9052]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor(3, vec![0.7311, 0.8808, 0.9526]),
             );
         }
@@ -5270,34 +6464,91 @@ mod tests {
     mod backward_sigmoid {
         use super::*;
         use crate::variable::node::{Forward, Sigmoid};
+
+        #[test]
+        fn creation() {
+            let node = SigmoidBackward::new(
+                new_backward_input(3, vec![0.; 3]),
+                Rc::new(Sigmoid::new(new_input(3, vec![1., 2., 3.]))),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = SigmoidBackward::new(
+                diff.clone(),
+                Rc::new(Sigmoid::new(new_input(3, vec![1., 2., 3.]))),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (input, input_diff) = (
-                new_input(3, vec![1., 2., 3.]),
-                new_backward_input(3, vec![0.; 3]),
-            );
-            let node_f = Sigmoid::new(input);
-            node_f.forward();
-            let node_b = SigmoidBackward::new(input_diff.clone(), Rc::new(node_f));
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let not_diff = Rc::new(Sigmoid::new(new_input(3, vec![1., 2., 3.])));
+            not_diff.forward();
+            let node = SigmoidBackward::new(diff.clone(), not_diff);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            *node_b.gradient_mut() = new_tensor(3, vec![1.; 3]);
-            assert_almost_equals(&*node_b.gradient(), &new_tensor(3, vec![1.; 3]));
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            node_b.backward();
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![0.1966, 0.1050, 0.0452]),
+                &*diff.gradient(),
+                &new_tensor(3, vec![0.1966, 0.105, 0.0452]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(3, vec![0.3932, 0.21, 0.0904]),
             );
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node_b.set_overwrite(true);
-            node_b.backward();
+            diff.set_overwrite(true);
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
-                &new_tensor(3, vec![0.1966, 0.1050, 0.0452]),
+                &*diff.gradient(),
+                &new_tensor(3, vec![0.1966, 0.105, 0.0452]),
             );
         }
     }
@@ -5305,33 +6556,90 @@ mod tests {
     mod backward_tanh {
         use super::*;
         use crate::variable::node::{Forward, TanH};
+
+        #[test]
+        fn creation() {
+            let node = TanHBackward::new(
+                new_backward_input(3, vec![0.; 3]),
+                Rc::new(TanH::new(new_input(3, vec![1., 2., 3.]))),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = TanHBackward::new(
+                diff.clone(),
+                Rc::new(TanH::new(new_input(3, vec![1., 2., 3.]))),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let (input, input_diff) = (
-                new_input(3, vec![1., 2., 3.]),
-                new_backward_input(3, vec![0.; 3]),
-            );
-            let node_f = TanH::new(input);
-            node_f.forward();
-            let node_b = TanHBackward::new(input_diff.clone(), Rc::new(node_f));
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let not_diff = Rc::new(TanH::new(new_input(3, vec![1., 2., 3.])));
+            not_diff.forward();
+            let node = TanHBackward::new(diff.clone(), not_diff);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            *node_b.gradient_mut() = new_tensor(3, vec![1.; 3]);
-            assert_almost_equals(&*node_b.gradient(), &new_tensor(3, vec![1.; 3]));
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            node_b.backward();
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor(3, vec![0.4199, 0.07065, 0.009865]),
             );
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node_b.set_overwrite(true);
-            node_b.backward();
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor(3, vec![0.8398, 0.1413, 0.01973]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor(3, vec![0.4199, 0.07065, 0.009865]),
             );
         }
@@ -5341,34 +6649,90 @@ mod tests {
         use super::*;
         use crate::variable::node::{Exp, Forward};
 
+        #[test]
+        fn creation() {
+            let node = ExpBackward::new(
+                new_backward_input(3, vec![0.; 3]),
+                Rc::new(Exp::new(new_input(3, vec![1., 2., 3.]))),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = ExpBackward::new(
+                diff.clone(),
+                Rc::new(Exp::new(new_input(3, vec![1., 2., 3.]))),
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[allow(clippy::clippy::approx_constant)]
         #[test]
         fn backward() {
-            let (input, input_diff) = (
-                new_input(3, vec![1., 2., 3.]),
-                new_backward_input(3, vec![0.; 3]),
-            );
-            let node_f = Exp::new(input);
-            node_f.forward();
-            let node_b = ExpBackward::new(input_diff.clone(), Rc::new(node_f));
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let not_diff = Rc::new(Exp::new(new_input(3, vec![1., 2., 3.])));
+            not_diff.forward();
+            let node = ExpBackward::new(diff.clone(), not_diff);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            *node_b.gradient_mut() = new_tensor(3, vec![1.; 3]);
-            assert_almost_equals(&*node_b.gradient(), &new_tensor(3, vec![1.; 3]));
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            node_b.backward();
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor(3, vec![2.7183, 7.3891, 20.0855]),
             );
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node_b.set_overwrite(true);
-            node_b.backward();
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor(3, vec![5.4366, 14.7782, 40.171]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor(3, vec![2.7183, 7.3891, 20.0855]),
             );
         }
@@ -5379,15 +6743,78 @@ mod tests {
         use crate::variable::node::{Forward, Softmax};
 
         #[test]
-        fn backward() {
-            let (input, input_diff, axis) = (
-                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+        fn creation() {
+            let axis = 0;
+            let node = SoftmaxBackward::new(
                 new_backward_input((3, 3), vec![0.; 9]),
-                0,
+                Rc::new(Softmax::new(
+                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                    axis,
+                )),
+                axis,
             );
-            let node_f = Softmax::new(input, axis);
-            node_f.forward();
-            let node_b = SoftmaxBackward::new(input_diff.clone(), Rc::new(node_f), axis);
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let axis = 0;
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = SoftmaxBackward::new(
+                diff.clone(),
+                Rc::new(Softmax::new(
+                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                    axis,
+                )),
+                axis,
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward_rows() {
+            let axis = 0;
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let not_diff = Rc::new(Softmax::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axis,
+            ));
+            not_diff.forward();
+            let node_b = SoftmaxBackward::new(diff.clone(), not_diff, axis);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node_b.gradient_mut() = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
@@ -5399,7 +6826,7 @@ mod tests {
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node_b.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor(
                     (3, 3),
                     vec![
@@ -5409,17 +6836,88 @@ mod tests {
                 ),
             );
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node_b.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node_b.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        -0.02752, -0.02752, -0.02752, -0.2691, -0.2691, -0.2691, 0.296646,
+                        0.296646, 0.296646,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node_b.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor(
                     (3, 3),
                     vec![
                         -0.01376, -0.01376, -0.01376, -0.13455, -0.13455, -0.13455, 0.148323,
                         0.148323, 0.148323,
+                    ],
+                ),
+            );
+        }
+
+        #[test]
+        fn backward_columns() {
+            let axis = 1;
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let not_diff = Rc::new(Softmax::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axis,
+            ));
+            not_diff.forward();
+            let node = SoftmaxBackward::new(diff.clone(), not_diff, axis);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            assert_almost_equals(
+                &*node.gradient(),
+                &new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        -0.1418, -0.1408, 0.2826, -0.1418, -0.1408, 0.2826, -0.1418, -0.1408,
+                        0.2826,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        -0.2836, -0.2815, 0.5652, -0.2836, -0.2815, 0.5652, -0.2836, -0.2815,
+                        0.5652,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        -0.1418, -0.1408, 0.2826, -0.1418, -0.1408, 0.2826, -0.1418, -0.1408,
+                        0.2826,
                     ],
                 ),
             );
@@ -5431,27 +6929,90 @@ mod tests {
         use crate::variable::node::{Forward, LogSoftmax};
 
         #[test]
-        fn backward() {
-            let (input, input_diff, axis) = (
-                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+        fn creation() {
+            let axis = 0;
+            let node = LogSoftmaxBackward::new(
                 new_backward_input((3, 3), vec![0.; 9]),
-                0,
+                Rc::new(LogSoftmax::new(
+                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                    axis,
+                )),
+                axis,
             );
-            let node_f = LogSoftmax::new(input, axis);
-            node_f.forward();
-            let node_b = LogSoftmaxBackward::new(input_diff.clone(), Rc::new(node_f), axis);
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let axis = 0;
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let node = LogSoftmaxBackward::new(
+                diff.clone(),
+                Rc::new(LogSoftmax::new(
+                    new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                    axis,
+                )),
+                axis,
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward_rows() {
+            let axis = 0;
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let not_diff = Rc::new(LogSoftmax::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axis,
+            ));
+            not_diff.forward();
+            let node = LogSoftmaxBackward::new(diff.clone(), not_diff, axis);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            *node_b.gradient_mut() = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            *node.gradient_mut() = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
             assert_almost_equals(
-                &*node_b.gradient(),
+                &*node.gradient(),
                 &new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
             );
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            node_b.backward();
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
                 &new_tensor(
                     (3, 3),
                     vec![
@@ -5460,16 +7021,84 @@ mod tests {
                 ),
             );
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input_diff.set_overwrite(true);
-            node_b.set_overwrite(true);
-            node_b.backward();
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
             assert_almost_equals(
-                &*input_diff.gradient(),
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        1.9435, 3.9293, 5.9152, 6.8645, 8.5806, 10.2967, -8.8079, -12.5099,
+                        -16.2119,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor(
                     (3, 3),
                     vec![
                         0.9717, 1.9647, 2.9576, 3.4322, 4.2903, 5.1483, -4.4040, -6.2550, -8.1059,
+                    ],
+                ),
+            );
+        }
+
+        #[test]
+        fn backward_columns() {
+            let axis = 1;
+            let diff = new_backward_input((3, 3), vec![0.; 9]);
+            let not_diff = Rc::new(LogSoftmax::new(
+                new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axis,
+            ));
+            not_diff.forward();
+            let node = LogSoftmaxBackward::new(diff.clone(), not_diff, axis);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            assert_almost_equals(
+                &*node.gradient(),
+                &new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        0.4598, 0.5316, -0.9914, 2.6495, 1.3291, -3.9786, 4.8393, 2.1265, -6.9658,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        0.9196, 1.0633, -1.9829, 5.2991, 2.6581, -7.9572, 9.6785, 4.2530, -13.9316,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        0.4598, 0.5316, -0.9914, 2.6495, 1.3291, -3.9786, 4.8393, 2.1265, -6.9658,
                     ],
                 ),
             );
@@ -5478,10 +7107,58 @@ mod tests {
 
     mod backward_transpose {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = TransposeBackward::new(new_backward_input((4, 3), vec![0.; 12]));
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 4), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 4), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let node = TransposeBackward::new(diff.clone());
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let input = new_backward_input((4, 3), vec![0.; 12]);
-            let node = TransposeBackward::new(input.clone());
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let node = TransposeBackward::new(diff.clone());
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((3, 4), vec![1.; 12]);
@@ -5489,56 +7166,170 @@ mod tests {
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
         }
     }
 
     mod backward_chunks {
         use super::*;
+
+        #[test]
+        fn creation() {
+            let node = ChunkBackward::new(
+                new_backward_input((4, 3), vec![0.; 12]),
+                Tensor::zeros((1, 3)),
+                0,
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((1, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((1, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let node = ChunkBackward::new(diff.clone(), Tensor::zeros((1, 3)), 0);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
         #[test]
         fn backward() {
-            let input = new_backward_input((4, 3), vec![0.; 12]);
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let chunk_0 = ChunkBackward::new(diff.clone(), Tensor::zeros((1, 3)), 0);
+            let chunk_1 = ChunkBackward::new(diff.clone(), Tensor::zeros((1, 3)), 1);
+            let chunk_2 = ChunkBackward::new(diff.clone(), Tensor::zeros((1, 3)), 2);
+            let chunk_3 = ChunkBackward::new(diff.clone(), Tensor::zeros((1, 3)), 3);
 
-            let chunk_0 = ChunkBackward::new(input.clone(), Tensor::zeros((1, 3)), 0);
-            let chunk_1 = ChunkBackward::new(input.clone(), Tensor::zeros((1, 3)), 1);
-            let chunk_2 = ChunkBackward::new(input.clone(), Tensor::zeros((1, 3)), 2);
-            let chunk_3 = ChunkBackward::new(input.clone(), Tensor::zeros((1, 3)), 3);
-
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~--- Seed Gradient of each Chunks  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~---
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *chunk_0.gradient_mut() = new_tensor((1, 3), vec![1.; 3]);
+            assert_almost_equals(&*chunk_0.gradient(), &new_tensor((1, 3), vec![1.; 3]));
+
             *chunk_1.gradient_mut() = new_tensor((1, 3), vec![2.; 3]);
+            assert_almost_equals(&*chunk_1.gradient(), &new_tensor((1, 3), vec![2.; 3]));
+
             *chunk_2.gradient_mut() = new_tensor((1, 3), vec![3.; 3]);
+            assert_almost_equals(&*chunk_2.gradient(), &new_tensor((1, 3), vec![3.; 3]));
+
             *chunk_3.gradient_mut() = new_tensor((1, 3), vec![4.; 3]);
+            assert_almost_equals(&*chunk_3.gradient(), &new_tensor((1, 3), vec![4.; 3]));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             chunk_0.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.]),
+            );
+
             chunk_1.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![1., 1., 1., 2., 2., 2., 0., 0., 0., 0., 0., 0.]),
+            );
+
             chunk_2.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3., 0., 0., 0.]),
+            );
+
             chunk_3.backward();
             assert_almost_equals(
-                &*input.gradient(),
+                &*diff.gradient(),
                 &new_tensor((4, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3., 4., 4., 4.]),
             );
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input.set_overwrite(true);
-            input.gradient_mut().map_inplace(|el| *el = 0.);
-            chunk_0.set_overwrite(true);
-            chunk_1.set_overwrite(true);
-            chunk_2.set_overwrite(true);
-            chunk_3.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             chunk_0.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![2., 2., 2., 2., 2., 2., 3., 3., 3., 4., 4., 4.]),
+            );
+
             chunk_1.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![2., 2., 2., 4., 4., 4., 3., 3., 3., 4., 4., 4.]),
+            );
+
             chunk_2.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![2., 2., 2., 4., 4., 4., 6., 6., 6., 4., 4., 4.]),
+            );
+
             chunk_3.backward();
             assert_almost_equals(
-                &*input.gradient(),
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![2., 2., 2., 4., 4., 4., 6., 6., 6., 8., 8., 8.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            chunk_0.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![1., 1., 1., 4., 4., 4., 6., 6., 6., 8., 8., 8.]),
+            );
+
+            diff.set_overwrite(true);
+            chunk_1.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![1., 1., 1., 2., 2., 2., 6., 6., 6., 8., 8., 8.]),
+            );
+
+            diff.set_overwrite(true);
+            chunk_2.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
+                &new_tensor((4, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3., 8., 8., 8.]),
+            );
+
+            diff.set_overwrite(true);
+            chunk_3.backward();
+            assert_almost_equals(
+                &*diff.gradient(),
                 &new_tensor((4, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3., 4., 4., 4.]),
             );
         }
@@ -5546,10 +7337,58 @@ mod tests {
 
     mod backward_unsqueeze {
         use super::*;
+
         #[test]
-        fn backward() {
-            let input = new_backward_input((4, 3), vec![0.; 12]);
-            let node = UnsqueezeBackward::new(input.clone(), 0);
+        fn creation() {
+            let node = UnsqueezeBackward::new(new_backward_input((4, 3), vec![0.; 12]), 0);
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((1, 4, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((1, 4, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let node = UnsqueezeBackward::new(diff.clone(), 0);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward_rows() {
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let node = UnsqueezeBackward::new(diff.clone(), 0);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((1, 4, 3), vec![1.; 12]);
@@ -5557,23 +7396,170 @@ mod tests {
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            input.set_overwrite(true);
-            node.set_overwrite(true);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.backward();
-            assert_almost_equals(&*input.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+        }
+
+        #[test]
+        fn backward_columns() {
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let node = UnsqueezeBackward::new(diff.clone(), 1);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((4, 1, 3), vec![1.; 12]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((4, 1, 3), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+        }
+
+        #[test]
+        fn backward_depths() {
+            let diff = new_backward_input((4, 3), vec![0.; 12]);
+            let node = UnsqueezeBackward::new(diff.clone(), 2);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((4, 3, 1), vec![1.; 12]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((4, 3, 1), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
         }
     }
 
     mod backward_cat {
         use super::*;
+
         #[test]
-        fn backward() {
+        fn creation() {
+            let node = ConcatenateBackward::new(
+                new_backward_input((4, 3), vec![0.; 12]),
+                new_backward_input((4, 2), vec![0.; 8]),
+                1,
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((4, 5), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((4, 5), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
             let lhs = new_backward_input((4, 3), vec![0.; 12]);
             let rhs = new_backward_input((4, 2), vec![0.; 8]);
+            let node = ConcatenateBackward::new(lhs.clone(), rhs.clone(), 1);
 
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward_rows() {
+            let lhs = new_backward_input((3, 4), vec![0.; 12]);
+            let rhs = new_backward_input((2, 4), vec![0.; 8]);
+            let node = ConcatenateBackward::new(lhs.clone(), rhs.clone(), 0);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((5, 4), vec![1.; 20]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((5, 4), vec![1.; 20]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 4), vec![1.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((2, 4), vec![1.; 8]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 4), vec![2.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((2, 4), vec![2.; 8]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 4), vec![1.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((2, 4), vec![1.; 8]));
+        }
+
+        #[test]
+        fn backward_columns() {
+            let lhs = new_backward_input((4, 3), vec![0.; 12]);
+            let rhs = new_backward_input((4, 2), vec![0.; 8]);
             let node = ConcatenateBackward::new(lhs.clone(), rhs.clone(), 1);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -5585,20 +7571,46 @@ mod tests {
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 2), vec![1.; 8]));
 
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 2), vec![2.; 8]));
+
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 2), vec![1.; 8]));
         }
+
         #[test]
-        fn backward_left() {
+        fn backward_left_rows() {
+            let lhs = new_backward_input((3, 4), vec![0.; 12]);
+            let node = ConcatenateBackwardLeft::new(lhs.clone(), new_input((2, 4), vec![0.; 8]), 0);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((5, 4), vec![1.; 20]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((5, 4), vec![1.; 20]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 4), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 4), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 4), vec![1.; 12]));
+        }
+
+        #[test]
+        fn backward_left_columns() {
             let lhs = new_backward_input((4, 3), vec![0.; 12]);
-            let rhs = new_input((4, 2), vec![0.; 8]);
-
-            let node = ConcatenateBackwardLeft::new(lhs.clone(), rhs, 1);
+            let node = ConcatenateBackwardLeft::new(lhs.clone(), new_input((4, 2), vec![0.; 8]), 1);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((4, 5), vec![1.; 20]);
@@ -5608,18 +7620,45 @@ mod tests {
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
         }
-        #[test]
-        fn backward_right() {
-            let lhs = new_input((4, 3), vec![0.; 12]);
-            let rhs = new_backward_input((4, 2), vec![0.; 8]);
 
-            let node = ConcatenateBackwardRight::new(lhs, rhs.clone(), 1);
+        #[test]
+        fn backward_right_rows() {
+            let rhs = new_backward_input((2, 4), vec![0.; 8]);
+            let node =
+                ConcatenateBackwardRight::new(new_input((3, 4), vec![0.; 12]), rhs.clone(), 0);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((5, 4), vec![1.; 20]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((5, 4), vec![1.; 20]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((2, 4), vec![1.; 8]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((2, 4), vec![2.; 8]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((2, 4), vec![1.; 8]));
+        }
+
+        #[test]
+        fn backward_right_columns() {
+            let rhs = new_backward_input((4, 2), vec![0.; 8]);
+            let node =
+                ConcatenateBackwardRight::new(new_input((4, 3), vec![0.; 12]), rhs.clone(), 1);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((4, 5), vec![1.; 20]);
@@ -5629,9 +7668,12 @@ mod tests {
             node.backward();
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 2), vec![1.; 8]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 2), vec![2.; 8]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 2), vec![1.; 8]));
         }
@@ -5639,11 +7681,81 @@ mod tests {
 
     mod backward_stack {
         use super::*;
+
         #[test]
-        fn backward() {
+        fn creation() {
+            let node = StackBackward::new(
+                new_backward_input((4, 3), vec![0.; 12]),
+                new_backward_input((4, 3), vec![0.; 12]),
+                0,
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((2, 4, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((2, 4, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
             let lhs = new_backward_input((4, 3), vec![0.; 12]);
             let rhs = new_backward_input((4, 3), vec![0.; 12]);
+            let node = StackBackward::new(lhs.clone(), rhs.clone(), 0);
 
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            lhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            rhs.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), true);
+            assert_eq!(rhs.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(lhs.can_overwrite(), false);
+            assert_eq!(rhs.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward_rows() {
+            let lhs = new_backward_input((4, 3), vec![0.; 12]);
+            let rhs = new_backward_input((4, 3), vec![0.; 12]);
             let node = StackBackward::new(lhs.clone(), rhs.clone(), 0);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -5655,20 +7767,51 @@ mod tests {
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
         }
+
         #[test]
-        fn backward_left() {
+        fn backward_columns() {
             let lhs = new_backward_input((4, 3), vec![0.; 12]);
-            let rhs = new_input((4, 3), vec![0.; 12]);
+            let rhs = new_backward_input((4, 3), vec![0.; 12]);
+            let node = StackBackward::new(lhs.clone(), rhs.clone(), 1);
 
-            let node = StackBackwardLeft::new(lhs.clone(), rhs, 0);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((4, 2, 3), vec![1.; 24]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((4, 2, 3), vec![1.; 24]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            rhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+        }
+
+        #[test]
+        fn backward_left_rows() {
+            let lhs = new_backward_input((4, 3), vec![0.; 12]);
+            let node = StackBackwardLeft::new(lhs.clone(), new_input((4, 3), vec![0.; 12]), 0);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((2, 4, 3), vec![1.; 24]);
@@ -5678,19 +7821,43 @@ mod tests {
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             lhs.set_overwrite(true);
-            node.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
         }
 
         #[test]
-        fn backward_right() {
-            let lhs = new_input((4, 3), vec![0.; 12]);
-            let rhs = new_backward_input((4, 3), vec![0.; 12]);
+        fn backward_left_columns() {
+            let lhs = new_backward_input((4, 3), vec![0.; 12]);
+            let node = StackBackwardLeft::new(lhs.clone(), new_input((4, 3), vec![0.; 12]), 1);
 
-            let node = StackBackwardRight::new(lhs, rhs.clone(), 0);
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((4, 2, 3), vec![1.; 24]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((4, 2, 3), vec![1.; 24]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            lhs.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*lhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+        }
+
+        #[test]
+        fn backward_right_rows() {
+            let rhs = new_backward_input((4, 3), vec![0.; 12]);
+            let node = StackBackwardRight::new(new_input((4, 3), vec![0.; 12]), rhs.clone(), 0);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             *node.gradient_mut() = new_tensor((2, 4, 3), vec![1.; 24]);
@@ -5700,9 +7867,35 @@ mod tests {
             node.backward();
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             rhs.set_overwrite(true);
-            node.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+        }
+
+        #[test]
+        fn backward_right_columns() {
+            let rhs = new_backward_input((4, 3), vec![0.; 12]);
+            let node = StackBackwardRight::new(new_input((4, 3), vec![0.; 12]), rhs.clone(), 1);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((4, 2, 3), vec![1.; 24]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((4, 2, 3), vec![1.; 24]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![2.; 12]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            rhs.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
         }
