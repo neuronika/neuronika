@@ -65,6 +65,50 @@ impl OptimParameters {
     }
 }
 
+macro_rules! make_optimizer {
+    ($name:ident, $param:ident) => {
+        #[allow(clippy::clippy::upper_case_acronyms)]
+        pub struct $name {
+            params: OptimParameters,
+        }
+
+        impl $name {
+            pub fn new<T: Penalty + 'static>(
+                params: &Parameters,
+                learning_rate: f32,
+                penalty: T,
+            ) -> Self {
+                Self {
+                    params: OptimParameters::new::<
+                        T,
+                        $param<Ix1, T>,
+                        $param<Ix2, T>,
+                        $param<Ix3, T>,
+                        $param<Ix4, T>,
+                        $param<Ix5, T>,
+                        $param<Ix6, T>,
+                        $param<IxDyn, T>,
+                    >(params, penalty, learning_rate),
+                }
+            }
+        }
+
+        impl Optimizer for $name {
+            fn step(&self) {
+                for p in &self.params.params {
+                    p.update()
+                }
+            }
+
+            fn zero_grad(&self) {
+                for p in &self.params.params {
+                    p.zero_grad()
+                }
+            }
+        }
+    };
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -155,38 +199,4 @@ impl<D: Dimension + 'static, T: Penalty + 'static> FromParam<D, T> for SGDParam<
     }
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
-pub struct SGD {
-    params: OptimParameters,
-}
-
-impl SGD {
-    pub fn new<T: Penalty + 'static>(params: &Parameters, learning_rate: f32, penalty: T) -> Self {
-        Self {
-            params: OptimParameters::new::<
-                T,
-                SGDParam<Ix1, T>,
-                SGDParam<Ix2, T>,
-                SGDParam<Ix3, T>,
-                SGDParam<Ix4, T>,
-                SGDParam<Ix5, T>,
-                SGDParam<Ix6, T>,
-                SGDParam<IxDyn, T>,
-            >(params, penalty, learning_rate),
-        }
-    }
-}
-
-impl Optimizer for SGD {
-    fn step(&self) {
-        for p in &self.params.params {
-            p.update()
-        }
-    }
-
-    fn zero_grad(&self) {
-        for p in &self.params.params {
-            p.zero_grad()
-        }
-    }
-}
+make_optimizer!(SDG, SGDParam);
