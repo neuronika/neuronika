@@ -45,11 +45,13 @@ where
     Rhs: Dimension,
 {
     type Output: Dimension;
+
     fn shape(lhs: Self, rhs: Rhs) -> <Self as DotDim<Rhs>>::Output;
 }
 
 impl DotDim<Ix1> for Ix1 {
     type Output = Ix1;
+
     fn shape(_: Self, _: Ix1) -> <Self as DotDim<Ix1>>::Output {
         let mut res_shape = Ix1::zeros(1);
         res_shape[0] = 1;
@@ -59,6 +61,7 @@ impl DotDim<Ix1> for Ix1 {
 
 impl DotDim<Ix2> for Ix1 {
     type Output = Ix1;
+
     fn shape(_: Self, rhs: Ix2) -> <Self as DotDim<Ix1>>::Output {
         let mut res_shape = Ix1::zeros(1);
         res_shape[0] = rhs.last_elem();
@@ -68,6 +71,7 @@ impl DotDim<Ix2> for Ix1 {
 
 impl DotDim<Ix1> for Ix2 {
     type Output = Ix1;
+
     fn shape(lhs: Self, _: Ix1) -> <Self as DotDim<Ix1>>::Output {
         let mut res_shape = Ix1::zeros(1);
         res_shape[0] = lhs[0];
@@ -77,6 +81,7 @@ impl DotDim<Ix1> for Ix2 {
 
 impl DotDim<Ix2> for Ix2 {
     type Output = Ix2;
+
     fn shape(lhs: Self, rhs: Ix2) -> <Self as DotDim<Ix2>>::Output {
         let mut res_shape = Ix2::zeros(2);
         res_shape[0] = lhs[0];
