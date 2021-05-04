@@ -6,7 +6,7 @@ use std::{
     rc::Rc,
 };
 
-use super::node::Gradient;
+use super::node::{Data, Gradient};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ParamDim Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -81,6 +81,10 @@ where
         self.input_diff.zero_grad();
     }
 
+    pub(crate) fn data(&self) -> Ref<Tensor<D>> {
+        self.input.data()
+    }
+
     pub(crate) fn data_mut(&self) -> RefMut<Tensor<D>> {
         self.input.data_mut()
     }
@@ -91,6 +95,10 @@ where
 
     pub(crate) fn as_ptr(&self) -> *const InputBackward<D> {
         std::rc::Rc::as_ptr(&self.input_diff)
+    }
+
+    pub fn get(self) -> (Rc<Input<D>>, Rc<InputBackward<D>>) {
+        (self.input, self.input_diff)
     }
 }
 
@@ -187,6 +195,28 @@ impl Parameters {
 
     pub(crate) fn get_dynd(&self) -> &[Param<IxDyn>] {
         &self.dynd
+    }
+
+    pub(crate) fn get(
+        self,
+    ) -> (
+        Vec<Param<Ix1>>,
+        Vec<Param<Ix2>>,
+        Vec<Param<Ix3>>,
+        Vec<Param<Ix4>>,
+        Vec<Param<Ix5>>,
+        Vec<Param<Ix6>>,
+        Vec<Param<IxDyn>>,
+    ) {
+        (
+            self.oned,
+            self.twod,
+            self.threed,
+            self.fourd,
+            self.fived,
+            self.sixd,
+            self.dynd,
+        )
     }
 }
 
