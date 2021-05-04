@@ -11,7 +11,6 @@ use super::node::{Data, Gradient};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ParamDim Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 pub trait ParamDim: Dimension + 'static {
     fn insert(item: Param<Self>, dest: &mut Parameters);
 }
@@ -77,19 +76,16 @@ where
     pub(crate) fn new(input: Rc<Input<D>>, input_diff: Rc<InputBackward<D>>) -> Self {
         Self { input, input_diff }
     }
-    pub(crate) fn zero_grad(&self) {
-        self.input_diff.zero_grad();
-    }
 
-    pub(crate) fn data(&self) -> Ref<Tensor<D>> {
+    pub fn data(&self) -> Ref<Tensor<D>> {
         self.input.data()
     }
 
-    pub(crate) fn data_mut(&self) -> RefMut<Tensor<D>> {
+    pub fn data_mut(&self) -> RefMut<Tensor<D>> {
         self.input.data_mut()
     }
 
-    pub(crate) fn grad(&self) -> Ref<Tensor<D>> {
+    pub fn grad(&self) -> Ref<Tensor<D>> {
         self.input_diff.gradient()
     }
 
@@ -167,34 +163,6 @@ impl Parameters {
             && self.fived.is_empty()
             && self.sixd.is_empty()
             && self.dynd.is_empty()
-    }
-
-    pub(crate) fn get_oned(&self) -> &[Param<Ix1>] {
-        &self.oned
-    }
-
-    pub(crate) fn get_twod(&self) -> &[Param<Ix2>] {
-        &self.twod
-    }
-
-    pub(crate) fn get_threed(&self) -> &[Param<Ix3>] {
-        &self.threed
-    }
-
-    pub(crate) fn get_fourd(&self) -> &[Param<Ix4>] {
-        &self.fourd
-    }
-
-    pub(crate) fn get_fived(&self) -> &[Param<Ix5>] {
-        &self.fived
-    }
-
-    pub(crate) fn get_sixd(&self) -> &[Param<Ix6>] {
-        &self.sixd
-    }
-
-    pub(crate) fn get_dynd(&self) -> &[Param<IxDyn>] {
-        &self.dynd
     }
 
     pub(crate) fn get(

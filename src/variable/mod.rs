@@ -536,36 +536,6 @@ where
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.forward.data()
     }
-
-    pub fn zero_gradient(&mut self) {
-        for param in self.parameters.get_oned() {
-            param.zero_grad();
-        }
-
-        for param in self.parameters.get_twod() {
-            param.zero_grad();
-        }
-
-        for param in self.parameters.get_threed() {
-            param.zero_grad();
-        }
-
-        for param in self.parameters.get_fourd() {
-            param.zero_grad();
-        }
-
-        for param in self.parameters.get_fived() {
-            param.zero_grad();
-        }
-
-        for param in self.parameters.get_sixd() {
-            param.zero_grad();
-        }
-
-        for param in self.parameters.get_dynd() {
-            param.zero_grad();
-        }
-    }
 }
 
 impl<T, U> VarDiff<T, U>
