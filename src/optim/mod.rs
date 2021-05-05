@@ -1,98 +1,39 @@
-use super::variable::parameters::{Param, Parameters};
-use crate::{variable::node::Gradient, Input, InputBackward};
-use ndarray::{Dimension, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn};
-use std::rc::Rc;
+use crate::variable::Param;
+pub use adam::{Adam, AdamParam};
+pub use sgd::{SGDParam, SGDParamWithMomentum, SGDWithMomentum, SGD};
 
-pub trait FromParam<D: Dimension, T: Penalty> {
-    fn from_param(parameter: Param<D>, learning_rate: f32, penalty: T) -> Box<dyn OptimParam>;
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Optimizer Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub trait Optimizer<T: From<Param>> {
+    fn step(&mut self);
+    fn zero_grad(&mut self);
 }
-pub trait OptimParam {
-    fn update(&self);
-    fn zero_grad(&self);
-}
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Optimizer Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub trait Optimizer {
-    fn step(&self);
-    fn zero_grad(&self);
-}
-
-pub struct OptimParameters {
-    params: Vec<Box<dyn OptimParam>>,
-}
-
-impl OptimParameters {
-    fn new<
-        T: Penalty,
-        A: FromParam<Ix1, T>,
-        B: FromParam<Ix2, T>,
-        C: FromParam<Ix3, T>,
-        D: FromParam<Ix4, T>,
-        E: FromParam<Ix5, T>,
-        F: FromParam<Ix6, T>,
-        G: FromParam<IxDyn, T>,
-    >(
-        parameters: &Parameters,
-        penalty: T,
-        lr: f32,
-    ) -> Self {
-        let (p_oned, p_twod, p_threed, p_fourd, p_fived, p_sixd, p_dynd) = parameters.clone().get();
-        let mut params: Vec<Box<dyn OptimParam>> = Vec::with_capacity(parameters.len());
-
-        for param in p_oned {
-            params.push(A::from_param(param, lr, penalty.clone()));
-        }
-        for param in p_twod {
-            params.push(B::from_param(param, lr, penalty.clone()));
-        }
-        for param in p_threed {
-            params.push(C::from_param(param, lr, penalty.clone()));
-        }
-        for param in p_fourd {
-            params.push(D::from_param(param, lr, penalty.clone()));
-        }
-        for param in p_fived {
-            params.push(E::from_param(param, lr, penalty.clone()));
-        }
-        for param in p_sixd {
-            params.push(F::from_param(param, lr, penalty.clone()));
-        }
-        for param in p_dynd {
-            params.push(G::from_param(param, lr, penalty.clone()));
-        }
-        Self { params }
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub trait Penalty: Clone {
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub trait Penalty: Send + Sync {
     fn penalise(&self, w: &f32) -> f32;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularizations Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[derive(Clone)]
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularizations Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct L2 {
     lambda: f32,
 }
-#[derive(Clone)]
 pub struct L1 {
     lambda: f32,
 }
 
-#[derive(Clone)]
 pub struct ElasticNet {
     lambda_l1: f32,
     lambda_l2: f32,
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl Penalty for L2 {
     fn penalise(&self, w: &f32) -> f32 {
         2. * self.lambda * w
@@ -119,74 +60,5 @@ impl Penalty for ElasticNet {
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct SGDParam<D: Dimension, T: Penalty> {
-    input: Rc<Input<D>>,
-    input_diff: Rc<InputBackward<D>>,
-    penalty: T,
-    learning_rate: f32,
-}
-
-impl<D: Dimension, T: Penalty> OptimParam for SGDParam<D, T> {
-    fn update(&self) {
-        let (mut data, grad) = (self.input.data_mut(), self.input_diff.gradient());
-        let (lr, penalty) = (&self.learning_rate, &self.penalty);
-        ndarray::Zip::from(&mut *data)
-            .and(&*grad)
-            .for_each(|data_el, grad_el| *data_el = -grad_el * *lr + penalty.penalise(grad_el));
-    }
-
-    fn zero_grad(&self) {
-        self.input_diff.zero_grad()
-    }
-}
-
-impl<D: Dimension + 'static, T: Penalty + 'static> FromParam<D, T> for SGDParam<D, T> {
-    fn from_param(parameter: Param<D>, lr: f32, penalty: T) -> Box<dyn OptimParam> {
-        let (input, input_diff) = parameter.get();
-        Box::new(Self {
-            input,
-            input_diff,
-            learning_rate: lr,
-            penalty,
-        })
-    }
-}
-
-#[allow(clippy::clippy::upper_case_acronyms)]
-pub struct SGD {
-    params: OptimParameters,
-}
-
-impl SGD {
-    pub fn new<T: Penalty + 'static>(params: &Parameters, learning_rate: f32, penalty: T) -> Self {
-        Self {
-            params: OptimParameters::new::<
-                T,
-                SGDParam<Ix1, T>,
-                SGDParam<Ix2, T>,
-                SGDParam<Ix3, T>,
-                SGDParam<Ix4, T>,
-                SGDParam<Ix5, T>,
-                SGDParam<Ix6, T>,
-                SGDParam<IxDyn, T>,
-            >(params, penalty, learning_rate),
-        }
-    }
-}
-
-impl Optimizer for SGD {
-    fn step(&self) {
-        for p in &self.params.params {
-            p.update()
-        }
-    }
-
-    fn zero_grad(&self) {
-        for p in &self.params.params {
-            p.zero_grad()
-        }
-    }
-}
+pub mod adam;
+pub mod sgd;

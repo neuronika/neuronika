@@ -1,7 +1,7 @@
-pub mod node;
-pub mod parameters;
-
-use ndarray::{Array, ArrayD, DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
+use ndarray::{
+    Array, ArrayD, ArrayViewMutD, DimMax, Dimension, IntoDimension, Ix, Ix1, Ix2, RawArrayViewMut,
+    RemoveAxis,
+};
 use node::{
     backward::{Backward, Differentiable, Gradient, Overwrite},
     forward::{Data, Forward},
@@ -22,13 +22,15 @@ use node::{
     VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight, VectorVectorMul,
     VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
-use parameters::{merge_parameters, Param, ParamDim, Parameters};
 use std::{
     cell::{Ref, RefMut},
     collections::BTreeMap,
+    collections::HashSet,
     ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
+
+pub mod node;
 
 pub use node::{Input, InputBackward};
 
@@ -51,6 +53,32 @@ impl OperationsCounter {
     pub fn next(&mut self) -> usize {
         self.count += 1;
         self.count
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Param Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Param {
+    data: *mut f32,
+    grad: *mut f32,
+    shape: Vec<Ix>,
+}
+
+impl Param {
+    pub(crate) fn new(data: *mut f32, grad: *mut f32, shape: Vec<Ix>) -> Self {
+        Self { data, grad, shape }
+    }
+
+    pub fn get<'a>(self) -> (ArrayViewMutD<'a, f32>, ArrayViewMutD<'a, f32>) {
+        unsafe {
+            (
+                RawArrayViewMut::from_shape_ptr(self.shape.clone(), self.data)
+                    .deref_into_view_mut(),
+                RawArrayViewMut::from_shape_ptr(self.shape, self.grad).deref_into_view_mut(),
+            )
+        }
     }
 }
 
@@ -123,7 +151,7 @@ where
     T: Data + 'static,
 {
     pub(crate) id: usize,
-    pub(crate) last: Rc<T>,
+    pub(crate) node: Rc<T>,
     pub(crate) path: BTreeMap<usize, Rc<dyn Forward>>,
     pub(crate) buffer: Vec<Rc<dyn Forward>>,
 }
@@ -135,7 +163,7 @@ where
     fn clone(&self) -> Self {
         Self {
             id: self.id,
-            last: self.last.clone(),
+            node: self.node.clone(),
             path: self.path.clone(),
             buffer: self.buffer.clone(),
         }
@@ -144,25 +172,29 @@ where
 
 impl<D> Var<Input<D>>
 where
-    D: ParamDim,
+    D: Dimension,
 {
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
         debug_assert_eq!(self.path.is_empty(), true);
         debug_assert_eq!(self.buffer.is_empty(), true);
 
-        if Rc::strong_count(&self.last) > 2 {
+        if Rc::strong_count(&self.node) > 2 {
             panic!("error: cannot make the Input differentiable.")
         }
-        let backward = Rc::new(self.last.differentiable());
-        let mut parameters = Parameters::default();
-        D::insert(
-            Param::new(self.last.clone(), backward.clone()),
-            &mut parameters,
-        );
+        let backward = Rc::new(self.node.differentiable());
+        let mut parameters = HashSet::new();
+        {
+            let (mut data, mut gradient) = (self.node.data_mut(), backward.gradient_mut());
+            parameters.insert(Param::new(
+                data.as_mut_ptr(),
+                gradient.as_mut_ptr(),
+                gradient.shape().to_vec(),
+            ));
+        }
 
         VarDiff {
             id: usize::MAX,
-            forward: self.last,
+            forward: self.node,
             backward,
             forward_path: self.path,
             backward_path: BTreeMap::new(),
@@ -205,24 +237,24 @@ impl<T: Data + 'static> Var<T> {
     pub(crate) fn new(node: T) -> Self {
         Self {
             id: usize::MAX,
-            last: Rc::new(node),
+            node: Rc::new(node),
             path: BTreeMap::new(),
             buffer: Vec::new(),
         }
     }
 
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
-        self.last.data()
+        self.node.data()
     }
 
     pub fn sum(mut self) -> Var<Sum<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Sum::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Sum::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -230,12 +262,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn pow(mut self, exp: i32) -> Var<Power<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Power::new(self.last, exp));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Power::new(self.node, exp));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -243,12 +275,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn relu(mut self) -> Var<ReLU<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(ReLU::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(ReLU::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -256,12 +288,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn leaky_relu(mut self) -> Var<LeakyReLU<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(LeakyReLU::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(LeakyReLU::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -269,12 +301,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn softplus(mut self) -> Var<SoftPlus<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(SoftPlus::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(SoftPlus::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -282,12 +314,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn sigmoid(mut self) -> Var<Sigmoid<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Sigmoid::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Sigmoid::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -295,12 +327,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn tanh(mut self) -> Var<TanH<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(TanH::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(TanH::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -308,12 +340,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn ln(mut self) -> Var<Logn<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Logn::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Logn::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -321,12 +353,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn exp(mut self) -> Var<Exp<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Exp::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Exp::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -334,12 +366,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn softmax(mut self, axis: usize) -> Var<Softmax<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Softmax::new(self.last, axis));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Softmax::new(self.node, axis));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -347,12 +379,12 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn log_softmax(mut self, axis: usize) -> Var<LogSoftmax<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(LogSoftmax::new(self.last, axis));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(LogSoftmax::new(self.node, axis));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -360,35 +392,35 @@ impl<T: Data + 'static> Var<T> {
 
     pub fn t(mut self) -> Var<Transpose<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Transpose::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Transpose::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
     }
 
     pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
-        let last = self.last;
+        let node = self.node;
         let path = self.path;
-        let data = last.data();
+        let data = node.data();
         let chunks = data.exact_chunks(chunk_size).into_iter().enumerate();
         chunks
             .map(|(i, chunk)| {
-                let (id, last) = (
+                let (id, node) = (
                     unsafe { OPERATIONS_COUNTER.next() },
-                    Rc::new(Chunk::new(last.clone(), chunk.to_owned(), i)),
+                    Rc::new(Chunk::new(node.clone(), chunk.to_owned(), i)),
                 );
 
                 let mut new_forward_path = path.clone();
-                new_forward_path.insert(id, last.clone() as Rc<dyn Forward>);
+                new_forward_path.insert(id, node.clone() as Rc<dyn Forward>);
 
                 Var {
                     id,
-                    last,
+                    node,
                     path: new_forward_path,
                     buffer: Vec::new(),
                 }
@@ -404,12 +436,12 @@ where
 {
     pub fn unsqueeze(mut self, axis: usize) -> Var<Unsqueeze<T>> {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Unsqueeze::new(self.last, axis));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Unsqueeze::new(self.node, axis));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -430,7 +462,7 @@ where
     pub(crate) backward_path: BTreeMap<usize, Rc<dyn Backward>>,
     pub(crate) forward_buffer: Vec<Rc<dyn Forward>>,
     pub(crate) backward_buffer: Vec<Rc<dyn Backward>>,
-    pub(crate) parameters: Parameters,
+    pub(crate) parameters: HashSet<Param>,
 }
 
 impl<T, U> Clone for VarDiff<T, U>
@@ -454,7 +486,7 @@ where
 
 impl<D> VarDiff<Input<D>, InputBackward<D>>
 where
-    D: ParamDim,
+    D: Dimension,
 {
     pub fn grad(&self) -> Ref<Tensor<D>> {
         self.backward.gradient()
@@ -543,8 +575,8 @@ where
     T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
 {
-    pub fn parameters(&self) -> &Parameters {
-        &self.parameters
+    pub fn parameters(&self) -> Vec<Param> {
+        self.parameters.iter().cloned().collect()
     }
 
     pub fn sum(mut self) -> VarDiff<Sum<T>, SumBackward<U>> {
@@ -907,12 +939,12 @@ impl<T: Data + 'static> Neg for Var<T> {
 
     fn neg(mut self) -> Self::Output {
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Negation::new(self.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Negation::new(self.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -962,12 +994,12 @@ where
         self.path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Addition::new(self.last, rhs.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Addition::new(self.node, rhs.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Self::Output {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -988,8 +1020,8 @@ where
         rhs.forward_path.append(&mut self.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Addition::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(AdditionBackwardUnary::new(rhs.backward, self.last));
+        let forward = Rc::new(Addition::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(AdditionBackwardUnary::new(rhs.backward, self.node));
         rhs.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
@@ -1022,7 +1054,7 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let rhs_forward = rhs.last;
+        let rhs_forward = rhs.node;
 
         let (id, forward, backward) = (
             unsafe { OPERATIONS_COUNTER.next() },
@@ -1083,7 +1115,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, rhs.parameters),
+            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
         }
     }
 }
@@ -1102,12 +1134,12 @@ where
         self.path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Subtraction::new(self.last, rhs.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Subtraction::new(self.node, rhs.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Self::Output {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -1128,8 +1160,8 @@ where
         rhs.forward_path.append(&mut self.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Subtraction::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(SubtractionBackwardRight::new(rhs.backward, self.last));
+        let forward = Rc::new(Subtraction::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(SubtractionBackwardRight::new(rhs.backward, self.node));
         rhs.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
@@ -1162,8 +1194,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Subtraction::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(SubtractionBackwardLeft::new(self.backward, rhs.last));
+        let forward = Rc::new(Subtraction::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(SubtractionBackwardLeft::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -1218,7 +1250,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, rhs.parameters),
+            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
         }
     }
 }
@@ -1237,12 +1269,12 @@ where
         self.path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Multiplication::new(self.last, rhs.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Multiplication::new(self.node, rhs.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Self::Output {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -1263,8 +1295,8 @@ where
         rhs.forward_path.append(&mut self.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Multiplication::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(MultiplicationBackwardUnary::new(rhs.backward, self.last));
+        let forward = Rc::new(Multiplication::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(MultiplicationBackwardUnary::new(rhs.backward, self.node));
         rhs.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
@@ -1297,8 +1329,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Multiplication::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(MultiplicationBackwardUnary::new(self.backward, rhs.last));
+        let forward = Rc::new(Multiplication::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(MultiplicationBackwardUnary::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -1361,7 +1393,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, rhs.parameters),
+            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
         }
     }
 }
@@ -1380,12 +1412,12 @@ where
         self.path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Division::new(self.last, rhs.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Division::new(self.node, rhs.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Self::Output {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -1406,9 +1438,9 @@ where
         rhs.forward_path.append(&mut self.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Division::new(self.last.clone(), rhs.forward.clone()));
+        let forward = Rc::new(Division::new(self.node.clone(), rhs.forward.clone()));
         let backward = Rc::new(DivisionBackwardRight::new(
-            self.last,
+            self.node,
             rhs.forward,
             rhs.backward,
         ));
@@ -1444,8 +1476,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Division::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(DivisionBackwardLeft::new(self.backward, rhs.last));
+        let forward = Rc::new(Division::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(DivisionBackwardLeft::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -1505,7 +1537,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, rhs.parameters),
+            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
         }
     }
 }
@@ -1557,7 +1589,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, other.parameters),
+            parameters: self.parameters.union(&other.parameters).cloned().collect(),
         }
     }
 }
@@ -1574,8 +1606,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMul::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(MatrixMatrixMulBackwardLeft::new(self.backward, rhs.last));
+        let forward = Rc::new(MatrixMatrixMul::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(MatrixMatrixMulBackwardLeft::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -1606,8 +1638,8 @@ where
         self.path.append(&mut rhs.forward_path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMul::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(MatrixMatrixMulBackwardRight::new(self.last, rhs.backward));
+        let forward = Rc::new(MatrixMatrixMul::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(MatrixMatrixMulBackwardRight::new(self.node, rhs.backward));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
             .insert(id, backward.clone() as Rc<dyn Backward>);
@@ -1635,12 +1667,12 @@ where
         self.path.append(&mut other.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(MatrixMatrixMul::new(self.last, other.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(MatrixMatrixMul::new(self.node, other.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -1691,7 +1723,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, other.parameters),
+            parameters: self.parameters.union(&other.parameters).cloned().collect(),
         }
     }
 }
@@ -1708,8 +1740,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMulT::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(MatrixMatrixMulTBackwardLeft::new(self.backward, rhs.last));
+        let forward = Rc::new(MatrixMatrixMulT::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(MatrixMatrixMulTBackwardLeft::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -1740,8 +1772,8 @@ where
         self.path.append(&mut rhs.forward_path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMulT::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(MatrixMatrixMulTBackwardRight::new(self.last, rhs.backward));
+        let forward = Rc::new(MatrixMatrixMulT::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(MatrixMatrixMulTBackwardRight::new(self.node, rhs.backward));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
             .insert(id, backward.clone() as Rc<dyn Backward>);
@@ -1769,12 +1801,12 @@ where
         self.path.append(&mut other.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(MatrixMatrixMulT::new(self.last, other.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(MatrixMatrixMulT::new(self.node, other.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -1825,7 +1857,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, other.parameters),
+            parameters: self.parameters.union(&other.parameters).cloned().collect(),
         }
     }
 }
@@ -1841,8 +1873,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixVectorMul::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(MatrixVectorMulBackwardLeft::new(self.backward, rhs.last));
+        let forward = Rc::new(MatrixVectorMul::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(MatrixVectorMulBackwardLeft::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -1873,8 +1905,8 @@ where
         self.path.append(&mut rhs.forward_path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixVectorMul::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(MatrixVectorMulBackwardRight::new(self.last, rhs.backward));
+        let forward = Rc::new(MatrixVectorMul::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(MatrixVectorMulBackwardRight::new(self.node, rhs.backward));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
             .insert(id, backward.clone() as Rc<dyn Backward>);
@@ -1902,12 +1934,12 @@ where
         self.path.append(&mut other.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(MatrixVectorMul::new(self.last, other.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(MatrixVectorMul::new(self.node, other.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -1957,7 +1989,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, other.parameters),
+            parameters: self.parameters.union(&other.parameters).cloned().collect(),
         }
     }
 }
@@ -1973,8 +2005,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorMatrixMul::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(VectorMatrixMulBackwardLeft::new(self.backward, rhs.last));
+        let forward = Rc::new(VectorMatrixMul::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(VectorMatrixMulBackwardLeft::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -2005,8 +2037,8 @@ where
         self.path.append(&mut rhs.forward_path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorMatrixMul::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(VectorMatrixMulBackwardRight::new(self.last, rhs.backward));
+        let forward = Rc::new(VectorMatrixMul::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(VectorMatrixMulBackwardRight::new(self.node, rhs.backward));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
             .insert(id, backward.clone() as Rc<dyn Backward>);
@@ -2034,12 +2066,12 @@ where
         self.path.append(&mut other.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(VectorMatrixMul::new(self.last, other.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(VectorMatrixMul::new(self.node, other.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -2088,7 +2120,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, other.parameters),
+            parameters: self.parameters.union(&other.parameters).cloned().collect(),
         }
     }
 }
@@ -2104,8 +2136,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorVectorMul::new(self.forward, rhs.last.clone()));
-        let backward = Rc::new(VectorVectorMulBackwardUnary::new(self.backward, rhs.last));
+        let forward = Rc::new(VectorVectorMul::new(self.forward, rhs.node.clone()));
+        let backward = Rc::new(VectorVectorMulBackwardUnary::new(self.backward, rhs.node));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -2136,8 +2168,8 @@ where
         self.path.append(&mut rhs.forward_path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorVectorMul::new(self.last.clone(), rhs.forward));
-        let backward = Rc::new(VectorVectorMulBackwardUnary::new(rhs.backward, self.last));
+        let forward = Rc::new(VectorVectorMul::new(self.node.clone(), rhs.forward));
+        let backward = Rc::new(VectorVectorMulBackwardUnary::new(rhs.backward, self.node));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
             .insert(id, backward.clone() as Rc<dyn Backward>);
@@ -2166,12 +2198,12 @@ where
         self.path.append(&mut other.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(VectorVectorMul::new(self.last, other.last));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(VectorVectorMul::new(self.node, other.node));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -2219,7 +2251,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, other.parameters),
+            parameters: self.parameters.union(&other.parameters).cloned().collect(),
         }
     }
 }
@@ -2237,8 +2269,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Concatenate::new(self.forward, rhs.last.clone(), axis));
-        let backward = Rc::new(ConcatenateBackwardLeft::new(self.backward, rhs.last, axis));
+        let forward = Rc::new(Concatenate::new(self.forward, rhs.node.clone(), axis));
+        let backward = Rc::new(ConcatenateBackwardLeft::new(self.backward, rhs.node, axis));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -2270,8 +2302,8 @@ where
         self.path.append(&mut rhs.forward_path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Concatenate::new(self.last.clone(), rhs.forward, axis));
-        let backward = Rc::new(ConcatenateBackwardRight::new(self.last, rhs.backward, axis));
+        let forward = Rc::new(Concatenate::new(self.node.clone(), rhs.forward, axis));
+        let backward = Rc::new(ConcatenateBackwardRight::new(self.node, rhs.backward, axis));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
             .insert(id, backward.clone() as Rc<dyn Backward>);
@@ -2300,12 +2332,12 @@ where
         self.path.append(&mut other.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(Concatenate::new(self.last, other.last, axis));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(Concatenate::new(self.node, other.node, axis));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
@@ -2349,7 +2381,7 @@ where
             backward_path: self.backward_path,
             forward_buffer: Vec::new(),
             backward_buffer: Vec::new(),
-            parameters: merge_parameters(self.parameters, other.parameters),
+            parameters: self.parameters.union(&other.parameters).cloned().collect(),
         }
     }
 }
@@ -2367,8 +2399,8 @@ where
         self.forward_path.append(&mut rhs.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(StackF::new(self.forward, rhs.last.clone(), axis));
-        let backward = Rc::new(StackBackwardLeft::new(self.backward, rhs.last, axis));
+        let forward = Rc::new(StackF::new(self.forward, rhs.node.clone(), axis));
+        let backward = Rc::new(StackBackwardLeft::new(self.backward, rhs.node, axis));
         self.forward_path
             .insert(id, forward.clone() as Rc<dyn Forward>);
         self.backward_path
@@ -2400,8 +2432,8 @@ where
         self.path.append(&mut rhs.forward_path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(StackF::new(self.last.clone(), rhs.forward, axis));
-        let backward = Rc::new(StackBackwardRight::new(self.last, rhs.backward, axis));
+        let forward = Rc::new(StackF::new(self.node.clone(), rhs.forward, axis));
+        let backward = Rc::new(StackBackwardRight::new(self.node, rhs.backward, axis));
         self.path.insert(id, forward.clone() as Rc<dyn Forward>);
         rhs.backward_path
             .insert(id, backward.clone() as Rc<dyn Backward>);
@@ -2431,12 +2463,12 @@ where
         self.path.append(&mut other.path);
 
         let id = unsafe { OPERATIONS_COUNTER.next() };
-        let last = Rc::new(StackF::new(self.last, other.last, axis));
-        self.path.insert(id, last.clone() as Rc<dyn Forward>);
+        let node = Rc::new(StackF::new(self.node, other.node, axis));
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
         Var {
             id,
-            last,
+            node,
             path: self.path,
             buffer: Vec::new(),
         }
