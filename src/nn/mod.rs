@@ -10,8 +10,8 @@ use ndarray::{Ix1, Ix2};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub mod init {
-    use super::super::{variable::parameters::ParamDim, variable::VarDiff, Input, InputBackward};
-    use ndarray::{Axis, Ix2};
+    use super::super::{variable::VarDiff, Input, InputBackward};
+    use ndarray::{Axis, Dimension, Ix2};
     use rand::thread_rng;
     use rand_distr::{Distribution, Normal, Uniform};
 
@@ -30,7 +30,7 @@ pub mod init {
     /// inputs and outputs to an hidden unit of the layer.
     /// For CNNs however, the number of input feature maps and
     /// the size of the receptive field must be taken into account .
-    fn calculate_fan_in_fan_out<D: ParamDim>(
+    fn calculate_fan_in_fan_out<D: Dimension>(
         param: &VarDiff<Input<D>, InputBackward<D>>,
     ) -> (f32, f32) {
         let data = param.data();
@@ -55,17 +55,17 @@ pub mod init {
     }
 
     /// Fills the input with `value`.
-    pub fn constant<D: ParamDim>(param: &mut VarDiff<Input<D>, InputBackward<D>>, value: f32) {
+    pub fn constant<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, value: f32) {
         param.data_mut().map_inplace(|el| *el = value);
     }
 
     /// Fills the input with `0.0`.
-    pub fn zeros<D: ParamDim>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
+    pub fn zeros<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 0.);
     }
 
     /// Fills the input with `1.0`.
-    pub fn ones<D: ParamDim>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
+    pub fn ones<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 1.0);
     }
 
@@ -84,7 +84,7 @@ pub mod init {
 
     /// Fills the input with elements drawn from
     /// the uniform distribution U(low, high).
-    pub fn uniform<D: ParamDim>(
+    pub fn uniform<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         low: f32,
         high: f32,
@@ -98,7 +98,7 @@ pub mod init {
 
     /// Fills the input with elements drawn from
     /// the normal distribution N(mean, std^2).
-    pub fn normal<D: ParamDim>(
+    pub fn normal<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         mean: f32,
         std: f32,
@@ -114,7 +114,10 @@ pub mod init {
     /// described in Understanding the difficulty of training deep feedforward
     /// neural networks - Glorot, X. & Bengio, Y. (2010), using a uniform
     /// distribution.
-    pub fn xavier_uniform<D: ParamDim>(param: &mut VarDiff<Input<D>, InputBackward<D>>, gain: f32) {
+    pub fn xavier_uniform<D: Dimension>(
+        param: &mut VarDiff<Input<D>, InputBackward<D>>,
+        gain: f32,
+    ) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let a = 3.0_f32.sqrt() * std;
@@ -131,7 +134,7 @@ pub mod init {
     /// distribution.
     ///
     /// Also known as Glorot initialization.
-    pub fn xavier_normal<D: ParamDim>(param: &mut VarDiff<Input<D>, InputBackward<D>>, gain: f32) {
+    pub fn xavier_normal<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, gain: f32) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let norm_distr = Normal::new(0., std).unwrap();

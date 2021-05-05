@@ -1738,7 +1738,7 @@ mod tests {
         D: Dimension + 'static,
         Sh: Into<StrideShape<D>>,
     {
-        Input::new(new_tensor(shape, elems)).last
+        Input::new(new_tensor(shape, elems)).node
     }
 
     fn new_tensor<D, Sh>(shape: Sh, elems: Vec<f32>) -> Tensor<D>

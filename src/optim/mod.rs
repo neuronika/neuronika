@@ -1,16 +1,18 @@
-use super::variable::parameters::{Param, Parameters};
+use crate::variable::Param;
+pub use adam::{Adam, AdamParam};
+pub use sgd::{SGDParam, SGDParamWithMomentum, SGDWithMomentum, SGD};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Optimizer Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub trait Optimizer {
-    fn step(&self, parameters: &Parameters);
+pub trait Optimizer<T: From<Param>> {
+    fn step(&mut self);
+    fn zero_grad(&mut self);
 }
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub trait Penalty {
+pub trait Penalty: Send + Sync {
     fn penalise(&self, w: &f32) -> f32;
 }
 
@@ -58,67 +60,5 @@ impl Penalty for ElasticNet {
     }
 }
 
-// TODO: implement momentum
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[allow(clippy::clippy::upper_case_acronyms)]
-pub struct SGD<T>
-where
-    T: Penalty,
-{
-    learning_rate: f32,
-    penalty: T,
-    // momentum: f32
-}
-
-impl<T> SGD<T>
-where
-    T: Penalty,
-{
-    pub fn new(learning_rate: f32, penalty: T) -> Self {
-        Self {
-            learning_rate,
-            penalty,
-        }
-    }
-
-    fn weight_update<D: ndarray::Dimension>(&self, param: &Param<D>) {
-        let (mut data, grad) = (param.data_mut(), param.grad());
-        let (lr, penalty) = (&self.learning_rate, &self.penalty);
-        ndarray::Zip::from(&mut *data)
-            .and(&*grad)
-            .for_each(|data_el, grad_el| {
-                *data_el = -grad_el * lr + Penalty::penalise(penalty, grad_el)
-            });
-    }
-}
-
-impl<T> Optimizer for SGD<T>
-where
-    T: Penalty,
-{
-    fn step(&self, parameters: &Parameters) {
-        for parameter in parameters.get_oned() {
-            self.weight_update(parameter)
-        }
-        for parameter in parameters.get_twod() {
-            self.weight_update(parameter)
-        }
-        for parameter in parameters.get_threed() {
-            self.weight_update(parameter)
-        }
-        for parameter in parameters.get_fourd() {
-            self.weight_update(parameter)
-        }
-        for parameter in parameters.get_fived() {
-            self.weight_update(parameter)
-        }
-        for parameter in parameters.get_sixd() {
-            self.weight_update(parameter)
-        }
-        for parameter in parameters.get_dynd() {
-            self.weight_update(parameter)
-        }
-    }
-}
+pub mod adam;
+pub mod sgd;

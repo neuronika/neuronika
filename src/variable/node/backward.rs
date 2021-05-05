@@ -3968,7 +3968,7 @@ mod tests {
         D: Dimension + 'static,
         Sh: Into<StrideShape<D>>,
     {
-        Input::new(new_tensor(shape, elems)).last
+        Input::new(new_tensor(shape, elems)).node
     }
 
     fn new_backward_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<InputBackward<D>>
@@ -3976,7 +3976,7 @@ mod tests {
         D: Dimension + 'static,
         Sh: Into<StrideShape<D>>,
     {
-        Rc::new(Input::new(new_tensor(shape, elems)).last.differentiable())
+        Rc::new(Input::new(new_tensor(shape, elems)).node.differentiable())
     }
 
     fn new_tensor<D, Sh>(shape: Sh, elems: Vec<f32>) -> Tensor<D>
