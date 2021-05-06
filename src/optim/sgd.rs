@@ -6,7 +6,9 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 #[allow(clippy::clippy::upper_case_acronyms)]
+/// The **Stochastic Gradient Descent** optimizer.
 pub struct SGD<'a, T> {
     params: Vec<SGDParam<'a>>,
     lr: f32,
@@ -14,6 +16,7 @@ pub struct SGD<'a, T> {
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
+/// A parameter used by the **SDG** optimizer.
 pub struct SGDParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -32,7 +35,7 @@ impl<'a, T: Penalty> Optimizer<SGDParam<'a>> for SGD<'a, T> {
         params.par_iter_mut().for_each(|param| {
             let (data, grad) = (&mut param.data, &param.grad);
             Zip::from(data).and(grad).for_each(|data_el, grad_el| {
-                *data_el = -(grad_el + penalty.penalise(grad_el)) * lr
+                *data_el += -(grad_el + penalty.penalise(grad_el)) * lr
             });
         });
     }
@@ -46,6 +49,10 @@ impl<'a, T: Penalty> Optimizer<SGDParam<'a>> for SGD<'a, T> {
 }
 
 impl<'a, T: Penalty> SGD<'a, T> {
+    /// Creates a new **SGD** optmizer.
+    /// * `params` - `Vec` of parameters to optimize.
+    /// * `lr` - learning rate.
+    /// * `penalty` - penalty regularization.
     pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(parameters.len());
@@ -61,6 +68,13 @@ impl<'a, T: Penalty> SGD<'a, T> {
         }
     }
 
+    /// Transforms this **SGD** optimizer in the **momentum** version of the algorithm.
+    ///
+    /// Nesterov momentum is based on the formula from
+    /// [On the importance of initialization and momentum in deep learning](http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf).
+    /// * `momentum` - the momentum factor.
+    /// * `dampening` - the dampening factor for momentum.
+    /// * `nesterov` - enables **Nesterov** momentum.
     pub fn with_momentum(
         self,
         momentum: f32,
@@ -91,6 +105,7 @@ impl<'a, T: Penalty> SGD<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent with Momentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::clippy::upper_case_acronyms)]
+/// The momentum variant of the **Stochastic Gradient Descent** optimizer.
 pub struct SGDWithMomentum<'a, T> {
     params: Vec<SGDParamWithMomentum<'a>>,
     lr: f32,
@@ -101,6 +116,7 @@ pub struct SGDWithMomentum<'a, T> {
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
+/// A parameter used by the **SDG** with momentum optimizer.
 pub struct SGDParamWithMomentum<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -145,11 +161,11 @@ impl<'a, T: Penalty> Optimizer<SGDParamWithMomentum<'a>> for SGDWithMomentum<'a,
             if *nesterov {
                 zip.and(&param.grad)
                     .for_each(|data_el, buffer_el, grad_el| {
-                        *data_el =
+                        *data_el +=
                             -(grad_el + penalty.penalise(grad_el)) * lr + *buffer_el * *momentum
                     });
             } else {
-                zip.for_each(|data_el, buffer_el| *data_el = -*buffer_el * *lr);
+                zip.for_each(|data_el, buffer_el| *data_el += -*buffer_el * *lr);
             }
         });
     }
@@ -163,6 +179,16 @@ impl<'a, T: Penalty> Optimizer<SGDParamWithMomentum<'a>> for SGDWithMomentum<'a,
 }
 
 impl<'a, T: Penalty> SGDWithMomentum<'a, T> {
+    /// Creates a new **SGD** optmizer.
+    /// * `params` - `Vec` of parameters to optimize.
+    /// * `lr` - learning rate.
+    /// * `penalty` - penalty regularization.
+    /// * `momentum` - the momentum factor.
+    /// * `dampening` - the dampening factor for momentum.
+    /// * `nesterov` - enables **Nesterov** momentum.
+    ///
+    /// Nesterov momentum is based on the formula from
+    /// [On the importance of initialization and momentum in deep learning](http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf).
     pub fn new(
         parameters: Vec<Param>,
         lr: f32,

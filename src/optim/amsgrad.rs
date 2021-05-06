@@ -4,22 +4,21 @@ use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Adam ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AMSGrad ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// The **Adam** optimizer.
-///
-/// It has been proposed in
-/// [Adam: A Method for Stochastic Optimization](https://arxiv.org/abs/1412.6980).
-pub struct Adam<'a, T> {
-    params: Vec<AdamParam<'a>>,
+///  The **AMSGrad** variant of the **Adam** algorithm from the paper
+/// [On the Convergence of Adam and Beyond](https://openreview.net/forum?id=ryQu7f-RZ).
+#[allow(clippy::clippy::upper_case_acronyms)]
+pub struct AMSGrad<'a, T> {
+    params: Vec<AMSGradParam<'a>>,
     lr: f32,
     penalty: T,
     betas: (f32, f32),
     eps: f32,
 }
 
-impl<'a, T> Adam<'a, T> {
-    /// Creates a new **Adam** optimizer.
+impl<'a, T> AMSGrad<'a, T> {
+    /// Creates a new **AMSGrad** optimizer.
     ///
     /// * `params` - `Vec` of parameters to optimize.
     /// * `lr` - learning rate.
@@ -27,11 +26,11 @@ impl<'a, T> Adam<'a, T> {
     /// and its square. Good default is: **(0.9, 0.999)**.
     /// * `penalty` - penalty regularization.
     /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
-    pub fn new(params: Vec<Param>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
+    pub fn new(params: Vec<Param>, lr: f32, penalty: T, betas: (f32, f32), eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
             for param in params {
-                vec.push(AdamParam::from(param));
+                vec.push(AMSGradParam::from(param));
             }
             vec
         };
@@ -46,32 +45,41 @@ impl<'a, T> Adam<'a, T> {
     }
 }
 
-// A Parameter used by the **Adam** optimizer.
-pub struct AdamParam<'a> {
+// A parameter used by the **AMSGrad** optmizier.
+#[allow(clippy::clippy::upper_case_acronyms)]
+pub struct AMSGradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
     exp_avg: ArrayD<f32>,
     exp_avg_sq: ArrayD<f32>,
+    max_exp_avg_sq: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for AdamParam<'a> {
+impl<'a> From<Param> for AMSGradParam<'a> {
     fn from(param: Param) -> Self {
         let (data, grad) = param.get();
         let step = 0;
-        let (exp_avg, exp_avg_sq) =
-            { (ArrayD::zeros(grad.raw_dim()), ArrayD::zeros(grad.raw_dim())) };
+        let (exp_avg, exp_avg_sq, max_exp_avg_sq) = {
+            (
+                ArrayD::zeros(grad.raw_dim()),
+                ArrayD::zeros(grad.raw_dim()),
+                ArrayD::zeros(grad.raw_dim()),
+            )
+        };
+
         Self {
             data,
             grad,
             step,
             exp_avg,
             exp_avg_sq,
+            max_exp_avg_sq,
         }
     }
 }
 
-impl<'a, T: Penalty> Optimizer<AdamParam<'a>> for Adam<'a, T> {
+impl<'a, T: Penalty> Optimizer<AMSGradParam<'a>> for AMSGrad<'a, T> {
     fn step(&mut self) {
         let (lr, penalty, params, (beta1, beta2), eps) = (
             &self.lr,
@@ -82,12 +90,13 @@ impl<'a, T: Penalty> Optimizer<AdamParam<'a>> for Adam<'a, T> {
         );
 
         params.par_iter_mut().for_each(|param| {
-            let (data, grad, step, exp_avg, exp_avg_sq) = (
+            let (data, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq) = (
                 &mut param.data,
                 &param.grad,
                 &mut param.step,
                 &mut param.exp_avg,
                 &mut param.exp_avg_sq,
+                &mut param.max_exp_avg_sq,
             );
 
             *step += 1;
@@ -110,12 +119,18 @@ impl<'a, T: Penalty> Optimizer<AdamParam<'a>> for Adam<'a, T> {
                             * (1. - beta2)
                 });
 
+            Zip::from(max_exp_avg_sq).and(&param.exp_avg_sq).for_each(
+                |max_exp_avg_sq_el, exp_avg_sq_el| {
+                    *max_exp_avg_sq_el = max_exp_avg_sq_el.max(*exp_avg_sq_el)
+                },
+            );
+
             Zip::from(data)
                 .and(&param.exp_avg)
-                .and(&param.exp_avg_sq)
-                .for_each(|data_el, exp_avg_el, exp_avg_sq_el| {
+                .and(&param.max_exp_avg_sq)
+                .for_each(|data_el, exp_avg_el, max_exp_avg_sq_el| {
                     *data_el += exp_avg_el
-                        / ((exp_avg_sq_el.sqrt() / bias_correction2.sqrt()) + *eps)
+                        / ((max_exp_avg_sq_el.sqrt() / bias_correction2.sqrt()) + *eps)
                         * (-lr / bias_correction1)
                 })
         });

@@ -1,5 +1,11 @@
 use crate::variable::Param;
+pub use adagrad::{Adagrad, AdagradParam};
 pub use adam::{Adam, AdamParam};
+pub use amsgrad::{AMSGrad, AMSGradParam};
+pub use rmsprop::{
+    RMSProp, RMSPropCentered, RMSPropCenteredParam, RMSPropCenteredWithMomentum,
+    RMSPropCenteredWithMomentumParam, RMSPropParam, RMSPropWithMomentum, RMSPropWithMomentumParam,
+};
 pub use sgd::{SGDParam, SGDParamWithMomentum, SGDWithMomentum, SGD};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -19,13 +25,18 @@ pub trait Penalty: Send + Sync {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularizations Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// **L2 penalty** also known as *weight decay* or *Tichonov regularization*.
 pub struct L2 {
     lambda: f32,
 }
+
+/// **L1 penalty**.
 pub struct L1 {
     lambda: f32,
 }
 
+/// **ElasticNet regularization**, this penalty regularization linearly combines the
+/// **L1** and **L2** penalties.
 pub struct ElasticNet {
     lambda_l1: f32,
     lambda_l2: f32,
@@ -60,5 +71,8 @@ impl Penalty for ElasticNet {
     }
 }
 
-pub mod adam;
-pub mod sgd;
+mod adagrad;
+mod adam;
+mod amsgrad;
+mod rmsprop;
+mod sgd;
