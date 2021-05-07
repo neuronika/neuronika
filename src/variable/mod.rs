@@ -407,7 +407,7 @@ impl<T: Data + 'static> Var<T> {
         let node = self.node;
         let (id, node) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Dropout::new(node.clone(), p)),
+            Rc::new(Dropout::new(node, p)),
         );
         self.path.insert(id, node.clone() as Rc<dyn Forward>);
 
@@ -925,7 +925,7 @@ where
         let (forward, backward) = (self.forward, self.backward);
         let (id, forward) = (
             unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Dropout::new(forward.clone(), p)),
+            Rc::new(Dropout::new(forward, p)),
         );
         let backward = Rc::new(DropoutBackward::new(backward, forward.clone(), p));
         self.forward_path

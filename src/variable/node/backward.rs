@@ -4005,6 +4005,7 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
+    #[allow(clippy::float_cmp)]
     fn backward(&self) {
         if self.train.get() {
             let mut op_grad = self.operand_grad.gradient_mut();

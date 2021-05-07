@@ -331,7 +331,8 @@ pub fn reshape_kernel<D: Dimension>(kernel_view: ArrayView<f32, D>) -> ArrayView
     new_shape[1] = kernel_shape.slice().iter().skip(1).product();
     kernel_view.into_shape(new_shape).unwrap()
 }
-pub fn reshape_kernel_o<D: Dimension>(kernel_view: ArrayView<f32, D>) -> ndarray::Array2<f32> {
+
+pub fn reshape_kernel_owned<D: Dimension>(kernel_view: ArrayView<f32, D>) -> ndarray::Array2<f32> {
     let (kernel_shape, mut new_shape) = (kernel_view.raw_dim(), Ix2::zeros(2));
     new_shape[0] = kernel_shape[0];
     new_shape[1] = kernel_shape.slice().iter().skip(1).product();
@@ -487,7 +488,7 @@ impl ReflPad for Ix1 {
         };
         let mut out = Array::<f32, _>::zeros(out_len);
         let (in_slice, out_slice) = (input.as_slice().unwrap(), out.as_slice_mut().unwrap());
-        for i in 0..out_len {
+        for (i, out_slice_el) in out_slice.iter_mut().enumerate().take(out_len) {
             if i < pad {
                 pos = pad * 2 - i;
             } else if i >= pad && i < in_len + pad {
@@ -496,7 +497,7 @@ impl ReflPad for Ix1 {
                 pos = (in_len + pad - 1) * 2 - i;
             }
             pos -= pad;
-            out_slice[i] = in_slice[pos];
+            *out_slice_el = in_slice[pos];
         }
         out
     }
@@ -600,7 +601,7 @@ impl ReplPad for Ix1 {
         };
         let mut out = Array::<f32, _>::zeros(out_len);
         let (in_slice, out_slice) = (input.as_slice().unwrap(), out.as_slice_mut().unwrap());
-        for j in 0..out_len {
+        for (j, out_slice_el) in out_slice.iter_mut().enumerate().take(out_len) {
             if j < pad {
                 pos = pad;
             } else if j >= pad && j < in_len + pad {
@@ -609,7 +610,7 @@ impl ReplPad for Ix1 {
                 pos = in_len + pad - 1;
             }
             pos -= pad;
-            out_slice[j] = in_slice[pos];
+            *out_slice_el = in_slice[pos];
         }
         out
     }
@@ -1165,7 +1166,6 @@ mod tests {
     fn conv2d_dilated_prototype() {
         // This is an input with a batch size of 4, 2 input channels each of 5 by 5.
         let input = ndarray::Array::<f32, _>::ones((4, 2, 5, 5));
-
         let kernel = ndarray::Array::<f32, _>::ones((6, 2, 2, 2));
 
         let stride = &[1, 1];
@@ -1213,6 +1213,8 @@ mod tests {
 
     #[test]
     fn grouped_conv_prototype() {
+        use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+
         // This is an input with a batch size of 4, 8 input channels each of 5 by 5.
         let input: ndarray::Array<f32, ndarray::Ix3> = ndarray::array![
             [
@@ -1279,13 +1281,7 @@ mod tests {
         )
         .unwrap();
 
-        let groups = 2; // Both output and input channels need to be divisible by group.
-
-        let (x, mut y, z, k) = input.dim();
-        y /= groups;
-        let splitted_input: Vec<ndarray::ArrayView<f32, _>> =
-            input.exact_chunks((x, y, z, k)).into_iter().collect();
-
+        // Both output and input channels need to be divisible by group.
         // Group is 2 so we must divide the input channels by 2.
         let kernel = ndarray::Array::<f32, _>::ones((6, 4, 2, 2));
         let stride = &[1, 1];
@@ -1300,27 +1296,24 @@ mod tests {
             stride,
             dilation,
         );
-
         // Convolution result
         let mut conv_out = ndarray::Array::<f32, _>::zeros(conv_out_shape);
 
-        let (mut a, b, c, d) = kernel.dim();
-        a /= groups;
-        let splitted_kernel: Vec<ndarray::ArrayView<f32, _>> =
-            kernel.exact_chunks((a, b, c, d)).into_iter().collect();
+        let input_chunks_dim = input.len_of(ndarray::Axis(1)) / groups;
+        let splitted_input = input.axis_chunks_iter(ndarray::Axis(1), input_chunks_dim);
 
-        let (l, mut m, n, o) = conv_out.dim();
-        m /= groups;
-        let mut splitted_output: Vec<ndarray::ArrayViewMut<f32, _>> = conv_out
-            .exact_chunks_mut((l, m, n, o))
-            .into_iter()
-            .collect();
+        let kernel_chunks_dim = kernel.len_of(ndarray::Axis(0)) / groups;
+        let splitted_kernel = kernel.axis_chunks_iter(ndarray::Axis(0), kernel_chunks_dim);
 
-        ndarray::Zip::from((&splitted_input).into_producer())
-            .and((&splitted_kernel).into_producer())
-            .and((&mut splitted_output).into_producer())
-            .par_for_each(|input, kernel, output| {
-                let ready2mul_kernel = super::reshape_kernel_o(*kernel);
+        let output_chunks_dim = conv_out.len_of(ndarray::Axis(1)) / groups;
+        let splitted_output = conv_out.axis_chunks_iter_mut(ndarray::Axis(1), output_chunks_dim);
+
+        splitted_input
+            .into_par_iter()
+            .zip(splitted_kernel.into_iter())
+            .zip(splitted_output.into_iter())
+            .for_each(|((input, kernel), output)| {
+                let ready2mul_kernel = super::reshape_kernel_owned(kernel);
                 let ready2mul_input = super::to_col(
                     &input.into_owned(),
                     kernel.shape(),
@@ -1328,10 +1321,10 @@ mod tests {
                     stride,
                     dilation,
                 );
-                let pin = ready2mul_kernel.dot(&ready2mul_input);
+                let mul_res = ready2mul_kernel.dot(&ready2mul_input);
                 let dim = output.raw_dim();
                 ndarray::Zip::from(output)
-                    .and(&pin.into_shape(dim).unwrap())
+                    .and(&mul_res.into_shape(dim).unwrap())
                     .for_each(|a, b| *a = *b);
             });
         println!("{}", conv_out);

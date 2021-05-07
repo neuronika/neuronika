@@ -1724,7 +1724,7 @@ pub struct Dropout<T: Data> {
 
 impl<T: Data> Dropout<T> {
     pub fn new(operand: Rc<T>, p: f64) -> Self {
-        if p > 1. || p < 0. {
+        if !(0. ..=1.).contains(&p) {
             panic!(
                 "error: dropout probability has to be between 0 and 1, but got {}.",
                 p
@@ -1758,6 +1758,7 @@ impl<T: Data> Dropout<T> {
 }
 
 impl<T: Data> Forward for Dropout<T> {
+    #[allow(clippy::float_cmp)]
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -1767,7 +1768,6 @@ impl<T: Data> Forward for Dropout<T> {
         if self.train.get() {
             let mut thread_rng = thread_rng();
             let (mut noise, distr, p) = (self.noise.borrow_mut(), &self.distr, &self.p);
-
             if *p == 1. {
                 Zip::from(&mut *self.data.borrow_mut()).for_each(|data_el| *data_el = 0.0);
             } else if *p == 0. {

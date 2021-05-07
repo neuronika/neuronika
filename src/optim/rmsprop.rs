@@ -88,9 +88,9 @@ impl<'a, T> RMSProp<'a, T> {
             params,
             lr,
             alpha,
-            momentum,
             penalty,
             eps,
+            momentum,
         }
     }
 
@@ -112,9 +112,9 @@ impl<'a, T> RMSProp<'a, T> {
             params,
             lr,
             alpha,
-            momentum,
             penalty,
             eps,
+            momentum,
         }
     }
 }
@@ -241,9 +241,9 @@ impl<'a, T> RMSPropWithMomentum<'a, T> {
             params,
             lr,
             alpha,
-            momentum,
             penalty,
             eps,
+            momentum,
         }
     }
 
@@ -263,9 +263,9 @@ impl<'a, T> RMSPropWithMomentum<'a, T> {
             params,
             lr,
             alpha,
-            momentum,
             penalty,
             eps,
+            momentum,
         }
     }
 }
@@ -407,9 +407,9 @@ impl<'a, T> RMSPropCentered<'a, T> {
             params,
             lr,
             alpha,
-            momentum,
             penalty,
             eps,
+            momentum,
         }
     }
 }
@@ -554,9 +554,9 @@ impl<'a, T> RMSPropCenteredWithMomentum<'a, T> {
             params,
             lr,
             alpha,
-            momentum,
             penalty,
             eps,
+            momentum,
         }
     }
 }
