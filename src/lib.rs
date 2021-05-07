@@ -170,10 +170,7 @@ pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
 /// If `n` is greater than `isize::MAX` or if converting `n - 1`
 /// to type `f32` fails.
 pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
-    match Array::geomspace(start, end, n) {
-        None => None,
-        Some(array) => Some(Input::new(array)),
-    }
+    Array::geomspace(start, end, n).map(Input::new)
 }
 
 /// Create a one-dimensional array with elements from `start` to `end`

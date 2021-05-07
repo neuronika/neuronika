@@ -1,236 +1,220 @@
-pub use std::borrow::Cow;
+use std::{collections::HashMap, hash::Hash};
 
-use rand::{prelude::ThreadRng, seq::SliceRandom};
-use std::{borrow::Borrow, fmt};
-
-mod kfold;
-
-#[derive(Debug)]
-pub struct Dataset<'a, T: Clone> {
-    records: Vec<Cow<'a, T>>,
-    generator: ThreadRng,
+pub struct KFold<'a, T> {
+    dataset: &'a [T],
+    splits: usize,
+    size: usize,
+    iteration: usize,
 }
 
-impl<'a, T: Clone> Dataset<'a, T> {
-    /// Creates a new `Dataset` from a vector.
-    ///
-    /// # Parameters
-    /// * `records` - A non-empty vector of records to store.
-    ///
-    /// # Panics
-    /// This function will panic if `records` is empty.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use neuronika::model_selection::{Dataset, Cow};
-    ///
-    /// let dataset = Dataset::new((0..3).collect());
-    /// assert_eq!(&dataset[..], &[Cow::Owned(0), Cow::Owned(1), Cow::Owned(2)]);
-    /// ```
-    pub fn new(mut records: Vec<T>) -> Self {
-        if records.is_empty() {
-            panic!("cannot build an empty dataset");
-        }
-
+impl<'a, T> KFold<'a, T> {
+    pub fn new(dataset: &'a [T], splits: usize) -> Self {
         Self {
-            records: records.drain(..).map(Cow::Owned).collect(),
-            generator: rand::thread_rng(),
+            dataset,
+            splits,
+            size: 1 + (dataset.len() - 1) / splits,
+            iteration: 0,
         }
     }
+}
 
-    /// Creates a new `Dataset`, sharing the content of `self`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use neuronika::model_selection::{Dataset, Cow};
-    ///
-    /// let owned = Dataset::new((0..10).collect());
-    /// let first = owned.share();
-    /// assert_eq!(
-    ///     first.iter().all(|v| matches!(v, Cow::Borrowed(_))),
-    ///     true
-    /// );
-    ///
-    /// let second = first.share();
-    /// assert_eq!(
-    ///     second.iter().all(|v| matches!(v, Cow::Borrowed(_))),
-    ///     true
-    /// );
-    /// ```
-    pub fn share<'b: 'a>(&'b self) -> Self {
-        Self {
-            records: self
-                .records
+impl<'a, T> Iterator for KFold<'a, T> {
+    type Item = (Vec<&'a T>, Vec<&'a T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iteration >= self.splits {
+            return None;
+        }
+
+        // Compute starting point of the `training` dataset
+        let begin = self.iteration * self.size;
+
+        // Update the iterator state now, to avoid the same computation below
+        self.iteration += 1;
+
+        // Compute ending point of the `training` dataset
+        let end = std::cmp::min(self.dataset.len(), self.iteration * self.size);
+
+        Some((
+            self.dataset[begin..end].iter().collect(),
+            self.dataset[..begin]
                 .iter()
-                .map(|v| Cow::Borrowed(v.borrow()))
+                .chain(self.dataset[end..].iter())
                 .collect(),
-            generator: self.generator.clone(),
-        }
-    }
-
-    /// Returns the number of elements in the dataset, also referred to
-    /// as its 'length'.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use neuronika::model_selection::Dataset;
-    ///
-    /// let dataset = Dataset::new((0..5).collect());
-    /// assert_eq!(dataset.len(), 5);
-    /// ```
-    pub fn len(&self) -> usize {
-        self.records.len()
-    }
-
-    /// Returns an iterator over the records of the `Dataset`.
-    ///
-    /// # Example
-    /// ```
-    /// use neuronika::model_selection::{Dataset, Cow};
-    ///
-    /// let dataset = Dataset::new((0..5).collect::<Vec<usize>>());
-    /// for (i, cow) in dataset.iter().enumerate() {
-    ///     assert_eq!(cow, &Cow::Owned(i));
-    /// }
-    /// ```
-    pub fn iter<'b: 'a>(&'b self) -> std::slice::Iter<'b, Cow<'a, T>> {
-        self.records.iter()
-    }
-
-    /// Returns an iterator that allows modifying the records of the dataset.
-    ///
-    /// # Example
-    /// ```
-    /// use neuronika::model_selection::{Dataset, Cow};
-    ///
-    /// let mut dataset = Dataset::new((0..3).collect());
-    /// for cow in dataset.iter_mut() {
-    ///     *cow.to_mut() += 1;
-    /// }
-    /// ```
-    pub fn iter_mut<'b: 'a>(&'b mut self) -> std::slice::IterMut<'b, Cow<'a, T>> {
-        self.records.iter_mut()
-    }
-
-    /// Shuffles the records in the dataset.
-    ///
-    /// # Example
-    /// ```
-    /// use neuronika::model_selection::Dataset;
-    ///
-    /// let mut dataset = Dataset::new((0..10).collect());
-    /// assert_eq!(dataset[..].windows(2).all(|w| w[0] <= w[1]), true);
-    ///
-    /// dataset.shuffle();
-    /// assert_eq!(dataset[..].windows(2).all(|w| w[0] <= w[1]), false);
-    /// ```
-    pub fn shuffle(&mut self) {
-        self.records.shuffle(&mut self.generator);
+        ))
     }
 }
 
-impl<'a, T: Clone> IntoIterator for Dataset<'a, T> {
-    type Item = Cow<'a, T>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+// pub struct StratifiedKFold<'a, 'b, T, K>
+// where
+//     'b: 'a,
+//     T: Clone,
+//     K: Hash + Eq,
+// {
+//     splits: usize,
+//     iteration: usize,
+//     key_class_map: HashMap<&'b K, usize>,
+//     classes: Vec<Vec<&'b Cow<'a, T>>>,
+//     windows: Vec<usize>,
+// }
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.records.into_iter()
-    }
-}
+// impl<'a, 'b, T, K> StratifiedKFold<'a, 'b, T, K>
+// where
+//     'b: 'a,
+//     T: Clone,
+//     K: Hash + Eq,
+// {
+//     pub fn new<F: Fn(&T) -> &K>(dataset: &'b Dataset<'a, T>, splits: usize, key_fun: F) -> Self {
+//         let mut key_class_map = HashMap::new();
+//         let mut classes = Vec::new();
+//         for cow in dataset {
+//             let record = match cow {
+//                 Cow::Owned(r) => r,
+//                 Cow::Borrowed(r) => *r,
+//             };
 
-impl<'a, 'b, T: Clone> IntoIterator for &'b Dataset<'a, T> {
-    type Item = &'b Cow<'a, T>;
-    type IntoIter = std::slice::Iter<'b, Cow<'a, T>>;
+//             let key = key_fun(record);
+//             if let Some(&id) = key_class_map.get(key) {
+//                 // The class has already been encountered
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.records.iter()
-    }
-}
+//                 let class: &mut Vec<&'b Cow<'a, T>> = &mut classes[id];
+//                 class.push(cow);
+//             } else {
+//                 // The class has never been seen before
 
-impl<'a, 'b, T: Clone> IntoIterator for &'b mut Dataset<'a, T> {
-    type Item = &'b mut Cow<'a, T>;
-    type IntoIter = std::slice::IterMut<'b, Cow<'a, T>>;
+//                 key_class_map.insert(key, classes.len());
+//                 classes.push(vec![cow]);
+//             }
+//         }
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.records.iter_mut()
-    }
-}
+//         // Compute windows size concerning the proportions
+//         let ratio = (1 + (dataset.len() - 1) / splits) as f32 / dataset.len() as f32;
+//         let mut windows = Vec::with_capacity(classes.len());
+//         for class in &classes {
+//             windows.push((class.len() as f32 * ratio).ceil() as usize);
+//         }
 
-impl<'a, T, U> std::ops::Index<U> for Dataset<'a, T>
-where
-    T: Clone,
-    U: std::slice::SliceIndex<[Cow<'a, T>]>,
-{
-    type Output = U::Output;
+//         Self {
+//             splits,
+//             iteration: 0,
+//             key_class_map,
+//             classes,
+//             windows,
+//         }
+//     }
+// }
 
-    fn index(&self, index: U) -> &Self::Output {
-        &self.records[index]
-    }
-}
+// impl<'a, 'b: 'a, T: Clone, K: Hash + Eq> Iterator for StratifiedKFold<'a, 'b, T, K> {
+//     type Item = (Dataset<'a, T>, Dataset<'a, T>);
 
-impl<'a, T: Clone + fmt::Display> fmt::Display for Dataset<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[")?;
-        let last = self.records.len() - 1;
-        for cow in &self.records[..last] {
-            write!(f, "{}, ", &*cow)?;
-        }
-        write!(f, "{}]", self.records[last])
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.iteration >= self.splits {
+//             return None;
+//         }
+
+//         let begin = self.iteration * self.windows[0];
+//         let end = std::cmp::min(
+//             self.classes[0].len(),
+//             (self.iteration + 1) * self.windows[0],
+//         );
+
+//         let training_set = self.classes[0][begin..end].iter().collect::<Vec<_>>();
+//         let test_set = self.classes[0][..begin]
+//             .iter()
+//             .chain(self.classes[0][end..].iter())
+//             .collect();
+//         for i in 1..self.classes.len() {
+//             let begin = self.iteration * self.windows[i];
+//             let end = std::cmp::min(
+//                 self.classes[i].len(),
+//                 (self.iteration + 1) * self.windows[i],
+//             );
+//             training_set.extend(self.classes[i][begin..end].iter());
+//         }
+
+//         Some((
+//             Dataset {
+//                 records: self.dataset[begin..end]
+//                     .iter()
+//                     .map(|r| Cow::Borrowed(r.borrow()))
+//                     .collect(),
+//                 generator: self.dataset.generator.clone(),
+//             },
+//             Dataset {
+//                 records: self.dataset[..begin]
+//                     .iter()
+//                     .chain(self.dataset[end..].iter())
+//                     .map(|r| Cow::Borrowed(r.borrow()))
+//                     .collect(),
+//                 generator: self.dataset.generator.clone(),
+//             },
+//         ))
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn creation() {
-        let dataset = Dataset::new((0..10).collect());
-        assert_eq!(dataset.records, (0..10).map(Cow::Owned).collect::<Vec<_>>());
-    }
+    mod kfold {
+        use super::*;
 
-    #[test]
-    fn share() {
-        let owned = Dataset::new((0..10).collect());
-        let first = owned.share();
-        assert_eq!(
-            first.records.iter().all(|v| matches!(v, Cow::Borrowed(_))),
-            true
-        );
+        #[test]
+        fn creation() {
+            let dataset: Vec<_> = (0..10).collect();
 
-        let second = first.share();
-        assert_eq!(
-            second.records.iter().all(|v| matches!(v, Cow::Borrowed(_))),
-            true
-        );
-    }
-
-    #[test]
-    fn shuffle() {
-        let owned = Dataset::new((0..10).collect());
-        let mut shared = owned.share();
-        assert_eq!(owned.records.windows(2).all(|w| w[0] <= w[1]), true);
-        assert_eq!(shared.records.windows(2).all(|w| w[0] <= w[1]), true);
-
-        shared.shuffle();
-        assert_eq!(owned.records.windows(2).all(|w| w[0] <= w[1]), true);
-        assert_eq!(shared.records.windows(2).all(|w| w[0] <= w[1]), false);
-    }
-
-    #[test]
-    fn separation() {
-        let first = Dataset::new((0..10).collect());
-        let mut second = first.share();
-
-        for cow in &mut second {
-            let asd = cow.to_mut();
-            *asd += 1;
+            let kfold = KFold::new(&dataset, 3);
+            assert_eq!(kfold.splits, 3);
+            assert_eq!(kfold.size, 4);
+            assert_eq!(kfold.iteration, 0);
         }
 
-        second.iter().all(|v| matches!(v, Cow::Owned(_)));
-        first.iter().all(|v| matches!(v, Cow::Owned(_)));
+        #[test]
+        fn state_transition() {
+            let dataset: Vec<_> = (0..10).collect();
+            let mut kfold = KFold::new(&dataset, 3);
+
+            let (training, test) = kfold.next().unwrap();
+            assert_eq!(training, vec![&0, &1, &2, &3]);
+            assert_eq!(test, vec![&4, &5, &6, &7, &8, &9]);
+            assert_eq!(kfold.splits, 3);
+            assert_eq!(kfold.size, 4);
+            assert_eq!(kfold.iteration, 1);
+
+            let (training, test) = kfold.next().unwrap();
+            assert_eq!(training, vec![&4, &5, &6, &7]);
+            assert_eq!(test, vec![&0, &1, &2, &3, &8, &9]);
+            assert_eq!(kfold.splits, 3);
+            assert_eq!(kfold.size, 4);
+            assert_eq!(kfold.iteration, 2);
+
+            let (training, test) = kfold.next().unwrap();
+            assert_eq!(training, vec![&8, &9]);
+            assert_eq!(test, vec![&0, &1, &2, &3, &4, &5, &6, &7]);
+            assert_eq!(kfold.splits, 3);
+            assert_eq!(kfold.size, 4);
+            assert_eq!(kfold.iteration, 3);
+
+            assert_eq!(kfold.next().is_none(), true);
+            assert_eq!(kfold.next().is_none(), true);
+        }
     }
+
+    // mod stratified_kfold {
+    //     use super::*;
+
+    //     #[test]
+    //     fn creation() {
+    //         let dataset = vec![(1, 1), (1, 2), (2, 1), (2, 2), (3, 1)];
+    //         let skf = StratifiedKFold::new(&dataset, 3, |v| &v.0);
+
+    //         assert_eq!(skf.classes[0].len(), 2);
+    //         assert_eq!(skf.classes[1].len(), 2);
+    //         assert_eq!(skf.classes[2].len(), 1);
+
+    //         assert_eq!(skf.windows[0], 1);
+    //         assert_eq!(skf.windows[1], 1);
+    //         assert_eq!(skf.windows[2], 1);
+    //     }
+    // }
 }
