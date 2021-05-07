@@ -1,5 +1,6 @@
 use ndarray::{
-    Array, ArrayView, ArrayViewMut, Dimension, Ix1, Ix2, Ix3, IxDyn, ShapeBuilder, Slice,
+    Array, ArrayView, ArrayView2, ArrayViewMut, Dimension, Ix1, Ix2, Ix3, IxDyn, ShapeBuilder,
+    Slice,
 };
 
 /// Checks that the arguments are correct
@@ -305,10 +306,9 @@ pub fn to_col<D: Dimension>(
     padding: &[usize],
     stride: &[usize],
     dilation: &[usize],
-    groups: usize,
 ) -> Array<f32, Ix2> {
     let mut o_shape = conv_out_shape::<D>(input.shape(), kernel_shape, padding, stride, dilation);
-    o_shape[1] = groups;
+    o_shape[1] = 1;
     let (im2col_h, im2col_w): (usize, usize) = {
         (
             kernel_shape.iter().skip(1).product(),
@@ -316,10 +316,26 @@ pub fn to_col<D: Dimension>(
         )
     };
     as_windows(&input, kernel_shape, o_shape, stride, dilation)
-        .into_owned()
+        .as_standard_layout() // Otherwise can't reshape.
         .into_shape((im2col_w, im2col_h))
         .unwrap()
         .reversed_axes()
+        .as_standard_layout() // Make standard layout again
+        .into_owned()
+}
+
+/// Reshapes the kernel so that the convolution can be performed by matrix multiplication.
+pub fn reshape_kernel<D: Dimension>(kernel_view: ArrayView<f32, D>) -> ArrayView2<f32> {
+    let (kernel_shape, mut new_shape) = (kernel_view.raw_dim(), Ix2::zeros(2));
+    new_shape[0] = kernel_shape[0];
+    new_shape[1] = kernel_shape.slice().iter().skip(1).product();
+    kernel_view.into_shape(new_shape).unwrap()
+}
+pub fn reshape_kernel_o<D: Dimension>(kernel_view: ArrayView<f32, D>) -> ndarray::Array2<f32> {
+    let (kernel_shape, mut new_shape) = (kernel_view.raw_dim(), Ix2::zeros(2));
+    new_shape[0] = kernel_shape[0];
+    new_shape[1] = kernel_shape.slice().iter().skip(1).product();
+    kernel_view.into_owned().into_shape(new_shape).unwrap()
 }
 
 /// A `ndarray::Dimension` that supports **reflective padding**.
@@ -689,6 +705,9 @@ impl ReplPad for Ix3 {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs::read, sync::RwLockWriteGuard};
+
+    use ndarray::{IntoNdProducer, NdProducer};
 
     #[test]
     fn im2col() {
@@ -747,7 +766,7 @@ mod tests {
         ];
         assert_eq!(
             im2col,
-            super::to_col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1], 1)
+            super::to_col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
         );
 
         // Now let's increase the batch size by 1.
@@ -760,9 +779,16 @@ mod tests {
         // from the batch are concatenated along the columns.
         assert_eq!(
             ndarray::concatenate(ndarray::Axis(1), &[im2col.view(), im2col.view()]).unwrap(),
-            super::to_col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1], 1)
+            super::to_col(&d, &[1, 3, 3, 3], &[0, 0], &[1, 1], &[1, 1])
         );
         // The nice thing about im2col is that it works for 1d, 2d, and 3d convolutions.
+    }
+
+    #[test]
+    fn reshape_kernel() {
+        // This is a kernel of 4 filters, reshaped output should be of shape (4,9).
+        let kernel = ndarray::Array::<f32, _>::ones((4, 1, 3, 3));
+        assert_eq!(super::reshape_kernel(kernel.view()).dim(), (4, 9));
     }
 
     #[test]
@@ -1034,5 +1060,280 @@ mod tests {
                 ]
             ]
         )
+    }
+
+    #[test]
+    fn conv2d_prototype() {
+        // This is an input with a batch size of 4, 2 input channels each of 5 by 5.
+        let input = ndarray::Array::<f32, _>::ones((4, 2, 5, 5));
+
+        let kernel = ndarray::Array::<f32, _>::ones((6, 2, 2, 2));
+
+        let stride = &[1, 1];
+        let padding = &[0, 0];
+        let dilation = &[1, 1];
+
+        let conv_out_shape = super::conv_out_shape::<ndarray::Ix4>(
+            input.shape(),
+            kernel.shape(),
+            padding,
+            stride,
+            dilation,
+        );
+
+        // Convolution result
+        let mut conv_out = ndarray::Array::<f32, _>::zeros(conv_out_shape);
+
+        // Kernel reshaping.
+        let ready2mult_kernel = super::reshape_kernel(kernel.view());
+
+        // Input reshaping
+        let ready2mult_input = super::to_col(&input, kernel.shape(), padding, stride, dilation);
+
+        // Output reshaping
+        let mut ready2mult_out = conv_out
+            .view_mut()
+            .into_shape((ready2mult_kernel.shape()[0], ready2mult_input.shape()[1]))
+            .unwrap();
+
+        ndarray::linalg::general_mat_mul(
+            1.,
+            &ready2mult_kernel,
+            &ready2mult_input,
+            0.,
+            &mut ready2mult_out,
+        );
+
+        assert_eq!(
+            conv_out,
+            ndarray::Array::<f32, _>::from_shape_vec(conv_out_shape, vec![8.; conv_out.len()])
+                .unwrap()
+        );
+        assert_eq!(conv_out.shape(), &[4, 6, 4, 4]);
+    }
+
+    #[test]
+    fn conv2d_strided_prototype() {
+        // This is an input with a batch size of 4, 2 input channels each of 5 by 5.
+        let input = ndarray::Array::<f32, _>::ones((4, 2, 5, 5));
+
+        let kernel = ndarray::Array::<f32, _>::ones((6, 2, 2, 2));
+
+        let stride = &[2, 2];
+        let padding = &[0, 0];
+        let dilation = &[1, 1];
+
+        let conv_out_shape = super::conv_out_shape::<ndarray::Ix4>(
+            input.shape(),
+            kernel.shape(),
+            padding,
+            stride,
+            dilation,
+        );
+
+        // Convolution result
+        let mut conv_out = ndarray::Array::<f32, _>::zeros(conv_out_shape);
+
+        // Kernel reshaping.
+        let ready2mult_kernel = super::reshape_kernel(kernel.view());
+
+        // Input reshaping
+        let ready2mult_input = super::to_col(&input, kernel.shape(), padding, stride, dilation);
+
+        // Output reshaping
+        let mut ready2mult_out = conv_out
+            .view_mut()
+            .into_shape((ready2mult_kernel.shape()[0], ready2mult_input.shape()[1]))
+            .unwrap();
+
+        ndarray::linalg::general_mat_mul(
+            1.,
+            &ready2mult_kernel,
+            &ready2mult_input,
+            0.,
+            &mut ready2mult_out,
+        );
+
+        assert_eq!(
+            conv_out,
+            ndarray::Array::<f32, _>::from_shape_vec(conv_out_shape, vec![8.; conv_out.len()])
+                .unwrap()
+        );
+        assert_eq!(conv_out.shape(), &[4, 6, 2, 2]);
+    }
+    #[test]
+    fn conv2d_dilated_prototype() {
+        // This is an input with a batch size of 4, 2 input channels each of 5 by 5.
+        let input = ndarray::Array::<f32, _>::ones((4, 2, 5, 5));
+
+        let kernel = ndarray::Array::<f32, _>::ones((6, 2, 2, 2));
+
+        let stride = &[1, 1];
+        let padding = &[0, 0];
+        let dilation = &[2, 2];
+
+        let conv_out_shape = super::conv_out_shape::<ndarray::Ix4>(
+            input.shape(),
+            kernel.shape(),
+            padding,
+            stride,
+            dilation,
+        );
+
+        // Convolution result
+        let mut conv_out = ndarray::Array::<f32, _>::zeros(conv_out_shape);
+
+        // Kernel reshaping.
+        let ready2mult_kernel = super::reshape_kernel(kernel.view());
+
+        // Input reshaping
+        let ready2mult_input = super::to_col(&input, kernel.shape(), padding, stride, dilation);
+
+        // Output reshaping
+        let mut ready2mult_out = conv_out
+            .view_mut()
+            .into_shape((ready2mult_kernel.shape()[0], ready2mult_input.shape()[1]))
+            .unwrap();
+
+        ndarray::linalg::general_mat_mul(
+            1.,
+            &ready2mult_kernel,
+            &ready2mult_input,
+            0.,
+            &mut ready2mult_out,
+        );
+
+        assert_eq!(
+            conv_out,
+            ndarray::Array::<f32, _>::from_shape_vec(conv_out_shape, vec![8.; conv_out.len()])
+                .unwrap()
+        );
+        assert_eq!(conv_out.shape(), &[4, 6, 3, 3]);
+    }
+
+    #[test]
+    fn grouped_conv_prototype() {
+        // This is an input with a batch size of 4, 8 input channels each of 5 by 5.
+        let input: ndarray::Array<f32, ndarray::Ix3> = ndarray::array![
+            [
+                [1., 1., 1., 1., 1.],
+                [1., 1., 1., 1., 1.],
+                [1., 1., 1., 1., 1.],
+                [1., 1., 1., 1., 1.],
+                [1., 1., 1., 1., 1.]
+            ],
+            [
+                [2., 2., 2., 2., 2.],
+                [2., 2., 2., 2., 2.],
+                [2., 2., 2., 2., 2.],
+                [2., 2., 2., 2., 2.],
+                [2., 2., 2., 2., 2.]
+            ],
+            [
+                [3., 3., 3., 3., 3.],
+                [3., 3., 3., 3., 3.],
+                [3., 3., 3., 3., 3.],
+                [3., 3., 3., 3., 3.],
+                [3., 3., 3., 3., 3.]
+            ],
+            [
+                [4., 4., 4., 4., 4.],
+                [4., 4., 4., 4., 4.],
+                [4., 4., 4., 4., 4.],
+                [4., 4., 4., 4., 4.],
+                [4., 4., 4., 4., 4.]
+            ],
+            [
+                [5., 5., 5., 5., 5.],
+                [5., 5., 5., 5., 5.],
+                [5., 5., 5., 5., 5.],
+                [5., 5., 5., 5., 5.],
+                [5., 5., 5., 5., 5.]
+            ],
+            [
+                [6., 6., 6., 6., 6.],
+                [6., 6., 6., 6., 6.],
+                [6., 6., 6., 6., 6.],
+                [6., 6., 6., 6., 6.],
+                [6., 6., 6., 6., 6.]
+            ],
+            [
+                [7., 7., 7., 7., 7.],
+                [7., 7., 7., 7., 7.],
+                [7., 7., 7., 7., 7.],
+                [7., 7., 7., 7., 7.],
+                [7., 7., 7., 7., 7.]
+            ],
+            [
+                [8., 8., 8., 8., 8.],
+                [8., 8., 8., 8., 8.],
+                [8., 8., 8., 8., 8.],
+                [8., 8., 8., 8., 8.],
+                [8., 8., 8., 8., 8.]
+            ]
+        ];
+
+        let input: ndarray::Array<f32, _> = ndarray::stack(
+            ndarray::Axis(0),
+            &[input.view(), input.view(), input.view(), input.view()],
+        )
+        .unwrap();
+
+        let groups = 2; // Both output and input channels need to be divisible by group.
+
+        let (x, mut y, z, k) = input.dim();
+        y /= groups;
+        let splitted_input: Vec<ndarray::ArrayView<f32, _>> =
+            input.exact_chunks((x, y, z, k)).into_iter().collect();
+
+        // Group is 2 so we must divide the input channels by 2.
+        let kernel = ndarray::Array::<f32, _>::ones((6, 4, 2, 2));
+        let stride = &[1, 1];
+        let padding = &[0, 0];
+        let dilation = &[1, 1];
+        let groups = 2;
+
+        let conv_out_shape = super::conv_out_shape::<ndarray::Ix4>(
+            input.shape(),
+            kernel.shape(),
+            padding,
+            stride,
+            dilation,
+        );
+
+        // Convolution result
+        let mut conv_out = ndarray::Array::<f32, _>::zeros(conv_out_shape);
+
+        let (mut a, b, c, d) = kernel.dim();
+        a /= groups;
+        let splitted_kernel: Vec<ndarray::ArrayView<f32, _>> =
+            kernel.exact_chunks((a, b, c, d)).into_iter().collect();
+
+        let (l, mut m, n, o) = conv_out.dim();
+        m /= groups;
+        let mut splitted_output: Vec<ndarray::ArrayViewMut<f32, _>> = conv_out
+            .exact_chunks_mut((l, m, n, o))
+            .into_iter()
+            .collect();
+
+        ndarray::Zip::from((&splitted_input).into_producer())
+            .and((&splitted_kernel).into_producer())
+            .and((&mut splitted_output).into_producer())
+            .par_for_each(|input, kernel, output| {
+                let ready2mul_kernel = super::reshape_kernel_o(*kernel);
+                let ready2mul_input = super::to_col(
+                    &input.into_owned(),
+                    kernel.shape(),
+                    padding,
+                    stride,
+                    dilation,
+                );
+                let pin = ready2mul_kernel.dot(&ready2mul_input);
+                let dim = output.raw_dim();
+                ndarray::Zip::from(output)
+                    .and(&pin.into_shape(dim).unwrap())
+                    .for_each(|a, b| *a = *b);
+            });
+        println!("{}", conv_out);
     }
 }

@@ -4,7 +4,7 @@ use crate::variable::{
     node::{Backward, Data, Forward, Gradient, Overwrite},
     MatMatMulT, Tensor, Var, VarDiff,
 };
-use ndarray::{Ix1, Ix2};
+use ndarray::{Ix1, Ix2, Ix4};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -379,5 +379,29 @@ impl GRUCell {
         let new_gate =
             (chunked_igates[2].clone() + (chunked_hgates[2].clone() * reset_gate)).tanh();
         (hidden - new_gate.clone()) * input_gate + new_gate
+    }
+}
+
+pub struct Conv2d {
+    in_channels: usize,
+    out_channels: usize,
+    kernel_size: (usize, usize),
+    stride: (usize, usize),
+    dilation: (usize, usize),
+    groups: usize,
+    weight: VarDiff<Input<Ix4>, InputBackward<Ix4>>,
+    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+}
+
+impl Conv2d {
+    fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        dilation: (usize, usize),
+        groups: usize,
+    ) -> Self {
+        todo!()
     }
 }
