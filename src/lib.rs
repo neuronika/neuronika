@@ -1,3 +1,4 @@
+pub mod model_selection;
 pub mod nn;
 pub mod optim;
 mod variable;
