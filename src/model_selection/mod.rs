@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 
 pub struct KFold<'a, T> {
     dataset: &'a [T],
@@ -45,112 +45,104 @@ impl<'a, T> Iterator for KFold<'a, T> {
     }
 }
 
-// pub struct StratifiedKFold<'a, 'b, T, K>
-// where
-//     'b: 'a,
-//     T: Clone,
-//     K: Hash + Eq,
-// {
-//     splits: usize,
-//     iteration: usize,
-//     key_class_map: HashMap<&'b K, usize>,
-//     classes: Vec<Vec<&'b Cow<'a, T>>>,
-//     windows: Vec<usize>,
-// }
+pub struct StratifiedKFold<'a, T> {
+    dataset_len: usize,
+    set_len: usize,
+    left: usize,
+    splits: usize,
+    iterations: usize,
+    classes: Vec<Vec<&'a T>>,
+    read_infos: Vec<(usize, usize)>,
+}
 
-// impl<'a, 'b, T, K> StratifiedKFold<'a, 'b, T, K>
-// where
-//     'b: 'a,
-//     T: Clone,
-//     K: Hash + Eq,
-// {
-//     pub fn new<F: Fn(&T) -> &K>(dataset: &'b Dataset<'a, T>, splits: usize, key_fun: F) -> Self {
-//         let mut key_class_map = HashMap::new();
-//         let mut classes = Vec::new();
-//         for cow in dataset {
-//             let record = match cow {
-//                 Cow::Owned(r) => r,
-//                 Cow::Borrowed(r) => *r,
-//             };
+impl<'a, T> StratifiedKFold<'a, T> {
+    pub fn new<U>(dataset: &'a [T], labels: &'a [U], splits: usize) -> Self
+    where
+        U: Hash + Eq + Borrow<U>,
+    {
+        assert_eq!(dataset.len(), labels.len());
 
-//             let key = key_fun(record);
-//             if let Some(&id) = key_class_map.get(key) {
-//                 // The class has already been encountered
+        let mut label_key_map = HashMap::new();
+        let mut classes: Vec<Vec<&'a T>> = Vec::new();
+        for (record, label) in dataset.iter().zip(labels) {
+            match label_key_map.get(label) {
+                None => {
+                    label_key_map.insert(label, classes.len());
+                    classes.push(vec![record]);
+                }
+                Some(&id) => classes.get_mut::<usize>(id).unwrap().push(record),
+            }
+        }
 
-//                 let class: &mut Vec<&'b Cow<'a, T>> = &mut classes[id];
-//                 class.push(cow);
-//             } else {
-//                 // The class has never been seen before
+        let dataset_len = dataset.len();
+        let set_len = dataset_len / splits;
+        let ratio = set_len as f32 / dataset_len as f32;
+        let mut read_infos = Vec::with_capacity(classes.len());
+        for class in &classes {
+            read_infos.push((0, (class.len() as f32 * ratio).ceil() as usize));
+        }
 
-//                 key_class_map.insert(key, classes.len());
-//                 classes.push(vec![cow]);
-//             }
-//         }
+        Self {
+            dataset_len,
+            set_len,
+            left: dataset_len % splits,
+            splits,
+            iterations: 0,
+            classes,
+            read_infos,
+        }
+    }
+}
 
-//         // Compute windows size concerning the proportions
-//         let ratio = (1 + (dataset.len() - 1) / splits) as f32 / dataset.len() as f32;
-//         let mut windows = Vec::with_capacity(classes.len());
-//         for class in &classes {
-//             windows.push((class.len() as f32 * ratio).ceil() as usize);
-//         }
+impl<'a, T: Clone> Iterator for StratifiedKFold<'a, T> {
+    type Item = (Vec<&'a T>, Vec<&'a T>);
 
-//         Self {
-//             splits,
-//             iteration: 0,
-//             key_class_map,
-//             classes,
-//             windows,
-//         }
-//     }
-// }
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iterations >= self.splits {
+            return None;
+        }
 
-// impl<'a, 'b: 'a, T: Clone, K: Hash + Eq> Iterator for StratifiedKFold<'a, 'b, T, K> {
-//     type Item = (Dataset<'a, T>, Dataset<'a, T>);
+        self.iterations += 1;
+        let mut remaining = if self.left > 0 {
+            self.left -= 1;
+            self.set_len + 1
+        } else {
+            self.set_len
+        };
 
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.iteration >= self.splits {
-//             return None;
-//         }
+        let mut training_set = Vec::with_capacity(self.dataset_len - remaining);
+        let mut test_set = Vec::with_capacity(remaining);
+        let mut iter = self.classes.iter().zip(self.read_infos.iter_mut());
+        while remaining > 0 {
+            let (class, (begin, window_size)) = iter.next().unwrap();
+            if *begin < class.len() {
+                // Compute the amount of records to read and the ending point
+                // in order to save a bit of time
+                let to_read = remaining.min(*window_size);
+                let end = *begin + to_read;
 
-//         let begin = self.iteration * self.windows[0];
-//         let end = std::cmp::min(
-//             self.classes[0].len(),
-//             (self.iteration + 1) * self.windows[0],
-//         );
+                // Merge the sets in the appropriate way
+                test_set.extend(&class[*begin..end]);
+                training_set.extend(class[..*begin].iter().chain(&class[end..]));
 
-//         let training_set = self.classes[0][begin..end].iter().collect::<Vec<_>>();
-//         let test_set = self.classes[0][..begin]
-//             .iter()
-//             .chain(self.classes[0][end..].iter())
-//             .collect();
-//         for i in 1..self.classes.len() {
-//             let begin = self.iteration * self.windows[i];
-//             let end = std::cmp::min(
-//                 self.classes[i].len(),
-//                 (self.iteration + 1) * self.windows[i],
-//             );
-//             training_set.extend(self.classes[i][begin..end].iter());
-//         }
+                // Update the state of the computation
+                *begin = end;
+                remaining -= to_read;
+            } else {
+                // We may encounter classes that have been read completely,
+                // so we must ensure that those won't be missed
+                training_set.extend(&class[..]);
+            }
+        }
+        for (class, _) in iter {
+            // If we already put all the required records into `test_set`,
+            // but some classes are left, we put them into `training_set`
+            training_set.extend(&class[..]);
+        }
 
-//         Some((
-//             Dataset {
-//                 records: self.dataset[begin..end]
-//                     .iter()
-//                     .map(|r| Cow::Borrowed(r.borrow()))
-//                     .collect(),
-//                 generator: self.dataset.generator.clone(),
-//             },
-//             Dataset {
-//                 records: self.dataset[..begin]
-//                     .iter()
-//                     .chain(self.dataset[end..].iter())
-//                     .map(|r| Cow::Borrowed(r.borrow()))
-//                     .collect(),
-//                 generator: self.dataset.generator.clone(),
-//             },
-//         ))
-//     }
-// }
+        Some((training_set, test_set))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -195,26 +187,192 @@ mod tests {
             assert_eq!(kfold.size, 4);
             assert_eq!(kfold.iteration, 3);
 
-            assert_eq!(kfold.next().is_none(), true);
-            assert_eq!(kfold.next().is_none(), true);
+            assert_eq!(kfold.next(), None);
+            assert_eq!(kfold.next(), None);
         }
     }
 
-    // mod stratified_kfold {
-    //     use super::*;
+    mod stratified_kfold {
+        use super::*;
 
-    //     #[test]
-    //     fn creation() {
-    //         let dataset = vec![(1, 1), (1, 2), (2, 1), (2, 2), (3, 1)];
-    //         let skf = StratifiedKFold::new(&dataset, 3, |v| &v.0);
+        #[test]
+        fn creation_imperfect_slice() {
+            let dataset: Vec<_> = (0..11).collect();
+            let labels = vec![0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2];
+            let skf = StratifiedKFold::new(&dataset, &labels, 3);
 
-    //         assert_eq!(skf.classes[0].len(), 2);
-    //         assert_eq!(skf.classes[1].len(), 2);
-    //         assert_eq!(skf.classes[2].len(), 1);
+            assert_eq!(skf.dataset_len, 11);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 2);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 0);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 3);
+            assert_eq!(skf.classes[2].len(), 2);
+            assert_eq!(skf.read_infos[0], (0, 2));
+            assert_eq!(skf.read_infos[1], (0, 1));
+            assert_eq!(skf.read_infos[2], (0, 1));
+        }
 
-    //         assert_eq!(skf.windows[0], 1);
-    //         assert_eq!(skf.windows[1], 1);
-    //         assert_eq!(skf.windows[2], 1);
-    //     }
-    // }
+        #[test]
+        fn creation_perfect_slice() {
+            let dataset: Vec<_> = (0..9).collect();
+            let labels = vec![0, 0, 0, 0, 0, 0, 1, 1, 2];
+            let skf = StratifiedKFold::new(&dataset, &labels, 3);
+
+            assert_eq!(skf.dataset_len, 9);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 0);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 0);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 2);
+            assert_eq!(skf.classes[2].len(), 1);
+            assert_eq!(skf.read_infos[0], (0, 2));
+            assert_eq!(skf.read_infos[1], (0, 1));
+            assert_eq!(skf.read_infos[2], (0, 1));
+        }
+
+        #[test]
+        fn state_transition_imperfect_slice() {
+            let dataset: Vec<_> = (0..11).collect();
+            let labels = vec![0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2];
+            let mut skf = StratifiedKFold::new(&dataset, &labels, 3);
+
+            skf.next().unwrap();
+            assert_eq!(skf.dataset_len, 11);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 1);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 1);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 3);
+            assert_eq!(skf.classes[2].len(), 2);
+            assert_eq!(skf.read_infos[0], (2, 2));
+            assert_eq!(skf.read_infos[1], (1, 1));
+            assert_eq!(skf.read_infos[2], (1, 1));
+
+            skf.next().unwrap();
+            assert_eq!(skf.dataset_len, 11);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 0);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 2);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 3);
+            assert_eq!(skf.classes[2].len(), 2);
+            assert_eq!(skf.read_infos[0], (4, 2));
+            assert_eq!(skf.read_infos[1], (2, 1));
+            assert_eq!(skf.read_infos[2], (2, 1));
+
+            skf.next().unwrap();
+            assert_eq!(skf.dataset_len, 11);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 0);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 3);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 3);
+            assert_eq!(skf.classes[2].len(), 2);
+            assert_eq!(skf.read_infos[0], (6, 2));
+            assert_eq!(skf.read_infos[1], (3, 1));
+            assert_eq!(skf.read_infos[2], (2, 1));
+
+            assert_eq!(skf.next(), None);
+            assert_eq!(skf.next(), None);
+        }
+
+        #[test]
+        fn state_transition_perfect_slice() {
+            let dataset: Vec<_> = (0..9).collect();
+            let labels = vec![0, 0, 0, 0, 0, 0, 1, 1, 2];
+            let mut skf = StratifiedKFold::new(&dataset, &labels, 3);
+
+            skf.next().unwrap();
+            assert_eq!(skf.dataset_len, 9);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 0);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 1);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 2);
+            assert_eq!(skf.classes[2].len(), 1);
+            assert_eq!(skf.read_infos[0], (2, 2));
+            assert_eq!(skf.read_infos[1], (1, 1));
+            assert_eq!(skf.read_infos[2], (0, 1));
+
+            skf.next().unwrap();
+            assert_eq!(skf.dataset_len, 9);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 0);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 2);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 2);
+            assert_eq!(skf.classes[2].len(), 1);
+            assert_eq!(skf.read_infos[0], (4, 2));
+            assert_eq!(skf.read_infos[1], (2, 1));
+            assert_eq!(skf.read_infos[2], (0, 1));
+
+            skf.next().unwrap();
+            assert_eq!(skf.dataset_len, 9);
+            assert_eq!(skf.set_len, 3);
+            assert_eq!(skf.left, 0);
+            assert_eq!(skf.splits, 3);
+            assert_eq!(skf.iterations, 3);
+            assert_eq!(skf.classes[0].len(), 6);
+            assert_eq!(skf.classes[1].len(), 2);
+            assert_eq!(skf.classes[2].len(), 1);
+            assert_eq!(skf.read_infos[0], (6, 2));
+            assert_eq!(skf.read_infos[1], (2, 1));
+            assert_eq!(skf.read_infos[2], (1, 1));
+
+            assert_eq!(skf.next(), None);
+            assert_eq!(skf.next(), None);
+        }
+
+        #[test]
+        fn imperfect_slice() {
+            let dataset: Vec<_> = (0..11).collect();
+            let labels = vec![0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2];
+            let mut skf = StratifiedKFold::new(&dataset, &labels, 3);
+
+            let (training, test) = skf.next().unwrap();
+            assert_eq!(training, vec![&2, &3, &4, &5, &7, &8, &10]);
+            assert_eq!(test, vec![&0, &1, &6, &9]);
+
+            let (training, test) = skf.next().unwrap();
+            assert_eq!(training, vec![&0, &1, &4, &5, &6, &8, &9]);
+            assert_eq!(test, vec![&2, &3, &7, &10]);
+
+            let (training, test) = skf.next().unwrap();
+            assert_eq!(training, vec![&0, &1, &2, &3, &6, &7, &9, &10]);
+            assert_eq!(test, vec![&4, &5, &8]);
+
+            assert_eq!(skf.next(), None);
+            assert_eq!(skf.next(), None);
+        }
+
+        #[test]
+        fn perfect_slice() {
+            let dataset: Vec<_> = (0..9).collect();
+            let labels = vec![0, 0, 0, 0, 0, 0, 1, 1, 2];
+            let mut skf = StratifiedKFold::new(&dataset, &labels, 3);
+
+            let (training, test) = skf.next().unwrap();
+            assert_eq!(training, vec![&2, &3, &4, &5, &7, &8]);
+            assert_eq!(test, vec![&0, &1, &6]);
+
+            let (training, test) = skf.next().unwrap();
+            assert_eq!(training, vec![&0, &1, &4, &5, &6, &8]);
+            assert_eq!(test, vec![&2, &3, &7]);
+
+            let (training, test) = skf.next().unwrap();
+            assert_eq!(training, vec![&0, &1, &2, &3, &6, &7]);
+            assert_eq!(test, vec![&4, &5, &8]);
+
+            assert_eq!(skf.next(), None);
+            assert_eq!(skf.next(), None);
+        }
+    }
 }
