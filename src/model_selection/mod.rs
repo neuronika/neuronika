@@ -94,7 +94,7 @@ impl<'a, T> StratifiedKFold<'a, T> {
     }
 }
 
-impl<'a, T: Clone> Iterator for StratifiedKFold<'a, T> {
+impl<'a, T> Iterator for StratifiedKFold<'a, T> {
     type Item = (Vec<&'a T>, Vec<&'a T>);
 
     fn next(&mut self) -> Option<Self::Item> {
