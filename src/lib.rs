@@ -41,6 +41,24 @@ macro_rules! tensor {
     }};
 }
 
+/// Creates an Input node from a **ndarray** array.
+///
+/// # Examples
+///
+/// ```
+/// use ndarray;
+/// use neuronika;
+///
+/// let a = ndarray::array![[1., 2.], [3.,4.]];
+/// let t = neuronika::from_ndarray(a.clone());
+///
+/// assert_eq!(*t.data(), a);
+///
+/// ```
+pub fn from_ndarray<D: Dimension>(array: Array<f32, D>) -> Var<Input<D>> {
+    Input::new(array)
+}
+
 /// Creates an Input node node with zeroed data.
 ///
 /// The shape is of type `ndarray::ShapeBuilder`.

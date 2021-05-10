@@ -7,6 +7,8 @@ use ndarray::{
     linalg::{general_mat_mul, general_mat_vec_mul},
     stack, Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
 };
+use rand::thread_rng;
+use rand_distr::{Bernoulli, Distribution};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     rc::Rc,
@@ -1702,6 +1704,99 @@ impl<T: Data> Forward for Chunk<T> {
 }
 
 impl<T: Data> Data for Chunk<T> {
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Dropout ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct Dropout<T: Data> {
+    operand: Rc<T>,
+    data: RefCell<Tensor<T::Dim>>,
+    noise: RefCell<Tensor<T::Dim>>,
+    distr: Bernoulli,
+    p: f64,
+    computed: Cell<bool>,
+    train: Cell<bool>,
+}
+
+impl<T: Data> Dropout<T> {
+    pub fn new(operand: Rc<T>, p: f64) -> Self {
+        if !(0. ..=1.).contains(&p) {
+            panic!(
+                "error: dropout probability has to be between 0 and 1, but got {}.",
+                p
+            );
+        }
+
+        let (data, noise) = (
+            RefCell::new(Tensor::zeros(operand.data().raw_dim())),
+            RefCell::new(Tensor::zeros(operand.data().raw_dim())),
+        );
+        let distr = Bernoulli::new(1. - p).unwrap();
+
+        Self {
+            operand,
+            data,
+            noise,
+            distr,
+            p,
+            computed: Cell::new(false),
+            train: Cell::new(true),
+        }
+    }
+
+    pub(crate) fn noise(&self) -> Ref<Tensor<T::Dim>> {
+        self.noise.borrow()
+    }
+
+    pub(crate) fn set_train(&self, status: bool) {
+        self.train.set(status)
+    }
+}
+
+impl<T: Data> Forward for Dropout<T> {
+    #[allow(clippy::float_cmp)]
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        if self.train.get() {
+            let mut thread_rng = thread_rng();
+            let (mut noise, distr, p) = (self.noise.borrow_mut(), &self.distr, &self.p);
+            if *p == 1. {
+                Zip::from(&mut *self.data.borrow_mut()).for_each(|data_el| *data_el = 0.0);
+            } else if *p == 0. {
+                Zip::from(&mut *self.data.borrow_mut())
+                    .and(&*self.operand.data())
+                    .for_each(|data_el, operand_data_el| *data_el = *operand_data_el);
+            } else {
+                Zip::from(&mut *noise)
+                    .for_each(|noise_el| *noise_el = distr.sample(&mut thread_rng) as i32 as f32);
+                Zip::from(&mut *self.data.borrow_mut())
+                    .and(&*self.operand.data())
+                    .and(&*noise)
+                    .for_each(|data_el, operand_data_el, noise_el| {
+                        *data_el = (operand_data_el * noise_el) / (1. - *p as f32)
+                    });
+            }
+        }
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: Data> Data for Dropout<T> {
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -4059,6 +4154,121 @@ mod tests {
             assert_almost_equals(
                 &*node.data(),
                 &new_tensor((3, 3, 1), vec![-3., -2., -1., 0., 1., 2., 3., 4., 5.]),
+            );
+        }
+    }
+
+    mod dropout {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Dropout::new(input, 0.5);
+
+            assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        #[should_panic(
+            expected = "error: dropout probability has to be between 0 and 1, but got -0.5."
+        )]
+        fn creation_less_than_zero() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let _ = Dropout::new(input, -0.5);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Dropout::new(input, 0.5);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward_p_one() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Dropout::new(input.clone(), 1.);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor((3, 3), vec![0.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
+            );
+
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor((3, 3), vec![0.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor((3, 3), vec![0.; 9]));
+        }
+
+        #[test]
+        fn forward_scaling() {
+            let input = new_input((3, 3), vec![3.; 9]);
+            let node = Dropout::new(input.clone(), 0.5);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            node.data().iter().any(|el| *el == 0. || *el == 6.);
+        }
+
+        #[test]
+        fn forward_p_zero() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Dropout::new(input.clone(), 0.);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
+            );
+
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
             );
         }
     }
