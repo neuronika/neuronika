@@ -2,7 +2,7 @@ use super::{
     super::{BroadTensor, Broadcasted, DynTensor, Tensor},
     broadcasted_zeros,
     forward::{Data, Input},
-    DotDim,
+    DotDim, Dropout,
 };
 use ndarray::{
     concatenate,
@@ -3934,6 +3934,117 @@ impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
 }
 
 impl<T: Gradient + Overwrite> Overwrite for ChunkBackward<T> {
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DropoutBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct DropoutBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    operand_grad: Rc<T>,
+    dropout_forward: Rc<Dropout<U>>,
+    gradient: RefCell<Tensor<T::Dim>>,
+    p: f64,
+    train: Cell<bool>,
+    overwrite: Cell<bool>,
+}
+
+impl<T, U> DropoutBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    pub fn new(
+        operand_grad: Rc<T>,
+        dropout_forward: Rc<Dropout<U>>,
+        p: f64,
+    ) -> DropoutBackward<T, U> {
+        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+
+        Self {
+            operand_grad,
+            dropout_forward,
+            gradient,
+            p,
+            train: Cell::new(true),
+            overwrite: Cell::new(true),
+        }
+    }
+
+    pub(crate) fn set_train(&self, status: bool) {
+        self.train.set(status)
+    }
+}
+
+impl<T, U> Gradient for DropoutBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = T::Dim;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.gradient.borrow()
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.gradient.borrow_mut()
+    }
+}
+
+impl<T, U> Backward for DropoutBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    #[allow(clippy::float_cmp)]
+    fn backward(&self) {
+        if self.train.get() {
+            let mut op_grad = self.operand_grad.gradient_mut();
+            let grad = self.gradient();
+            let p = &self.p;
+            if *p == 1. {
+                if self.operand_grad.can_overwrite() {
+                    Zip::from(&mut *op_grad).for_each(|op_grad_el| *op_grad_el = 0.);
+                    self.operand_grad.set_overwrite(false);
+                }
+            } else if *p == 0. {
+                let zip = Zip::from(&mut *op_grad).and(&*grad);
+                if self.operand_grad.can_overwrite() {
+                    zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
+                    self.operand_grad.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
+                }
+            } else {
+                let noise = self.dropout_forward.noise();
+                let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*noise);
+                if self.operand_grad.can_overwrite() {
+                    zip.for_each(|op_grad_el, grad_el, noise_el| *op_grad_el = *grad_el * noise_el);
+                    self.operand_grad.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad_el, grad_el, noise_el| {
+                        *op_grad_el += *grad_el * noise_el
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl<T, U> Overwrite for DropoutBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
     }
@@ -7898,6 +8009,127 @@ mod tests {
             rhs.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*rhs.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+        }
+    }
+
+    mod backward_dropout {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let node = DropoutBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.5)),
+                0.5,
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let input = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DropoutBackward::new(
+                input.clone(),
+                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.5)),
+                0.5,
+            );
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(input.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(input.can_overwrite(), false);
+
+            input.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(input.can_overwrite(), true);
+
+            input.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(input.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            input.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
+
+            input.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(input.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward_p_one() {
+            let input = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DropoutBackward::new(
+                input.clone(),
+                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 1.)),
+                1.,
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![0.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Accumulation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![0.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            input.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![0.; 9]));
+        }
+
+        #[test]
+        fn backward_p_zero() {
+            let input = new_backward_input((3, 3), vec![0.; 9]);
+            let node = DropoutBackward::new(
+                input.clone(),
+                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.)),
+                0.,
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
+            assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Accumulation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Overwrite ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            input.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![1.; 9]));
         }
     }
 }

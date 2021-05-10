@@ -7,15 +7,15 @@ use node::{
     forward::{Data, Forward},
     Addition, AdditionBackward, AdditionBackwardUnary, Chunk, ChunkBackward, Concatenate,
     ConcatenateBackward, ConcatenateBackwardLeft, ConcatenateBackwardRight, Division,
-    DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Exp, ExpBackward, LeakyReLU,
-    LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul,
-    MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight,
-    MatrixMatrixMulT, MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft,
-    MatrixMatrixMulTBackwardRight, MatrixVectorMul, MatrixVectorMulBackward,
-    MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight, Multiplication,
-    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Power,
-    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
-    Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
+    DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout, DropoutBackward, Exp,
+    ExpBackward, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward,
+    MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
+    MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackward,
+    MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
+    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
+    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
+    NegationBackward, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
+    SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
     StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
     SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
     Unsqueeze, UnsqueezeBackward, VectorMatrixMul, VectorMatrixMulBackward,
@@ -403,6 +403,22 @@ impl<T: Data + 'static> Var<T> {
         }
     }
 
+    pub fn dropout(mut self, p: f64) -> Var<Dropout<T>> {
+        let node = self.node;
+        let (id, node) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Dropout::new(node, p)),
+        );
+        self.path.insert(id, node.clone() as Rc<dyn Forward>);
+
+        Var {
+            id,
+            node,
+            path: self.path,
+            buffer: Vec::new(),
+        }
+    }
+
     pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
         let node = self.node;
         let path = self.path;
@@ -426,6 +442,15 @@ impl<T: Data + 'static> Var<T> {
                 }
             })
             .collect()
+    }
+}
+
+impl<T> Var<Dropout<T>>
+where
+    T: Data,
+{
+    pub fn train(&self, status: bool) {
+        self.node.set_train(status);
     }
 }
 
@@ -894,6 +919,41 @@ where
                 }
             })
             .collect()
+    }
+
+    pub fn dropout(mut self, p: f64) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
+        let (forward, backward) = (self.forward, self.backward);
+        let (id, forward) = (
+            unsafe { OPERATIONS_COUNTER.next() },
+            Rc::new(Dropout::new(forward, p)),
+        );
+        let backward = Rc::new(DropoutBackward::new(backward, forward.clone(), p));
+        self.forward_path
+            .insert(id, forward.clone() as Rc<dyn Forward>);
+        self.backward_path
+            .insert(id, backward.clone() as Rc<dyn Backward>);
+
+        VarDiff {
+            id,
+            forward,
+            backward,
+            forward_path: self.forward_path,
+            backward_path: self.backward_path,
+            forward_buffer: Vec::new(),
+            backward_buffer: Vec::new(),
+            parameters: self.parameters,
+        }
+    }
+}
+
+impl<T, U> VarDiff<Dropout<T>, DropoutBackward<U, T>>
+where
+    T: Data,
+    U: Gradient<Dim = T::Dim> + Overwrite,
+{
+    pub fn train(&self, status: bool) {
+        self.forward.set_train(status);
+        self.backward.set_train(status);
     }
 }
 
