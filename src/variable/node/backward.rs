@@ -161,7 +161,7 @@ pub struct InputBackward<D: Dimension> {
 
 impl<D: Dimension> InputBackward<D> {
     pub fn zero_grad(&self) {
-        self.gradient.borrow_mut().map_inplace(|el| *el = 0.0);
+        self.gradient.borrow_mut().fill(0.);
     }
 }
 

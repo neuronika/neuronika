@@ -210,7 +210,7 @@ where
 /// ```
 pub fn mse_loss<T, U, V>(
     mut input: VarDiff<T, U>,
-    mut target: Var<V>,
+    target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
@@ -218,41 +218,36 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.path);
-
-    let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.node;
+    input.var.past.merge(target.past);
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
         Rc::new(MSELoss::new(
-            input_forward.clone(),
-            target_forward.clone(),
+            input.var.node.clone(),
+            target.node.clone(),
             reduction.clone(),
         )),
         Rc::new(MSELossBackward::new(
-            input_backward,
-            input_forward,
-            target_forward,
+            input.node,
+            input.var.node,
+            target.node,
             reduction,
         )),
     );
     input
-        .forward_path
-        .insert(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .backward_path
-        .insert(id, backward.clone() as Rc<dyn Backward>);
+        .var
+        .past
+        .extend(id, forward.clone() as Rc<dyn Forward>);
+    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
-        id,
-        forward,
-        backward,
-        forward_path: input.forward_path,
-        backward_path: input.backward_path,
-        forward_buffer: Vec::new(),
-        backward_buffer: Vec::new(),
-        parameters: input.parameters,
+        var: Var {
+            node: forward,
+            past: input.var.past,
+        },
+
+        node: backward,
+        past: input.past,
     }
 }
 
@@ -452,7 +447,7 @@ where
 /// ```
 pub fn mae_loss<T, U, V>(
     mut input: VarDiff<T, U>,
-    mut target: Var<V>,
+    target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
@@ -460,41 +455,36 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.path);
-
-    let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.node;
+    input.var.past.merge(target.past);
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
         Rc::new(MAELoss::new(
-            input_forward.clone(),
-            target_forward.clone(),
+            input.var.node.clone(),
+            target.node.clone(),
             reduction.clone(),
         )),
         Rc::new(MAELossBackward::new(
-            input_backward,
-            input_forward,
-            target_forward,
+            input.node,
+            input.var.node,
+            target.node,
             reduction,
         )),
     );
     input
-        .forward_path
-        .insert(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .backward_path
-        .insert(id, backward.clone() as Rc<dyn Backward>);
+        .var
+        .past
+        .extend(id, forward.clone() as Rc<dyn Forward>);
+    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
-        id,
-        forward,
-        backward,
-        forward_path: input.forward_path,
-        backward_path: input.backward_path,
-        forward_buffer: Vec::new(),
-        backward_buffer: Vec::new(),
-        parameters: input.parameters,
+        var: Var {
+            node: forward,
+            past: input.var.past,
+        },
+
+        node: backward,
+        past: input.past,
     }
 }
 
@@ -702,7 +692,7 @@ where
 /// to -100. This way, we can always have a finite loss value.
 pub fn bce_loss<T, U, V>(
     mut input: VarDiff<T, U>,
-    mut target: Var<V>,
+    target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
@@ -710,41 +700,36 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.path);
-
-    let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.node;
+    input.var.past.merge(target.past);
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
         Rc::new(BCELoss::new(
-            input_forward.clone(),
-            target_forward.clone(),
+            input.var.node.clone(),
+            target.node.clone(),
             reduction.clone(),
         )),
         Rc::new(BCELossBackward::new(
-            input_backward,
-            input_forward,
-            target_forward,
+            input.node,
+            input.var.node,
+            target.node,
             reduction,
         )),
     );
     input
-        .forward_path
-        .insert(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .backward_path
-        .insert(id, backward.clone() as Rc<dyn Backward>);
+        .var
+        .past
+        .extend(id, forward.clone() as Rc<dyn Forward>);
+    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
-        id,
-        forward,
-        backward,
-        forward_path: input.forward_path,
-        backward_path: input.backward_path,
-        forward_buffer: Vec::new(),
-        backward_buffer: Vec::new(),
-        parameters: input.parameters,
+        var: Var {
+            node: forward,
+            past: input.var.past,
+        },
+
+        node: backward,
+        past: input.past,
     }
 }
 
@@ -964,7 +949,7 @@ where
 /// input **x** should be raw unnormalized scores.
 pub fn bce_with_logits_loss<T, U, V>(
     mut input: VarDiff<T, U>,
-    mut target: Var<V>,
+    target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
@@ -972,41 +957,36 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
-    input.forward_path.append(&mut target.path);
-
-    let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.node;
+    input.var.past.merge(target.past);
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
         Rc::new(BCEWithLogitsLoss::new(
-            input_forward.clone(),
-            target_forward.clone(),
+            input.var.node.clone(),
+            target.node.clone(),
             reduction.clone(),
         )),
         Rc::new(BCEWithLogitsLossBackward::new(
-            input_backward,
-            input_forward,
-            target_forward,
+            input.node,
+            input.var.node,
+            target.node,
             reduction,
         )),
     );
     input
-        .forward_path
-        .insert(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .backward_path
-        .insert(id, backward.clone() as Rc<dyn Backward>);
+        .var
+        .past
+        .extend(id, forward.clone() as Rc<dyn Forward>);
+    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
-        id,
-        forward,
-        backward,
-        forward_path: input.forward_path,
-        backward_path: input.backward_path,
-        forward_buffer: Vec::new(),
-        backward_buffer: Vec::new(),
-        parameters: input.parameters,
+        var: Var {
+            node: forward,
+            past: input.var.past,
+        },
+
+        node: backward,
+        past: input.past,
     }
 }
 
@@ -1225,7 +1205,7 @@ where
 /// **(minibatch, d1, d2, ..., dk)**.
 pub fn nll_loss<T, U, V>(
     mut input: VarDiff<T, U>,
-    mut target: Var<V>,
+    target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<impl Data<Dim = Ix1>, impl Gradient<Dim = Ix1> + Overwrite>
 where
@@ -1234,40 +1214,31 @@ where
     V: Data,
     T::Dim: Copy,
 {
-    input.forward_path.append(&mut target.path);
-
-    let (input_forward, input_backward) = (input.forward, input.backward);
-    let target_forward = target.node;
+    input.var.past.merge(target.past);
 
     let (id, forward, backward) = (
         unsafe { OPERATIONS_COUNTER.next() },
         Rc::new(NLLLoss::new(
-            input_forward,
-            target_forward.clone(),
+            input.var.node.clone(),
+            target.node.clone(),
             reduction.clone(),
         )),
-        Rc::new(NLLLossBackward::new(
-            input_backward,
-            target_forward,
-            reduction,
-        )),
+        Rc::new(NLLLossBackward::new(input.node, target.node, reduction)),
     );
     input
-        .forward_path
-        .insert(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .backward_path
-        .insert(id, backward.clone() as Rc<dyn Backward>);
+        .var
+        .past
+        .extend(id, forward.clone() as Rc<dyn Forward>);
+    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
-        id,
-        forward,
-        backward,
-        forward_path: input.forward_path,
-        backward_path: input.backward_path,
-        forward_buffer: Vec::new(),
-        backward_buffer: Vec::new(),
-        parameters: input.parameters,
+        var: Var {
+            node: forward,
+            past: input.var.past,
+        },
+
+        node: backward,
+        past: input.past,
     }
 }
 
