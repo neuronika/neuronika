@@ -391,6 +391,15 @@ impl<T: Data + 'static> Var<T> {
     }
 }
 
+impl<T> Var<Dropout<T>>
+where
+    T: Data,
+{
+    pub fn train(&self, status: bool) {
+        self.node.set_train(status);
+    }
+}
+
 impl<T> Var<T>
 where
     T: Data + 'static,
@@ -398,15 +407,6 @@ where
 {
     pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
         Var::from(Unsqueeze::new(self.node, axis), self.past)
-    }
-}
-
-impl<T> Var<Dropout<T>>
-where
-    T: Data,
-{
-    pub fn train(&self, status: bool) {
-        self.node.set_train(status);
     }
 }
 

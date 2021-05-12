@@ -349,23 +349,6 @@ fn flatten<D: Dimension, S: RawData>(array: ArrayBase<S, D>) -> ArrayBase<S, Ix2
     array.into_shape(new_shape).unwrap()
 }
 
-pub fn output_map_view_mut<D: Dimension, S: DataMut<Elem = f32>>(
-    array: &mut ArrayBase<S, D>,
-) -> ArrayViewMut<f32, D> {
-    let mut new_strides = array.raw_dim();
-    let old_strides: &[isize] = array.strides();
-    let to_swap = old_strides.iter().take(2).rev();
-    let rest = old_strides.iter().skip(2);
-    new_strides
-        .slice_mut()
-        .iter_mut()
-        .zip(to_swap.chain(rest))
-        .for_each(|(stridel_el, new_stride)| *stridel_el = *new_stride as usize);
-    unsafe {
-        ArrayViewMut::from_shape_ptr(array.raw_dim().strides(new_strides), array.as_mut_ptr())
-    }
-}
-
 /// Puts the axis corresponding to the output channels of the feature map `array`
 /// in the last position and returns the input with swapped axes.
 fn permute_channels<D: Dimension>(
