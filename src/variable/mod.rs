@@ -56,6 +56,93 @@ impl OperationsCounter {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct VarHistory {
+    path: BTreeMap<usize, Rc<dyn Forward>>,
+    buffer: Vec<Rc<dyn Forward>>,
+}
+
+impl VarHistory {
+    pub fn new() -> Self {
+        Self {
+            path: BTreeMap::new(),
+            buffer: Vec::new(),
+        }
+    }
+
+    pub fn merge(&mut self, mut other: VarHistory) {
+        self.path.append(&mut other.path);
+    }
+
+    pub fn extend(&mut self, id: usize, next: Rc<dyn Forward>) {
+        self.path.insert(id, next);
+        self.buffer.truncate(0);
+    }
+
+    pub fn len(&self) -> usize {
+        self.path.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.path.is_empty()
+    }
+
+    pub fn prepare_buffer(&mut self) {
+        if self.buffer.is_empty() {
+            self.buffer = self.path.values().cloned().collect();
+        }
+    }
+
+    pub fn buffer(&self) -> &Vec<Rc<dyn Forward>> {
+        &self.buffer
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct DiffVarHistory {
+    path: BTreeMap<usize, Rc<dyn Backward>>,
+    buffer: Vec<Rc<dyn Backward>>,
+    parameters: HashSet<Param>,
+}
+
+impl DiffVarHistory {
+    pub fn new(parameters: HashSet<Param>) -> Self {
+        Self {
+            path: BTreeMap::new(),
+            buffer: Vec::new(),
+            parameters,
+        }
+    }
+
+    pub fn merge(&mut self, mut other: DiffVarHistory) {
+        self.path.append(&mut other.path);
+        self.parameters.extend(other.parameters);
+    }
+
+    pub fn extend(&mut self, id: usize, next: Rc<dyn Backward>) {
+        self.path.insert(id, next);
+        self.buffer.truncate(0);
+    }
+
+    pub fn len(&self) -> usize {
+        self.path.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.path.is_empty()
+    }
+
+    pub fn prepare_buffer(&mut self) {
+        if self.buffer.is_empty() {
+            self.buffer = self.path.values().cloned().collect();
+        }
+    }
+
+    pub fn buffer(&self) -> &Vec<Rc<dyn Backward>> {
+        &self.buffer
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Param Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -146,14 +233,9 @@ pub trait Stack<Rhs> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Non differentiable Variable ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Var<T>
-where
-    T: Data + 'static,
-{
-    pub(crate) id: usize,
+pub struct Var<T: Data + 'static> {
     pub(crate) node: Rc<T>,
-    pub(crate) path: BTreeMap<usize, Rc<dyn Forward>>,
-    pub(crate) buffer: Vec<Rc<dyn Forward>>,
+    pub(crate) past: VarHistory,
 }
 
 impl<T> Clone for Var<T>
@@ -162,10 +244,8 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            id: self.id,
             node: self.node.clone(),
-            path: self.path.clone(),
-            buffer: self.buffer.clone(),
+            past: self.past.clone(),
         }
     }
 }
@@ -175,44 +255,35 @@ where
     D: Dimension,
 {
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
-        debug_assert_eq!(self.path.is_empty(), true);
-        debug_assert_eq!(self.buffer.is_empty(), true);
+        debug_assert_eq!(self.past.is_empty(), true);
 
         if Rc::strong_count(&self.node) > 2 {
             panic!("error: cannot make the Input differentiable.")
         }
-        let backward = Rc::new(self.node.differentiable());
+        let node = Rc::new(self.node.differentiable());
+        let mut gradient = node.gradient_mut();
         let mut parameters = HashSet::new();
-        {
-            let (mut data, mut gradient) = (self.node.data_mut(), backward.gradient_mut());
-            parameters.insert(Param::new(
-                data.as_mut_ptr(),
-                gradient.as_mut_ptr(),
-                gradient.shape().to_vec(),
-            ));
-        }
+        parameters.insert(Param::new(
+            self.node.data_mut().as_mut_ptr(),
+            gradient.as_mut_ptr(),
+            gradient.shape().to_vec(),
+        ));
 
         VarDiff {
-            id: usize::MAX,
-            forward: self.node,
-            backward,
-            forward_path: self.path,
-            backward_path: BTreeMap::new(),
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters,
+            var: self,
+            node: node.clone(),
+            past: DiffVarHistory::new(parameters),
         }
     }
 }
 
 impl<T: Data + Forward + 'static> Var<T> {
     pub fn forward(&mut self) {
-        if self.buffer.is_empty() {
-            self.buffer = self.path.values().cloned().collect()
-        }
+        self.past.prepare_buffer();
 
-        let mut res = self.buffer.binary_search_by(|node| {
-            if node.was_computed() {
+        let buffer = self.past.buffer();
+        let mut res = buffer.binary_search_by(|n| {
+            if n.was_computed() {
                 std::cmp::Ordering::Less
             } else {
                 std::cmp::Ordering::Greater
@@ -220,26 +291,31 @@ impl<T: Data + Forward + 'static> Var<T> {
         });
 
         if let Err(i) = res {
-            if self.buffer.get(i).is_some() {
+            if buffer.get(i).is_some() {
                 res = Ok(i);
             }
         };
 
         if let Ok(pos) = res {
-            for node in &self.buffer[pos..] {
+            for node in &buffer[pos..] {
                 node.forward();
             }
         }
+    }
+
+    pub(crate) fn from(node: T, mut past: VarHistory) -> Self {
+        let node = Rc::new(node);
+        past.extend(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+
+        Var { node, past }
     }
 }
 
 impl<T: Data + 'static> Var<T> {
     pub(crate) fn new(node: T) -> Self {
         Self {
-            id: usize::MAX,
             node: Rc::new(node),
-            path: BTreeMap::new(),
-            buffer: Vec::new(),
+            past: VarHistory::new(),
         }
     }
 
@@ -247,201 +323,81 @@ impl<T: Data + 'static> Var<T> {
         self.node.data()
     }
 
-    pub fn sum(mut self) -> Var<Sum<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Sum::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn sum(self) -> Var<Sum<T>> {
+        Var::from(Sum::new(self.node), self.past)
     }
 
-    pub fn pow(mut self, exp: i32) -> Var<Power<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Power::new(self.node, exp));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn pow(self, exp: i32) -> Var<Power<T>> {
+        Var::from(Power::new(self.node, exp), self.past)
     }
 
-    pub fn relu(mut self) -> Var<ReLU<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(ReLU::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn relu(self) -> Var<ReLU<T>> {
+        Var::from(ReLU::new(self.node), self.past)
     }
 
-    pub fn leaky_relu(mut self) -> Var<LeakyReLU<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(LeakyReLU::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn leaky_relu(self) -> Var<LeakyReLU<T>> {
+        Var::from(LeakyReLU::new(self.node), self.past)
     }
 
-    pub fn softplus(mut self) -> Var<SoftPlus<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(SoftPlus::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn softplus(self) -> Var<SoftPlus<T>> {
+        Var::from(SoftPlus::new(self.node), self.past)
     }
 
-    pub fn sigmoid(mut self) -> Var<Sigmoid<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Sigmoid::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn sigmoid(self) -> Var<Sigmoid<T>> {
+        Var::from(Sigmoid::new(self.node), self.past)
     }
 
-    pub fn tanh(mut self) -> Var<TanH<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(TanH::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn tanh(self) -> Var<TanH<T>> {
+        Var::from(TanH::new(self.node), self.past)
     }
 
-    pub fn ln(mut self) -> Var<Logn<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Logn::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn ln(self) -> Var<Logn<T>> {
+        Var::from(Logn::new(self.node), self.past)
     }
 
-    pub fn exp(mut self) -> Var<Exp<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Exp::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn exp(self) -> Var<Exp<T>> {
+        Var::from(Exp::new(self.node), self.past)
     }
 
-    pub fn softmax(mut self, axis: usize) -> Var<Softmax<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Softmax::new(self.node, axis));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn softmax(self, axis: usize) -> Var<Softmax<T>> {
+        Var::from(Softmax::new(self.node, axis), self.past)
     }
 
-    pub fn log_softmax(mut self, axis: usize) -> Var<LogSoftmax<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(LogSoftmax::new(self.node, axis));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn log_softmax(self, axis: usize) -> Var<LogSoftmax<T>> {
+        Var::from(LogSoftmax::new(self.node, axis), self.past)
     }
 
-    pub fn t(mut self) -> Var<Transpose<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Transpose::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn t(self) -> Var<Transpose<T>> {
+        Var::from(Transpose::new(self.node), self.past)
     }
 
-    pub fn dropout(mut self, p: f64) -> Var<Dropout<T>> {
-        let node = self.node;
-        let (id, node) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Dropout::new(node, p)),
-        );
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    pub fn dropout(self, p: f64) -> Var<Dropout<T>> {
+        Var::from(Dropout::new(self.node, p), self.past)
     }
 
     pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
-        let node = self.node;
-        let path = self.path;
-        let data = node.data();
-        let chunks = data.exact_chunks(chunk_size).into_iter().enumerate();
-        chunks
+        self.node
+            .data()
+            .exact_chunks(chunk_size)
+            .into_iter()
+            .enumerate()
             .map(|(i, chunk)| {
-                let (id, node) = (
-                    unsafe { OPERATIONS_COUNTER.next() },
-                    Rc::new(Chunk::new(node.clone(), chunk.to_owned(), i)),
-                );
-
-                let mut new_forward_path = path.clone();
-                new_forward_path.insert(id, node.clone() as Rc<dyn Forward>);
-
-                Var {
-                    id,
-                    node,
-                    path: new_forward_path,
-                    buffer: Vec::new(),
-                }
+                Var::from(
+                    Chunk::new(self.node.clone(), chunk.to_owned(), i),
+                    self.past.clone(),
+                )
             })
             .collect()
+    }
+}
+
+impl<T> Var<T>
+where
+    T: Data + 'static,
+    T::Dim: RemoveAxis,
+{
+    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
+        Var::from(Unsqueeze::new(self.node, axis), self.past)
     }
 }
 
@@ -454,25 +410,6 @@ where
     }
 }
 
-impl<T> Var<T>
-where
-    T: Data + 'static,
-    T::Dim: RemoveAxis,
-{
-    pub fn unsqueeze(mut self, axis: usize) -> Var<Unsqueeze<T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Unsqueeze::new(self.node, axis));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
-    }
-}
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Differentiable Variable ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct VarDiff<T, U>
@@ -480,14 +417,9 @@ where
     T: Data + 'static,
     U: Gradient + Overwrite + 'static,
 {
-    pub(crate) id: usize,
-    pub(crate) forward: Rc<T>,
-    pub(crate) backward: Rc<U>,
-    pub(crate) forward_path: BTreeMap<usize, Rc<dyn Forward>>,
-    pub(crate) backward_path: BTreeMap<usize, Rc<dyn Backward>>,
-    pub(crate) forward_buffer: Vec<Rc<dyn Forward>>,
-    pub(crate) backward_buffer: Vec<Rc<dyn Backward>>,
-    pub(crate) parameters: HashSet<Param>,
+    pub(crate) var: Var<T>,
+    pub(crate) node: Rc<U>,
+    pub(crate) past: DiffVarHistory,
 }
 
 impl<T, U> Clone for VarDiff<T, U>
@@ -497,14 +429,9 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            id: self.id,
-            forward: self.forward.clone(),
-            backward: self.backward.clone(),
-            forward_path: self.forward_path.clone(),
-            backward_path: self.backward_path.clone(),
-            forward_buffer: self.forward_buffer.clone(),
-            backward_buffer: self.backward_buffer.clone(),
-            parameters: self.parameters.clone(),
+            var: self.var.clone(),
+            node: self.node.clone(),
+            past: self.past.clone(),
         }
     }
 }
@@ -514,84 +441,74 @@ where
     D: Dimension,
 {
     pub fn grad(&self) -> Ref<Tensor<D>> {
-        self.backward.gradient()
+        self.node.gradient()
     }
 
     pub(crate) fn data_mut(&mut self) -> RefMut<Tensor<D>> {
-        self.forward.data_mut()
+        self.var.node.data_mut()
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + Forward + 'static,
+    U: Gradient + Overwrite + Backward + 'static,
+{
+    pub(crate) fn from(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
+        let node = Rc::new(node);
+        past.extend(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+
+        VarDiff { var, node, past }
     }
 }
 
 impl<T, U> VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + Overwrite + 'static,
+    U: Gradient + Overwrite + 'static,
+{
+    pub fn data(&self) -> Ref<Tensor<T::Dim>> {
+        self.var.node.data()
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + Forward + 'static,
+    U: Gradient<Dim = T::Dim> + Overwrite + Backward + 'static,
 {
     pub fn forward(&mut self) {
-        if self.forward_buffer.is_empty() {
-            self.forward_buffer = self.forward_path.values().cloned().collect()
-        }
+        self.var.forward();
 
-        let mut res = self.forward_buffer.binary_search_by(|node| {
-            if node.was_computed() {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Greater
-            }
-        });
+        debug_assert!(self.past.buffer().is_empty() || self.past.len() == self.past.buffer().len());
+        // ! If the backward buffer isn't empty, then we're doing a `forward -> backward -> forward` chain,
+        // ! thus we must reset the `overwrite` bit of every `backward` node of our past
+        for node in self.past.buffer() {
+            // Todo: This can be done more efficently by looking for the first node
+            // Todo: that must be reset, in the same way for `forward` e `backward`
 
-        if let Err(pos) = res {
-            if pos != self.forward_buffer.len() {
-                debug_assert_eq!(pos, 0);
-
-                res = Ok(pos);
-            }
-        };
-
-        if let Ok(pos) = res {
-            for node in &self.forward_buffer[pos..] {
-                node.forward();
-            }
-
-            // ! Differently from below, we don't know if this `forward` comes after a `backward`
-            // ! so we can't ensure anything
-            if !self.backward_buffer.is_empty() {
-                debug_assert_eq!(self.backward_path.len(), self.backward_buffer.len());
-
-                for node in &self.backward_buffer {
-                    // Todo: This can be done more efficently by looking for the first node
-                    // Todo: that must be reset, in the same way for `forward` e `backward`
-
-                    node.set_overwrite(true);
-                }
-            }
+            node.set_overwrite(true);
         }
     }
 
     pub fn backward(&mut self, seed: f32) {
-        debug_assert_eq!(self.backward_path.is_empty(), false);
+        debug_assert_eq!(self.past.is_empty(), false);
 
-        if self.backward_buffer.is_empty() {
-            self.backward_buffer = self.backward_path.values().cloned().collect()
-        }
-
-        self.backward.gradient_mut().map_inplace(|el| *el = seed);
-        for node in self.backward_buffer.iter().rev() {
+        self.node.gradient_mut().fill(seed);
+        self.past.prepare_buffer();
+        let buffer = self.past.buffer();
+        for node in buffer.iter().rev() {
             node.backward();
         }
 
         // ! We are sure that the forward computation must have be already done
-        debug_assert_eq!(self.forward_path.len(), self.forward_buffer.len());
-        for node in &self.forward_buffer {
+        debug_assert_eq!(self.var.past.len(), self.var.past.buffer().len());
+        for node in self.var.past.buffer() {
             // Todo: This can be done more efficently by looking for the first node
             // Todo: that must be reset, in the same way for `forward`
 
             node.reset_computation();
         }
-    }
-
-    pub fn data(&self) -> Ref<Tensor<T::Dim>> {
-        self.forward.data()
     }
 }
 
@@ -601,348 +518,105 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
 {
     pub fn parameters(&self) -> Vec<Param> {
-        self.parameters.iter().cloned().collect()
+        self.past.parameters.iter().cloned().collect()
     }
 
-    pub fn sum(mut self) -> VarDiff<Sum<T>, SumBackward<U>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Sum::new(self.forward));
-        let backward = Rc::new(SumBackward::new(self.backward));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn sum(self) -> VarDiff<Sum<T>, SumBackward<U>> {
+        let node = SumBackward::new(self.node);
+        VarDiff::from(node, self.past, self.var.sum())
     }
 
-    pub fn pow(mut self, exp: i32) -> VarDiff<Power<T>, PowerBackward<U, T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Power::new(self.forward.clone(), exp));
-        let backward = Rc::new(PowerBackward::new(self.backward, self.forward, exp));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn pow(self, exp: i32) -> VarDiff<Power<T>, PowerBackward<U, T>> {
+        let node = PowerBackward::new(self.node, self.var.node.clone(), exp);
+        VarDiff::from(node, self.past, self.var.pow(exp))
     }
 
-    pub fn relu(mut self) -> VarDiff<ReLU<T>, ReLUBackward<U, T>> {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(ReLU::new(self.forward.clone()));
-        let backward = Rc::new(ReLUBackward::new(self.backward, self.forward));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn relu(self) -> VarDiff<ReLU<T>, ReLUBackward<U, T>> {
+        let node = ReLUBackward::new(self.node, self.var.node.clone());
+        VarDiff::from(node, self.past, self.var.relu())
     }
 
-    pub fn leaky_relu(mut self) -> VarDiff<LeakyReLU<T>, LeakyReLUBackward<U, T>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(LeakyReLU::new(forward.clone())),
-            Rc::new(LeakyReLUBackward::new(backward, forward)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn leaky_relu(self) -> VarDiff<LeakyReLU<T>, LeakyReLUBackward<U, T>> {
+        let node = LeakyReLUBackward::new(self.node, self.var.node.clone());
+        VarDiff::from(node, self.past, self.var.leaky_relu())
     }
 
-    pub fn softplus(mut self) -> VarDiff<SoftPlus<T>, SoftPlusBackward<U, T>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(SoftPlus::new(forward.clone())),
-            Rc::new(SoftPlusBackward::new(backward, forward)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn softplus(self) -> VarDiff<SoftPlus<T>, SoftPlusBackward<U, T>> {
+        let node = SoftPlusBackward::new(self.node, self.var.node.clone());
+        VarDiff::from(node, self.past, self.var.softplus())
     }
 
-    pub fn sigmoid(mut self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, Sigmoid<T>>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Sigmoid::new(forward)),
-        );
-        let backward = Rc::new(SigmoidBackward::new(backward, forward.clone()));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn sigmoid(self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, Sigmoid<T>>> {
+        let var = self.var.sigmoid();
+        let node = SigmoidBackward::new(self.node, var.node.clone());
+        VarDiff::from(node, self.past, var)
     }
 
-    pub fn tanh(mut self) -> VarDiff<TanH<T>, TanHBackward<U, TanH<T>>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(TanH::new(forward)),
-        );
-        let backward = Rc::new(TanHBackward::new(backward, forward.clone()));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn tanh(self) -> VarDiff<TanH<T>, TanHBackward<U, TanH<T>>> {
+        let var = self.var.tanh();
+        let node = TanHBackward::new(self.node, var.node.clone());
+        VarDiff::from(node, self.past, var)
     }
 
-    pub fn ln(mut self) -> VarDiff<Logn<T>, LognBackward<U, T>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Logn::new(forward.clone())),
-            Rc::new(LognBackward::new(backward, forward)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
-    }
-    pub fn exp(mut self) -> VarDiff<Exp<T>, ExpBackward<U, Exp<T>>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Exp::new(forward)),
-        );
-        let backward = Rc::new(ExpBackward::new(backward, forward.clone()));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn ln(self) -> VarDiff<Logn<T>, LognBackward<U, T>> {
+        let node = LognBackward::new(self.node, self.var.node.clone());
+        VarDiff::from(node, self.past, self.var.ln())
     }
 
-    pub fn softmax(mut self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, Softmax<T>>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Softmax::new(forward, axis)),
-        );
-        let backward = Rc::new(SoftmaxBackward::new(backward, forward.clone(), axis));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
+    pub fn exp(self) -> VarDiff<Exp<T>, ExpBackward<U, Exp<T>>> {
+        let var = self.var.exp();
+        let node = ExpBackward::new(self.node, var.node.clone());
+        VarDiff::from(node, self.past, var)
+    }
 
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn softmax(self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, Softmax<T>>> {
+        let var = self.var.softmax(axis);
+        let node = SoftmaxBackward::new(self.node, var.node.clone(), axis);
+        VarDiff::from(node, self.past, var)
     }
 
     pub fn log_softmax(
-        mut self,
+        self,
         axis: usize,
     ) -> VarDiff<LogSoftmax<T>, LogSoftmaxBackward<U, LogSoftmax<T>>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(LogSoftmax::new(forward, axis)),
-        );
-        let backward = Rc::new(LogSoftmaxBackward::new(backward, forward.clone(), axis));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+        let var = self.var.log_softmax(axis);
+        let node = LogSoftmaxBackward::new(self.node, var.node.clone(), axis);
+        VarDiff::from(node, self.past, var)
     }
 
-    pub fn t(mut self) -> VarDiff<Transpose<T>, TransposeBackward<U>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Transpose::new(forward)),
-            Rc::new(TransposeBackward::new(backward)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn t(self) -> VarDiff<Transpose<T>, TransposeBackward<U>> {
+        let node = TransposeBackward::new(self.node);
+        VarDiff::from(node, self.past, self.var.t())
     }
 
-    pub fn chunks<E: IntoDimension<Dim = T::Dim>>(
-        self,
-        chunk_size: E,
-    ) -> Vec<VarDiff<Chunk<T>, ChunkBackward<U>>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (forward_path, backward_path) = (self.forward_path, self.backward_path);
-        let parameters = self.parameters;
-        let data = forward.data();
-        let chunks = data.exact_chunks(chunk_size).into_iter().enumerate();
-        chunks
+    pub fn dropout(self, p: f64) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
+        let var = self.var.dropout(p);
+        let node = DropoutBackward::new(self.node, var.node.clone(), p);
+        VarDiff::from(node, self.past, var)
+    }
+
+    pub fn chunks<E>(self, chunk_size: E) -> Vec<VarDiff<Chunk<T>, ChunkBackward<U>>>
+    where
+        E: IntoDimension<Dim = T::Dim>,
+    {
+        self.var
+            .node
+            .data()
+            .exact_chunks(chunk_size)
+            .into_iter()
+            .enumerate()
             .map(|(i, chunk)| {
-                let (id, forward, backward) = (
-                    unsafe { OPERATIONS_COUNTER.next() },
-                    Rc::new(Chunk::new(forward.clone(), chunk.to_owned(), i)),
-                    Rc::new(ChunkBackward::new(backward.clone(), chunk.map(|_| 0.0), i)),
+                let var = Var::from(
+                    Chunk::new(self.var.node.clone(), chunk.to_owned(), i),
+                    self.var.past.clone(),
                 );
-
-                let mut new_forward_path = forward_path.clone();
-                new_forward_path.insert(id, forward.clone() as Rc<dyn Forward>);
-                let mut new_backward_path = backward_path.clone();
-                new_backward_path.insert(id, backward.clone() as Rc<dyn Backward>);
-
-                VarDiff {
-                    id,
-                    forward,
-                    backward,
-                    forward_path: new_forward_path,
-                    backward_path: new_backward_path,
-                    forward_buffer: Vec::new(),
-                    backward_buffer: Vec::new(),
-                    parameters: parameters.clone(),
-                }
+                VarDiff::from(
+                    ChunkBackward::new(self.node.clone(), chunk.map(|_| 0.), i),
+                    self.past.clone(),
+                    var,
+                )
             })
             .collect()
-    }
-
-    pub fn dropout(mut self, p: f64) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Dropout::new(forward, p)),
-        );
-        let backward = Rc::new(DropoutBackward::new(backward, forward.clone(), p));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
     }
 }
 
@@ -952,8 +626,8 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite,
 {
     pub fn train(&self, status: bool) {
-        self.forward.set_train(status);
-        self.backward.set_train(status);
+        self.var.node.set_train(status);
+        self.node.set_train(status);
     }
 }
 
@@ -963,28 +637,12 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: RemoveAxis,
 {
-    pub fn unsqueeze(mut self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
-        let (forward, backward) = (self.forward, self.backward);
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Unsqueeze::new(forward, axis)),
-            Rc::new(UnsqueezeBackward::new(backward, axis)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    pub fn unsqueeze(self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
+        VarDiff::from(
+            UnsqueezeBackward::new(self.node, axis),
+            self.past,
+            self.var.unsqueeze(axis),
+        )
     }
 }
 
@@ -997,17 +655,8 @@ where
 impl<T: Data + 'static> Neg for Var<T> {
     type Output = Var<Negation<T>>;
 
-    fn neg(mut self) -> Self::Output {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Negation::new(self.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn neg(self) -> Self::Output {
+        Var::from(Negation::new(self.node), self.past)
     }
 }
 
@@ -1018,25 +667,8 @@ where
 {
     type Output = VarDiff<Negation<T>, NegationBackward<U>>;
 
-    fn neg(mut self) -> Self::Output {
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Negation::new(self.forward));
-        let backward = Rc::new(NegationBackward::new(self.backward));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn neg(self) -> Self::Output {
+        VarDiff::from(NegationBackward::new(self.node), self.past, self.var.neg())
     }
 }
 
@@ -1050,19 +682,9 @@ where
 {
     type Output = Var<Addition<Lhs, Rhs>>;
 
-    fn add(mut self, mut rhs: Var<Rhs>) -> Self::Output {
-        self.path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Addition::new(self.node, rhs.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Self::Output {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn add(mut self, rhs: Var<Rhs>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(Addition::new(self.node.clone(), rhs.node), self.past)
     }
 }
 
@@ -1076,27 +698,9 @@ where
 {
     type Output = VarDiff<Addition<F1, F2>, AdditionBackwardUnary<B2, F1>>;
 
-    fn add(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        rhs.forward_path.append(&mut self.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Addition::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(AdditionBackwardUnary::new(rhs.backward, self.node));
-        rhs.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: rhs.forward_path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn add(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = AdditionBackwardUnary::new(rhs.node, self.node.clone());
+        VarDiff::from(node, rhs.past, self.add(rhs.var))
     }
 }
 
@@ -1110,32 +714,9 @@ where
 {
     type Output = VarDiff<Addition<F1, F2>, AdditionBackwardUnary<B1, F2>>;
 
-    fn add(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let rhs_forward = rhs.node;
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Addition::new(lhs_forward, rhs_forward.clone())),
-            Rc::new(AdditionBackwardUnary::new(lhs_backward, rhs_forward)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn add(self, rhs: Var<F2>) -> Self::Output {
+        let node = AdditionBackwardUnary::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.add(rhs))
     }
 }
 
@@ -1150,33 +731,10 @@ where
 {
     type Output = VarDiff<Addition<F1, F2>, AdditionBackward<B1, B2>>;
 
-    fn add(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.forward_path);
-        self.backward_path.append(&mut rhs.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (rhs.forward, rhs.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Addition::new(lhs_forward, rhs_forward)),
-            Rc::new(AdditionBackward::new(lhs_backward, rhs_backward)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
-        }
+    fn add(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = AdditionBackward::new(self.node, rhs.node);
+        VarDiff::from(node, self.past, self.var.add(rhs.var))
     }
 }
 
@@ -1190,19 +748,9 @@ where
 {
     type Output = Var<Subtraction<Lhs, Rhs>>;
 
-    fn sub(mut self, mut rhs: Var<Rhs>) -> Self::Output {
-        self.path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Subtraction::new(self.node, rhs.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Self::Output {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn sub(mut self, rhs: Var<Rhs>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(Subtraction::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -1216,27 +764,9 @@ where
 {
     type Output = VarDiff<Subtraction<F1, F2>, SubtractionBackwardRight<B2, F1>>;
 
-    fn sub(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        rhs.forward_path.append(&mut self.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Subtraction::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(SubtractionBackwardRight::new(rhs.backward, self.node));
-        rhs.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: rhs.forward_path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn sub(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = SubtractionBackwardRight::new(rhs.node, self.node.clone());
+        VarDiff::from(node, rhs.past, self.sub(rhs.var))
     }
 }
 
@@ -1250,27 +780,9 @@ where
 {
     type Output = VarDiff<Subtraction<F1, F2>, SubtractionBackwardLeft<B1, F2>>;
 
-    fn sub(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Subtraction::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(SubtractionBackwardLeft::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn sub(self, rhs: Var<F2>) -> Self::Output {
+        let node = SubtractionBackwardLeft::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.sub(rhs))
     }
 }
 
@@ -1285,33 +797,10 @@ where
 {
     type Output = VarDiff<Subtraction<F1, F2>, SubtractionBackward<B1, B2>>;
 
-    fn sub(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.forward_path);
-        self.backward_path.append(&mut rhs.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (rhs.forward, rhs.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Subtraction::new(lhs_forward, rhs_forward)),
-            Rc::new(SubtractionBackward::new(lhs_backward, rhs_backward)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
-        }
+    fn sub(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = SubtractionBackward::new(self.node, rhs.node);
+        VarDiff::from(node, self.past, self.var.sub(rhs.var))
     }
 }
 
@@ -1325,19 +814,9 @@ where
 {
     type Output = Var<Multiplication<Lhs, Rhs>>;
 
-    fn mul(mut self, mut rhs: Var<Rhs>) -> Self::Output {
-        self.path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Multiplication::new(self.node, rhs.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Self::Output {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn mul(mut self, rhs: Var<Rhs>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(Multiplication::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -1351,27 +830,9 @@ where
 {
     type Output = VarDiff<Multiplication<F1, F2>, MultiplicationBackwardUnary<B2, F1>>;
 
-    fn mul(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        rhs.forward_path.append(&mut self.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Multiplication::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(MultiplicationBackwardUnary::new(rhs.backward, self.node));
-        rhs.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: rhs.forward_path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = MultiplicationBackwardUnary::new(rhs.node, self.node.clone());
+        VarDiff::from(node, rhs.past, self.mul(rhs.var))
     }
 }
 
@@ -1385,27 +846,9 @@ where
 {
     type Output = VarDiff<Multiplication<F1, F2>, MultiplicationBackwardUnary<B1, F2>>;
 
-    fn mul(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Multiplication::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(MultiplicationBackwardUnary::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn mul(self, rhs: Var<F2>) -> Self::Output {
+        let node = MultiplicationBackwardUnary::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.mul(rhs))
     }
 }
 
@@ -1420,41 +863,15 @@ where
 {
     type Output = VarDiff<Multiplication<F1, F2>, MultiplicationBackward<F1, B1, F2, B2>>;
 
-    fn mul(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.forward_path);
-        self.backward_path.append(&mut rhs.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (rhs.forward, rhs.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Multiplication::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
-            Rc::new(MultiplicationBackward::new(
-                lhs_forward,
-                lhs_backward,
-                rhs_forward,
-                rhs_backward,
-            )),
+    fn mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = MultiplicationBackward::new(
+            self.var.node.clone(),
+            self.node,
+            rhs.var.node.clone(),
+            rhs.node,
         );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
-        }
+        VarDiff::from(node, self.past, self.var.mul(rhs.var))
     }
 }
 
@@ -1468,19 +885,9 @@ where
 {
     type Output = Var<Division<Lhs, Rhs>>;
 
-    fn div(mut self, mut rhs: Var<Rhs>) -> Self::Output {
-        self.path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Division::new(self.node, rhs.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Self::Output {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn div(mut self, rhs: Var<Rhs>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(Division::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -1494,31 +901,9 @@ where
 {
     type Output = VarDiff<Division<F1, F2>, DivisionBackwardRight<F1, F2, B2>>;
 
-    fn div(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        rhs.forward_path.append(&mut self.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Division::new(self.node.clone(), rhs.forward.clone()));
-        let backward = Rc::new(DivisionBackwardRight::new(
-            self.node,
-            rhs.forward,
-            rhs.backward,
-        ));
-        rhs.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: rhs.forward_path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn div(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = DivisionBackwardRight::new(self.node.clone(), rhs.var.node.clone(), rhs.node);
+        VarDiff::from(node, rhs.past, self.div(rhs.var))
     }
 }
 
@@ -1532,27 +917,9 @@ where
 {
     type Output = VarDiff<Division<F1, F2>, DivisionBackwardLeft<B1, F2>>;
 
-    fn div(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Division::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(DivisionBackwardLeft::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn div(self, rhs: Var<F2>) -> Self::Output {
+        let node = DivisionBackwardLeft::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.div(rhs))
     }
 }
 
@@ -1567,38 +934,15 @@ where
 {
     type Output = VarDiff<Division<F1, F2>, DivisionBackward<F1, B1, F2, B2>>;
 
-    fn div(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.forward_path);
-        self.backward_path.append(&mut rhs.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (rhs.forward, rhs.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Division::new(lhs_forward.clone(), rhs_forward.clone())),
-            Rc::new(DivisionBackward::new(
-                lhs_forward,
-                lhs_backward,
-                rhs_forward,
-                rhs_backward,
-            )),
+    fn div(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = DivisionBackward::new(
+            self.var.node.clone(),
+            self.node,
+            rhs.var.node.clone(),
+            rhs.node,
         );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        Self::Output {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&rhs.parameters).cloned().collect(),
-        }
+        VarDiff::from(node, self.past, self.var.div(rhs.var))
     }
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1607,82 +951,16 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2, B2> MatMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, F2> MatMatMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
-{
-    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackward<F1, B1, F2, B2>>;
-
-    fn mm_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
-            Rc::new(MatrixMatrixMulBackward::new(
-                lhs_forward,
-                lhs_backward,
-                rhs_forward,
-                rhs_backward,
-            )),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&other.parameters).cloned().collect(),
-        }
-    }
-}
-
-impl<F1, B1, F2> MatMatMul<Var<F2>> for VarDiff<F1, B1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
-    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardLeft<B1, F2>>;
+    type Output = Var<MatrixMatrixMul<F1, F2>>;
 
-    fn mm_mul(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMul::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(MatrixMatrixMulBackwardLeft::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn mm_mul(mut self, rhs: Var<F2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(MatrixMatrixMul::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -1694,129 +972,59 @@ where
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardRight<F1, B2>>;
 
-    fn mm_mul(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.path.append(&mut rhs.forward_path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMul::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(MatrixMatrixMulBackwardRight::new(self.node, rhs.backward));
-        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn mm_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = MatrixMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
+        VarDiff::from(node, rhs.past, self.mm_mul(rhs.var))
     }
 }
 
-impl<F1, F2> MatMatMul<Var<F2>> for Var<F1>
+impl<F1, B1, F2> MatMatMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
+    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
-    type Output = Var<MatrixMatrixMul<F1, F2>>;
+    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardLeft<B1, F2>>;
 
-    fn mm_mul(mut self, mut other: Var<F2>) -> Self::Output {
-        self.path.append(&mut other.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(MatrixMatrixMul::new(self.node, other.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn mm_mul(self, rhs: Var<F2>) -> Self::Output {
+        let node = MatrixMatrixMulBackwardLeft::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.mm_mul(rhs))
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition  ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-impl<F1, B1, F2, B2> MatMatMulT<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, B1, F2, B2> MatMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
     B1: Gradient<Dim = Ix2> + Overwrite + 'static,
     F2: Data<Dim = Ix2> + 'static,
     B2: Gradient<Dim = Ix2> + Overwrite + 'static,
 {
-    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackward<F1, B1, F2, B2>>;
+    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackward<F1, B1, F2, B2>>;
 
-    fn mm_mul_t(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixMatrixMulT::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
-            Rc::new(MatrixMatrixMulTBackward::new(
-                lhs_forward,
-                lhs_backward,
-                rhs_forward,
-                rhs_backward,
-            )),
+    fn mm_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = MatrixMatrixMulBackward::new(
+            self.var.node.clone(),
+            self.node,
+            rhs.var.node.clone(),
+            rhs.node,
         );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&other.parameters).cloned().collect(),
-        }
+        VarDiff::from(node, self.past, self.var.mm_mul(rhs.var))
     }
 }
 
-impl<F1, B1, F2> MatMatMulT<Var<F2>> for VarDiff<F1, B1>
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition  ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, F2> MatMatMulT<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
-    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardLeft<B1, F2>>;
+    type Output = Var<MatrixMatrixMulT<F1, F2>>;
 
-    fn mm_mul_t(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMulT::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(MatrixMatrixMulTBackwardLeft::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn mm_mul_t(mut self, rhs: Var<F2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(MatrixMatrixMulT::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -1828,128 +1036,59 @@ where
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardRight<F1, B2>>;
 
-    fn mm_mul_t(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.path.append(&mut rhs.forward_path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixMatrixMulT::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(MatrixMatrixMulTBackwardRight::new(self.node, rhs.backward));
-        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn mm_mul_t(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = MatrixMatrixMulTBackwardRight::new(self.node.clone(), rhs.node);
+        VarDiff::from(node, rhs.past, self.mm_mul_t(rhs.var))
     }
 }
 
-impl<F1, F2> MatMatMulT<Var<F2>> for Var<F1>
+impl<F1, B1, F2> MatMatMulT<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
+    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
-    type Output = Var<MatrixMatrixMulT<F1, F2>>;
+    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardLeft<B1, F2>>;
 
-    fn mm_mul_t(mut self, mut other: Var<F2>) -> Self::Output {
-        self.path.append(&mut other.path);
+    fn mm_mul_t(self, rhs: Var<F2>) -> Self::Output {
+        let node = MatrixMatrixMulTBackwardLeft::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.mm_mul_t(rhs))
+    }
+}
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(MatrixMatrixMulT::new(self.node, other.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
+impl<F1, B1, F2, B2> MatMatMulT<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + 'static,
+    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    F2: Data<Dim = Ix2> + 'static,
+    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
+{
+    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackward<F1, B1, F2, B2>>;
 
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn mm_mul_t(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = MatrixMatrixMulTBackward::new(
+            self.var.node.clone(),
+            self.node,
+            rhs.var.node.clone(),
+            rhs.node,
+        );
+        VarDiff::from(node, self.past, self.var.mm_mul_t(rhs.var))
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2, B2> MatVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, F2> MatVecMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
-    F2: Data<Dim = Ix1> + 'static,
-    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
-{
-    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackward<F1, B1, F2, B2>>;
-
-    fn mv_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(MatrixVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
-            Rc::new(MatrixVectorMulBackward::new(
-                lhs_forward,
-                lhs_backward,
-                rhs_forward,
-                rhs_backward,
-            )),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&other.parameters).cloned().collect(),
-        }
-    }
-}
-
-impl<F1, B1, F2> MatVecMul<Var<F2>> for VarDiff<F1, B1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
     F2: Data<Dim = Ix1> + 'static,
 {
-    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardLeft<B1, F2>>;
-    fn mv_mul(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
+    type Output = Var<MatrixVectorMul<F1, F2>>;
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixVectorMul::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(MatrixVectorMulBackwardLeft::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn mv_mul(mut self, rhs: Var<F2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(MatrixVectorMul::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -1961,127 +1100,59 @@ where
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardRight<F1, B2>>;
 
-    fn mv_mul(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.path.append(&mut rhs.forward_path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(MatrixVectorMul::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(MatrixVectorMulBackwardRight::new(self.node, rhs.backward));
-        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn mv_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = MatrixVectorMulBackwardRight::new(self.node.clone(), rhs.node);
+        VarDiff::from(node, rhs.past, self.mv_mul(rhs.var))
     }
 }
 
-impl<F1, F2> MatVecMul<Var<F2>> for Var<F1>
+impl<F1, B1, F2> MatVecMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
+    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
     F2: Data<Dim = Ix1> + 'static,
 {
-    type Output = Var<MatrixVectorMul<F1, F2>>;
+    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardLeft<B1, F2>>;
 
-    fn mv_mul(mut self, mut other: Var<F2>) -> Self::Output {
-        self.path.append(&mut other.path);
+    fn mv_mul(self, rhs: Var<F2>) -> Self::Output {
+        let node = MatrixVectorMulBackwardLeft::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.mv_mul(rhs))
+    }
+}
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(MatrixVectorMul::new(self.node, other.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
+impl<F1, B1, F2, B2> MatVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix2> + 'static,
+    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    F2: Data<Dim = Ix1> + 'static,
+    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
+{
+    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackward<F1, B1, F2, B2>>;
 
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn mv_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = MatrixVectorMulBackward::new(
+            self.var.node.clone(),
+            self.node,
+            rhs.var.node.clone(),
+            rhs.node,
+        );
+        VarDiff::from(node, self.past, self.var.mv_mul(rhs.var))
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-impl<F1, B1, F2, B2> VecMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+
+impl<F1, F2> VecMatMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
-{
-    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackward<F1, B1, F2, B2>>;
-
-    fn vm_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorMatrixMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
-            Rc::new(VectorMatrixMulBackward::new(
-                lhs_forward,
-                lhs_backward,
-                rhs_forward,
-                rhs_backward,
-            )),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&other.parameters).cloned().collect(),
-        }
-    }
-}
-
-impl<F1, B1, F2> VecMatMul<Var<F2>> for VarDiff<F1, B1>
-where
-    F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
-    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardLeft<B1, F2>>;
-    fn vm_mul(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
+    type Output = Var<VectorMatrixMul<F1, F2>>;
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorMatrixMul::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(VectorMatrixMulBackwardLeft::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn vm_mul(mut self, rhs: Var<F2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(VectorMatrixMul::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -2093,126 +1164,59 @@ where
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardRight<F1, B2>>;
 
-    fn vm_mul(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.path.append(&mut rhs.forward_path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorMatrixMul::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(VectorMatrixMulBackwardRight::new(self.node, rhs.backward));
-        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn vm_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = VectorMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
+        VarDiff::from(node, rhs.past, self.vm_mul(rhs.var))
     }
 }
 
-impl<F1, F2> VecMatMul<Var<F2>> for Var<F1>
+impl<F1, B1, F2> VecMatMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix1> + 'static,
+    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
-    type Output = Var<VectorMatrixMul<F1, F2>>;
+    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardLeft<B1, F2>>;
 
-    fn vm_mul(mut self, mut other: Var<F2>) -> Self::Output {
-        self.path.append(&mut other.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(VectorMatrixMul::new(self.node, other.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn vm_mul(self, rhs: Var<F2>) -> Self::Output {
+        let node = VectorMatrixMulBackwardLeft::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.vm_mul(rhs))
     }
 }
+
+impl<F1, B1, F2, B2> VecMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix1> + 'static,
+    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
+    F2: Data<Dim = Ix2> + 'static,
+    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
+{
+    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackward<F1, B1, F2, B2>>;
+
+    fn vm_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = VectorMatrixMulBackward::new(
+            self.var.node.clone(),
+            self.node,
+            rhs.var.node.clone(),
+            rhs.node,
+        );
+        VarDiff::from(node, self.past, self.var.vm_mul(rhs.var))
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2, B2> VecVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, F2> VecVecMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
-    F2: Data<Dim = Ix1> + 'static,
-    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
-{
-    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackward<F1, B1, F2, B2>>;
-    fn vv_mul(mut self, mut other: VarDiff<F2, B2>) -> Self::Output {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
-
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(VectorVectorMul::new(
-                lhs_forward.clone(),
-                rhs_forward.clone(),
-            )),
-            Rc::new(VectorVectorMulBackward::new(
-                lhs_forward,
-                lhs_backward,
-                rhs_forward,
-                rhs_backward,
-            )),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&other.parameters).cloned().collect(),
-        }
-    }
-}
-
-impl<F1, B1, F2> VecVecMul<Var<F2>> for VarDiff<F1, B1>
-where
-    F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
     F2: Data<Dim = Ix1> + 'static,
 {
-    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B1, F2>>;
-    fn vv_mul(mut self, mut rhs: Var<F2>) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
+    type Output = Var<VectorVectorMul<F1, F2>>;
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorVectorMul::new(self.forward, rhs.node.clone()));
-        let backward = Rc::new(VectorVectorMulBackwardUnary::new(self.backward, rhs.node));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn vv_mul(mut self, rhs: Var<F2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(VectorVectorMul::new(self.node, rhs.node), self.past)
     }
 }
 
@@ -2224,49 +1228,44 @@ where
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B2, F1>>;
 
-    fn vv_mul(mut self, mut rhs: VarDiff<F2, B2>) -> Self::Output {
-        self.path.append(&mut rhs.forward_path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(VectorVectorMul::new(self.node.clone(), rhs.forward));
-        let backward = Rc::new(VectorVectorMulBackwardUnary::new(rhs.backward, self.node));
-        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn vv_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        let node = VectorVectorMulBackwardUnary::new(rhs.node, self.node.clone());
+        VarDiff::from(node, rhs.past, self.vv_mul(rhs.var))
     }
 }
 
-impl<F1, F2> VecVecMul<Var<F2>> for Var<F1>
+impl<F1, B1, F2> VecVecMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix1> + 'static,
+    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
     F2: Data<Dim = Ix1> + 'static,
 {
-    type Output = Var<VectorVectorMul<F1, F2>>;
+    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B1, F2>>;
 
-    fn vv_mul(mut self, mut other: Var<F2>) -> Self::Output {
-        self.path.append(&mut other.path);
+    fn vv_mul(self, rhs: Var<F2>) -> Self::Output {
+        let node = VectorVectorMulBackwardUnary::new(self.node, rhs.node.clone());
+        VarDiff::from(node, self.past, self.var.vv_mul(rhs))
+    }
+}
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(VectorVectorMul::new(self.node, other.node));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
+impl<F1, B1, F2, B2> VecVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = Ix1> + 'static,
+    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
+    F2: Data<Dim = Ix1> + 'static,
+    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
+{
+    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackward<F1, B1, F2, B2>>;
 
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn vv_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = VectorVectorMulBackward::new(
+            self.var.node.clone(),
+            self.node,
+            rhs.var.node.clone(),
+            rhs.node,
+        );
+        VarDiff::from(node, self.past, self.var.vv_mul(rhs.var))
     }
 }
 
@@ -2276,76 +1275,17 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2, B2> Cat<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, F2> Cat<Var<F2>> for Var<F1>
 where
     F1: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
-    B2: Gradient<Dim = B1::Dim> + Overwrite + 'static,
     F1::Dim: RemoveAxis,
-    B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackward<B1, B2>>;
-    fn cat(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
+    type Output = Var<Concatenate<F1, F2>>;
 
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(Concatenate::new(lhs_forward, rhs_forward, axis)),
-            Rc::new(ConcatenateBackward::new(lhs_backward, rhs_backward, axis)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&other.parameters).cloned().collect(),
-        }
-    }
-}
-
-impl<F1, B1, F2> Cat<Var<F2>> for VarDiff<F1, B1>
-where
-    F1: Data<Dim = B1::Dim> + 'static,
-    F2: Data<Dim = F1::Dim> + 'static,
-    B1: Gradient + Overwrite + 'static,
-    F1::Dim: RemoveAxis,
-    B1::Dim: RemoveAxis,
-{
-    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackwardLeft<B1>>;
-    fn cat(mut self, mut rhs: Var<F2>, axis: usize) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Concatenate::new(self.forward, rhs.node.clone(), axis));
-        let backward = Rc::new(ConcatenateBackwardLeft::new(self.backward, rhs.node, axis));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn cat(mut self, rhs: Var<F2>, axis: usize) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(Concatenate::new(self.node, rhs.node, axis), self.past)
     }
 }
 
@@ -2358,55 +1298,30 @@ where
     B2::Dim: RemoveAxis,
 {
     type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackwardRight<B2>>;
-    fn cat(mut self, mut rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
-        self.path.append(&mut rhs.forward_path);
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(Concatenate::new(self.node.clone(), rhs.forward, axis));
-        let backward = Rc::new(ConcatenateBackwardRight::new(self.node, rhs.backward, axis));
-        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn cat(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        let node = ConcatenateBackwardRight::new(self.node.clone(), rhs.node, axis);
+        VarDiff::from(node, rhs.past, self.cat(rhs.var, axis))
     }
 }
 
-impl<F1, F2> Cat<Var<F2>> for Var<F1>
+impl<F1, B1, F2> Cat<Var<F2>> for VarDiff<F1, B1>
 where
-    F1: Data + 'static,
+    F1: Data<Dim = B1::Dim> + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
+    B1: Gradient + Overwrite + 'static,
     F1::Dim: RemoveAxis,
+    B1::Dim: RemoveAxis,
 {
-    type Output = Var<Concatenate<F1, F2>>;
-    fn cat(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
-        self.path.append(&mut other.path);
+    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackwardLeft<B1>>;
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(Concatenate::new(self.node, other.node, axis));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn cat(self, rhs: Var<F2>, axis: usize) -> Self::Output {
+        let node = ConcatenateBackwardLeft::new(self.node, rhs.node.clone(), axis);
+        VarDiff::from(node, self.past, self.var.cat(rhs, axis))
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-impl<F1, B1, F2, B2> Stack<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1, B1, F2, B2> Cat<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     B1: Gradient + Overwrite + 'static,
@@ -2415,67 +1330,28 @@ where
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<StackF<F1, F2>, StackBackward<B1, B2>>;
-    fn stack(mut self, mut other: VarDiff<F2, B2>, axis: usize) -> Self::Output {
-        self.forward_path.append(&mut other.forward_path);
-        self.backward_path.append(&mut other.backward_path);
+    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackward<B1, B2>>;
 
-        let (lhs_forward, lhs_backward) = (self.forward, self.backward);
-        let (rhs_forward, rhs_backward) = (other.forward, other.backward);
-
-        let (id, forward, backward) = (
-            unsafe { OPERATIONS_COUNTER.next() },
-            Rc::new(StackF::new(lhs_forward, rhs_forward, axis)),
-            Rc::new(StackBackward::new(lhs_backward, rhs_backward, axis)),
-        );
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters.union(&other.parameters).cloned().collect(),
-        }
+    fn cat(mut self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = ConcatenateBackward::new(self.node, rhs.node, axis);
+        VarDiff::from(node, self.past, self.var.cat(rhs.var, axis))
     }
 }
 
-impl<F1, B1, F2> Stack<Var<F2>> for VarDiff<F1, B1>
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<F1, F2> Stack<Var<F2>> for Var<F1>
 where
-    F1: Data<Dim = B1::Dim> + 'static,
+    F1: Data + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
-    B1: Gradient + Overwrite + 'static,
     F1::Dim: RemoveAxis,
-    B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<StackF<F1, F2>, StackBackwardLeft<B1>>;
-    fn stack(mut self, mut rhs: Var<F2>, axis: usize) -> Self::Output {
-        self.forward_path.append(&mut rhs.path);
+    type Output = Var<StackF<F1, F2>>;
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(StackF::new(self.forward, rhs.node.clone(), axis));
-        let backward = Rc::new(StackBackwardLeft::new(self.backward, rhs.node, axis));
-        self.forward_path
-            .insert(id, forward.clone() as Rc<dyn Forward>);
-        self.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.forward_path,
-            backward_path: self.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: self.parameters,
-        }
+    fn stack(mut self, rhs: Var<F2>, axis: usize) -> Self::Output {
+        self.past.merge(rhs.past);
+        Var::from(StackF::new(self.node, rhs.node, axis), self.past)
     }
 }
 
@@ -2488,50 +1364,44 @@ where
     F1::Dim: RemoveAxis,
 {
     type Output = VarDiff<StackF<F1, F2>, StackBackwardRight<B2>>;
-    fn stack(mut self, mut rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
-        self.path.append(&mut rhs.forward_path);
 
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let forward = Rc::new(StackF::new(self.node.clone(), rhs.forward, axis));
-        let backward = Rc::new(StackBackwardRight::new(self.node, rhs.backward, axis));
-        self.path.insert(id, forward.clone() as Rc<dyn Forward>);
-        rhs.backward_path
-            .insert(id, backward.clone() as Rc<dyn Backward>);
-
-        VarDiff {
-            id,
-            forward,
-            backward,
-            forward_path: self.path,
-            backward_path: rhs.backward_path,
-            forward_buffer: Vec::new(),
-            backward_buffer: Vec::new(),
-            parameters: rhs.parameters,
-        }
+    fn stack(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        let node = StackBackwardRight::new(self.node.clone(), rhs.node, axis);
+        VarDiff::from(node, rhs.past, self.stack(rhs.var, axis))
     }
 }
 
-impl<F1, F2> Stack<Var<F2>> for Var<F1>
+impl<F1, B1, F2> Stack<Var<F2>> for VarDiff<F1, B1>
+where
+    F1: Data<Dim = B1::Dim> + 'static,
+    F2: Data<Dim = F1::Dim> + 'static,
+    B1: Gradient + Overwrite + 'static,
+    F1::Dim: RemoveAxis,
+    B1::Dim: RemoveAxis,
+{
+    type Output = VarDiff<StackF<F1, F2>, StackBackwardLeft<B1>>;
+
+    fn stack(self, rhs: Var<F2>, axis: usize) -> Self::Output {
+        let node = StackBackwardLeft::new(self.node, rhs.node.clone(), axis);
+        VarDiff::from(node, self.past, self.var.stack(rhs, axis))
+    }
+}
+
+impl<F1, B1, F2, B2> Stack<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
+    B1: Gradient + Overwrite + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
+    B2: Gradient<Dim = B1::Dim> + Overwrite + 'static,
     F1::Dim: RemoveAxis,
+    B1::Dim: RemoveAxis,
 {
-    type Output = Var<StackF<F1, F2>>;
+    type Output = VarDiff<StackF<F1, F2>, StackBackward<B1, B2>>;
 
-    fn stack(mut self, mut other: Var<F2>, axis: usize) -> Self::Output {
-        self.path.append(&mut other.path);
-
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        let node = Rc::new(StackF::new(self.node, other.node, axis));
-        self.path.insert(id, node.clone() as Rc<dyn Forward>);
-
-        Var {
-            id,
-            node,
-            path: self.path,
-            buffer: Vec::new(),
-        }
+    fn stack(mut self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
+        self.past.merge(rhs.past);
+        let node = StackBackward::new(self.node, rhs.node, axis);
+        VarDiff::from(node, self.past, self.var.stack(rhs.var, axis))
     }
 }
 
@@ -2539,7 +1409,7 @@ where
 mod tests {
     use super::*;
 
-    mod var {
+    mod forward {
         use super::*;
 
         #[test]
