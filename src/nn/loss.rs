@@ -1,10 +1,9 @@
-use crate::variable::node::Overwrite;
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ losses module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 use super::{
-    variable::OPERATIONS_COUNTER, Backward, Data, Forward, Gradient, Tensor, Var, VarDiff,
+    variable::{expect_tensor, expect_tensor_mut, node::Overwrite, OPERATIONS_COUNTER},
+    Backward, Data, Forward, Gradient, Tensor, Var, VarDiff,
 };
 use ndarray::{Axis, Dimension, IntoDimension, Ix1, Zip};
 use std::{
@@ -108,12 +107,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = U::Dim>,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
-    gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> MSELossBackward<T, U, V>
@@ -127,7 +126,7 @@ where
             diff_input,
             input,
             target,
-            gradient: RefCell::new(Tensor::zeros(1)),
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
             reduction,
             overwrite: Cell::new(false),
         }
@@ -143,11 +142,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -176,7 +175,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow(),
+                self.gradient(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -197,6 +196,14 @@ where
                 *op_grad = (2.0 * (input - target)) * grad
             }),
         }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
     }
 }
 
@@ -237,8 +244,10 @@ where
     input
         .var
         .past
-        .extend(id, forward.clone() as Rc<dyn Forward>);
-    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
+        .append_forward(id, forward.clone() as Rc<dyn Forward>);
+    input
+        .past
+        .append_backward(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
         var: Var {
@@ -338,12 +347,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
-    gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> MAELossBackward<T, U, V>
@@ -357,7 +366,7 @@ where
             diff_input,
             input,
             target,
-            gradient: RefCell::new(Tensor::zeros(1)),
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
             reduction,
             overwrite: Cell::new(false),
         }
@@ -373,11 +382,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -406,7 +415,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow(),
+                self.gradient(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -434,6 +443,14 @@ where
                 *op_grad = if diff != 0. { diff.signum() * grad } else { 0. }
             }),
         }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
     }
 }
 
@@ -474,8 +491,10 @@ where
     input
         .var
         .past
-        .extend(id, forward.clone() as Rc<dyn Forward>);
-    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
+        .append_forward(id, forward.clone() as Rc<dyn Forward>);
+    input
+        .past
+        .append_backward(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
         var: Var {
@@ -581,12 +600,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
-    gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> BCELossBackward<T, U, V>
@@ -600,7 +619,7 @@ where
             diff_input,
             input,
             target,
-            gradient: RefCell::new(Tensor::zeros(1)),
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
             reduction,
             overwrite: Cell::new(false),
         }
@@ -616,11 +635,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -649,7 +668,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow(),
+                self.gradient(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -672,6 +691,14 @@ where
                 *op_grad = (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
             }),
         }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
     }
 }
 
@@ -719,8 +746,10 @@ where
     input
         .var
         .past
-        .extend(id, forward.clone() as Rc<dyn Forward>);
-    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
+        .append_forward(id, forward.clone() as Rc<dyn Forward>);
+    input
+        .past
+        .append_backward(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
         var: Var {
@@ -826,12 +855,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
     diff_input: Rc<T>,
     input: Rc<U>,
     target: Rc<V>,
-    gradient: RefCell<Tensor<Ix1>>,
     reduction: Reduction,
-    overwrite: Cell<bool>,
 }
 
 impl<T, U, V> BCEWithLogitsLossBackward<T, U, V>
@@ -845,7 +874,7 @@ where
             diff_input,
             input,
             target,
-            gradient: RefCell::new(Tensor::zeros(1)),
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
             reduction,
             overwrite: Cell::new(false),
         }
@@ -861,11 +890,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -894,7 +923,7 @@ where
         let (mut operand_gradient, gradient, input_data, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow(),
+                self.gradient(),
                 self.input.data(),
                 self.target.data(),
             )
@@ -930,6 +959,14 @@ where
                 *op_grad = (input_sigmoid - target) * grad
             }),
         }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
     }
 }
 
@@ -976,8 +1013,10 @@ where
     input
         .var
         .past
-        .extend(id, forward.clone() as Rc<dyn Forward>);
-    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
+        .append_forward(id, forward.clone() as Rc<dyn Forward>);
+    input
+        .past
+        .append_backward(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
         var: Var {
@@ -1088,7 +1127,7 @@ where
 {
     diff_input: Rc<T>,
     target: Rc<U>,
-    gradient: RefCell<Tensor<Ix1>>,
+    gradient: RefCell<Option<Tensor<Ix1>>>,
     reduction: Reduction,
     overwrite: Cell<bool>,
 }
@@ -1103,7 +1142,7 @@ where
         Self {
             diff_input,
             target,
-            gradient: RefCell::new(Tensor::zeros(1)),
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
             reduction,
             overwrite: Cell::new(false),
         }
@@ -1119,11 +1158,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1152,7 +1191,7 @@ where
         let (mut operand_gradient, gradient, target_data) = {
             (
                 self.diff_input.gradient_mut(),
-                self.gradient.borrow(),
+                self.gradient(),
                 self.target.data(),
             )
         };
@@ -1179,6 +1218,14 @@ where
                 }
             }),
         }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
     }
 }
 
@@ -1228,8 +1275,10 @@ where
     input
         .var
         .past
-        .extend(id, forward.clone() as Rc<dyn Forward>);
-    input.past.extend(id, backward.clone() as Rc<dyn Backward>);
+        .append_forward(id, forward.clone() as Rc<dyn Forward>);
+    input
+        .past
+        .append_backward(id, backward.clone() as Rc<dyn Backward>);
 
     VarDiff {
         var: Var {
