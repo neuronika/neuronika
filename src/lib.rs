@@ -129,6 +129,15 @@ pub fn full<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh, elem: f32) -> Va
 /// on the interval **[0,1)**.
 ///
 /// The shape is of type `ndarray::ShapeBuilder`.
+///
+/// # Examples
+///
+/// ```rust
+/// use neuronika;
+/// let t = neuronika::rand([4,5,6]);
+///
+/// assert_eq!(t.data().shape(), &[4, 5, 6]);
+/// ```
 pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>> {
     Input::new(Array::random(shape, Uniform::new(0., 1.)))
 }
@@ -138,6 +147,20 @@ pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
 /// # Panics
 ///
 /// If `n * n` would overflow `isize`.
+///
+/// # Examples
+///
+/// ```rust
+/// use neuronika;
+/// use ndarray::Array2;
+///
+/// // [[1., 0., 0.],
+/// // [0., 1., 0.],
+/// // [0., 0., 1.]]
+/// let tensor = neuronika::eye(3);
+///
+/// assert_eq!(*tensor.data(), Array2::eye(3));
+/// ```
 pub fn eye(n: usize) -> Var<Input<Ix2>> {
     Input::new(Array2::eye(n))
 }
@@ -192,7 +215,7 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
 }
 
 /// Create a one-dimensional array with elements from `start` to `end`
-/// (exclusive), incrementing by `step`. Elemetns must be a `f32`.
+/// (exclusive), incrementing by `step`. Elements must be `f32`.
 ///
 /// # Panics
 ///
@@ -207,4 +230,111 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
 /// ```
 pub fn range(start: f32, end: f32, step: f32) -> Var<Input<Ix1>> {
     Input::new(Array::range(start, end, step))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn tensor_test() {
+        use super::*;
+
+        let t1 = tensor!([1., 2., 3., 4.]);
+        let t2 = tensor!([[1., 2.], [3., 4.]]);
+        let t3 = tensor!([[[1., 2.], [3., 4.]], [[5., 6.], [7., 8.]]]);
+
+        assert_eq!(t1.data().shape(), &[4]);
+        assert_eq!(t2.data().shape(), &[2, 2]);
+        assert_eq!(t3.data().shape(), &[2, 2, 2]);
+    }
+
+    #[test]
+    fn from_ndarray_test() {
+        use super::*;
+        let a = ndarray::array![[1., 2.], [3., 4.]];
+        let t = from_ndarray(a.clone());
+
+        assert_eq!(*t.data(), a);
+    }
+
+    #[test]
+    fn zeros() {
+        use super::*;
+
+        let t1 = zeros(1);
+        let t2 = zeros((1, 5));
+        let t3 = zeros([1, 2, 3]);
+
+        assert_eq!(t1.data().shape(), &[1]);
+        assert_eq!(t2.data().shape(), &[1, 5]);
+        assert_eq!(t3.data().shape(), &[1, 2, 3]);
+
+        assert!(
+            t1.data().into_iter().all(|el| *el == 0.)
+                && t2.data().into_iter().all(|el| *el == 0.)
+                && t3.data().into_iter().all(|el| *el == 0.)
+        )
+    }
+    #[test]
+    fn ones() {
+        use super::*;
+
+        let t1 = ones(1);
+        let t2 = ones((1, 5));
+        let t3 = ones([1, 2, 3]);
+
+        assert_eq!(t1.data().shape(), &[1]);
+        assert_eq!(t2.data().shape(), &[1, 5]);
+        assert_eq!(t3.data().shape(), &[1, 2, 3]);
+
+        assert!(
+            t1.data().into_iter().all(|el| *el == 1.)
+                && t2.data().into_iter().all(|el| *el == 1.)
+                && t3.data().into_iter().all(|el| *el == 1.)
+        )
+    }
+    #[test]
+    fn full() {
+        use super::*;
+
+        let t1 = full(1, 5.);
+        let t2 = full((1, 5), 6.);
+        let t3 = full([1, 2, 3], 8.);
+
+        assert!(
+            t1.data().into_iter().all(|el| *el == 5.)
+                && t2.data().into_iter().all(|el| *el == 6.)
+                && t3.data().into_iter().all(|el| *el == 8.)
+        )
+    }
+
+    #[test]
+    fn rand_test() {
+        use super::*;
+        let t = rand([4, 5, 6]);
+
+        assert_eq!(t.data().shape(), &[4, 5, 6]);
+    }
+
+    #[test]
+    fn eye_test() {
+        use super::*;
+        let tensor = eye(3);
+
+        assert_eq!(*tensor.data(), Array2::eye(3));
+    }
+
+    #[test]
+    fn linspace() {
+        use super::*;
+        let tensor = linspace(0., 1., 5);
+        assert!(*tensor.data() == ndarray::arr1(&[0.0, 0.25, 0.5, 0.75, 1.0]))
+    }
+
+    #[test]
+    fn range_test() {
+        use super::*;
+        let tensor = range(0., 5., 1.);
+        assert!(*tensor.data() == ndarray::arr1(&[0., 1., 2., 3., 4.]))
+    }
 }

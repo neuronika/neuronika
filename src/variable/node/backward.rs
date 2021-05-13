@@ -4430,6 +4430,8 @@ where
                     });
                 }
             }
+        } else {
+            self.diff_operand.gradient_mut().assign(&*self.gradient());
         }
     }
 

@@ -1607,7 +1607,7 @@ mod tests {
     }
 
     #[test]
-    fn conv2d_strided_prototype() {
+    fn conv2d_strided() {
         use super::*;
         use ndarray::Ix4;
 
@@ -1679,7 +1679,7 @@ mod tests {
         );
     }
     #[test]
-    fn conv2d_dilated_prototype() {
+    fn conv2d_dilated() {
         use super::*;
         use ndarray::Ix4;
 
@@ -1753,7 +1753,7 @@ mod tests {
     }
 
     #[test]
-    fn grouped_conv2d_prototype() {
+    fn grouped_conv2d() {
         use super::*;
         use ndarray::Ix4;
         // This is an input with a batch size of 4, 8 input channels each of 5 by 5.

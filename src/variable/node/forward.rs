@@ -1764,6 +1764,8 @@ impl<T: Data> Forward for Dropout<T> {
                         *data_el = (operand_data_el * noise_el) / (1. - *p as f32)
                     });
             }
+        } else {
+            self.data.borrow_mut().assign(&*self.operand.data());
         }
     }
 
@@ -4215,15 +4217,15 @@ mod tests {
             assert_almost_equals(&*node.data(), &new_tensor((3, 3), vec![0.; 9]));
         }
 
-        // #[test]
-        // fn forward_scaling() {
-        //     let input = new_input((3, 3), vec![3.; 9]);
-        //     let node = Dropout::new(input.clone(), 0.5);
+        #[test]
+        fn forward_scaling() {
+            let input = new_input((3, 3), vec![3.; 9]);
+            let node = Dropout::new(input.clone(), 0.5);
 
-        //     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        //     node.forward();
-        //     node.data().iter().any(|el| *el == 0. || *el == 6.);
-        // }
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            node.data().iter().all(|el| *el == 0. || *el == 6.);
+        }
 
         #[test]
         fn forward_p_zero() {
