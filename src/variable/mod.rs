@@ -1,36 +1,35 @@
+pub mod node;
+
 use ndarray::{
     Array, ArrayD, ArrayViewMutD, DimMax, Dimension, IntoDimension, Ix, Ix1, Ix2, RawArrayViewMut,
     RemoveAxis,
 };
 use node::{
-    backward::{Backward, Differentiable, Gradient, Overwrite},
-    forward::{Data, Forward},
-    Addition, AdditionBackward, AdditionBackwardUnary, Chunk, ChunkBackward, Concatenate,
-    ConcatenateBackward, ConcatenateBackwardLeft, ConcatenateBackwardRight, Division,
-    DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout, DropoutBackward, Exp,
-    ExpBackward, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward,
-    MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
+    Addition, AdditionBackward, AdditionBackwardUnary, Backward, ChangeBehaviour, Chunk,
+    ChunkBackward, Concatenate, ConcatenateBackward, ConcatenateBackwardLeft,
+    ConcatenateBackwardRight, Data, Differentiable, Division, DivisionBackward,
+    DivisionBackwardLeft, DivisionBackwardRight, Dropout, DropoutBackward, Exp, ExpBackward,
+    Forward, Gradient, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn,
+    LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
     MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackward,
     MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
     MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
     Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
-    NegationBackward, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
-    SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF, StackBackward, StackBackwardLeft,
-    StackBackwardRight, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
-    SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Transpose, TransposeBackward,
-    Unsqueeze, UnsqueezeBackward, VectorMatrixMul, VectorMatrixMulBackward,
-    VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight, VectorVectorMul,
-    VectorVectorMulBackward, VectorVectorMulBackwardUnary,
+    NegationBackward, Overwrite, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid,
+    SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF,
+    StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction, SubtractionBackward,
+    SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
+    Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
+    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
+    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 use std::{
-    cell::{Ref, RefMut},
+    cell::{Ref, RefCell, RefMut},
     collections::BTreeMap,
     collections::HashSet,
     ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
-
-pub mod node;
 
 pub use node::{Input, InputBackward};
 
@@ -60,6 +59,7 @@ impl OperationsCounter {
 pub(crate) struct VarHistory {
     path: BTreeMap<usize, Rc<dyn Forward>>,
     buffer: Vec<Rc<dyn Forward>>,
+    changeables: HashSet<*const dyn ChangeBehaviour>,
 }
 
 impl VarHistory {
@@ -67,6 +67,7 @@ impl VarHistory {
         Self {
             path: BTreeMap::new(),
             buffer: Vec::new(),
+            changeables: HashSet::new(),
         }
     }
 
@@ -74,9 +75,13 @@ impl VarHistory {
         self.path.append(&mut other.path);
     }
 
-    pub fn extend(&mut self, id: usize, next: Rc<dyn Forward>) {
+    pub fn append_forward(&mut self, id: usize, next: Rc<dyn Forward>) {
         self.path.insert(id, next);
         self.buffer.truncate(0);
+    }
+
+    pub fn append_changeable(&mut self, next: *const dyn ChangeBehaviour) {
+        self.changeables.insert(next);
     }
 
     pub fn len(&self) -> usize {
@@ -103,6 +108,7 @@ pub(crate) struct DiffVarHistory {
     path: BTreeMap<usize, Rc<dyn Backward>>,
     buffer: Vec<Rc<dyn Backward>>,
     parameters: HashSet<Param>,
+    changeables: HashSet<*const dyn ChangeBehaviour>,
 }
 
 impl DiffVarHistory {
@@ -111,17 +117,23 @@ impl DiffVarHistory {
             path: BTreeMap::new(),
             buffer: Vec::new(),
             parameters,
+            changeables: HashSet::new(),
         }
     }
 
     pub fn merge(&mut self, mut other: DiffVarHistory) {
         self.path.append(&mut other.path);
         self.parameters.extend(other.parameters);
+        self.changeables.extend(other.changeables);
     }
 
-    pub fn extend(&mut self, id: usize, next: Rc<dyn Backward>) {
+    pub fn append_backward(&mut self, id: usize, next: Rc<dyn Backward>) {
         self.path.insert(id, next);
         self.buffer.truncate(0);
+    }
+
+    pub fn append_changeable(&mut self, next: *const dyn ChangeBehaviour) {
+        self.changeables.insert(next);
     }
 
     pub fn len(&self) -> usize {
@@ -187,6 +199,7 @@ pub trait MatMatMul<Rhs> {
 
 pub trait MatMatMulT<Rhs> {
     type Output;
+
     fn mm_mul_t(self, other: Rhs) -> Self::Output;
 }
 
@@ -228,6 +241,50 @@ pub trait Stack<Rhs> {
     fn stack(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Utils ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub(crate) fn broadcasted_zeros<Lhs, Rhs>(
+    left: &Tensor<Lhs>,
+    right: &Tensor<Rhs>,
+) -> BroadTensor<Lhs, Rhs>
+where
+    Lhs: Dimension + DimMax<Rhs>,
+    Rhs: Dimension,
+{
+    let (bigger, smaller) = if left.ndim() >= right.ndim() {
+        (left.shape(), right.shape())
+    } else {
+        (right.shape(), left.shape())
+    };
+    let mut broad_dim = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
+    broad_dim
+        .slice_mut()
+        .iter_mut()
+        .zip(bigger.iter())
+        .for_each(|(l, r)| *l = *r);
+    broad_dim
+        .slice_mut()
+        .iter_mut()
+        .rev()
+        .zip(smaller.iter().rev())
+        .for_each(|(l, r)| *l = std::cmp::max(*l, *r));
+    Tensor::zeros(broad_dim)
+}
+
+pub(crate) fn expect_tensor<D: Dimension>(tensor: &RefCell<Option<Tensor<D>>>) -> Ref<Tensor<D>> {
+    Ref::map(tensor.borrow(), |b| {
+        b.as_ref().expect("tensor actually not allocated")
+    })
+}
+
+pub(crate) fn expect_tensor_mut<D: Dimension>(
+    tensor: &RefCell<Option<Tensor<D>>>,
+) -> RefMut<Tensor<D>> {
+    RefMut::map(tensor.borrow_mut(), |b| {
+        b.as_mut().expect("tensor actually not allocated")
+    })
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Variables ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -238,10 +295,7 @@ pub struct Var<T: Data + 'static> {
     pub(crate) past: VarHistory,
 }
 
-impl<T> Clone for Var<T>
-where
-    T: Data + 'static,
-{
+impl<T: Data + 'static> Clone for Var<T> {
     fn clone(&self) -> Self {
         Self {
             node: self.node.clone(),
@@ -250,10 +304,7 @@ where
     }
 }
 
-impl<D> Var<Input<D>>
-where
-    D: Dimension,
-{
+impl<D: Dimension> Var<Input<D>> {
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
         debug_assert_eq!(self.past.is_empty(), true);
 
@@ -305,7 +356,33 @@ impl<T: Data + Forward + 'static> Var<T> {
 
     pub(crate) fn from(node: T, mut past: VarHistory) -> Self {
         let node = Rc::new(node);
-        past.extend(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+        past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+
+        Var { node, past }
+    }
+
+    pub fn train(&self) {
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).train();
+            }
+        }
+    }
+
+    pub fn eval(&self) {
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).eval();
+            }
+        }
+    }
+}
+
+impl<T: Data + Forward + ChangeBehaviour + 'static> Var<T> {
+    pub(crate) fn from_changable(node: T, mut past: VarHistory) -> Self {
+        let node = Rc::new(node);
+        past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+        past.append_changeable(node.as_ref() as *const dyn ChangeBehaviour);
 
         Var { node, past }
     }
@@ -372,7 +449,7 @@ impl<T: Data + 'static> Var<T> {
     }
 
     pub fn dropout(self, p: f64) -> Var<Dropout<T>> {
-        Var::from(Dropout::new(self.node, p), self.past)
+        Var::from_changable(Dropout::new(self.node, p), self.past)
     }
 
     pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
@@ -391,15 +468,6 @@ impl<T: Data + 'static> Var<T> {
     }
 }
 
-impl<T> Var<Dropout<T>>
-where
-    T: Data,
-{
-    pub fn train(&self, status: bool) {
-        self.node.set_train(status);
-    }
-}
-
 impl<T> Var<T>
 where
     T: Data + 'static,
@@ -407,6 +475,34 @@ where
 {
     pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
         Var::from(Unsqueeze::new(self.node, axis), self.past)
+    }
+}
+
+impl<T: Data + Forward + 'static> ChangeBehaviour for Var<T> {
+    fn eval(&self) {
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).eval();
+            }
+        }
+    }
+
+    fn train(&self) {
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).train();
+            }
+        }
+    }
+}
+
+impl<T: Data + Forward + ChangeBehaviour> Var<T> {
+    pub fn set_eval(&self) {
+        self.node.eval();
+    }
+
+    pub fn set_train(&self) {
+        self.node.train();
     }
 }
 
@@ -456,7 +552,21 @@ where
 {
     pub(crate) fn from(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
         let node = Rc::new(node);
-        past.extend(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+        past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+
+        VarDiff { var, node, past }
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + Forward + ChangeBehaviour + 'static,
+    U: Gradient + Overwrite + Backward + ChangeBehaviour + 'static,
+{
+    pub(crate) fn from_changable(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
+        let node = Rc::new(node);
+        past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+        past.append_changeable(node.as_ref() as *const dyn ChangeBehaviour);
 
         VarDiff { var, node, past }
     }
@@ -508,6 +618,20 @@ where
             // Todo: that must be reset, in the same way for `forward`
 
             node.reset_computation();
+        }
+    }
+
+    pub fn no_grad(&mut self) {
+        self.past.prepare_buffer();
+        for node in &self.past.buffer {
+            node.no_grad();
+        }
+    }
+
+    pub fn with_grad(&mut self) {
+        self.past.prepare_buffer();
+        for node in &self.past.buffer {
+            node.with_grad();
         }
     }
 }
@@ -592,7 +716,7 @@ where
     pub fn dropout(self, p: f64) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
         let var = self.var.dropout(p);
         let node = DropoutBackward::new(self.node, var.node.clone(), p);
-        VarDiff::from(node, self.past, var)
+        VarDiff::from_changable(node, self.past, var)
     }
 
     pub fn chunks<E>(self, chunk_size: E) -> Vec<VarDiff<Chunk<T>, ChunkBackward<U>>>
@@ -620,14 +744,45 @@ where
     }
 }
 
-impl<T, U> VarDiff<Dropout<T>, DropoutBackward<U, T>>
+impl<T, U> ChangeBehaviour for VarDiff<T, U>
 where
-    T: Data,
-    U: Gradient<Dim = T::Dim> + Overwrite,
+    T: Data + Forward + 'static,
+    U: Gradient + Overwrite + Backward + 'static,
 {
-    pub fn train(&self, status: bool) {
-        self.var.node.set_train(status);
-        self.node.set_train(status);
+    fn eval(&self) {
+        self.var.eval();
+
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).eval();
+            }
+        }
+    }
+
+    fn train(&self) {
+        self.var.train();
+
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).train();
+            }
+        }
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + Forward + ChangeBehaviour + 'static,
+    U: Gradient + Overwrite + Backward + ChangeBehaviour + 'static,
+{
+    pub fn set_eval(&self) {
+        self.var.set_eval();
+        self.node.eval();
+    }
+
+    pub fn set_train(&self) {
+        self.var.set_eval();
+        self.node.train();
     }
 }
 

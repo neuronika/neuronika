@@ -1117,19 +1117,27 @@ mod tests {
         use super::*;
         use ndarray::stack;
         // This is a kernel of 4 filters, reshaped output should be of shape (4,9).
-        let kernel1 = Array::<f32, _>::from_iter((0..9).map(|el| el as f32))
+        let kernel1 = (0..9)
+            .map(|el| el as f32)
+            .collect::<Array<f32, _>>()
             .into_shape((3, 3))
             .unwrap();
-        let kernel2 = Array::<f32, _>::from_iter((9..18).map(|el| el as f32))
+        let kernel2 = (9..18)
+            .map(|el| el as f32)
+            .collect::<Array<f32, _>>()
             .into_shape((3, 3))
             .unwrap();
-        let kernel3 = Array::<f32, _>::from_iter((18..27).map(|el| el as f32))
+        let kernel3 = (18..27)
+            .map(|el| el as f32)
+            .collect::<Array<f32, _>>()
             .into_shape((3, 3))
             .unwrap();
         let flattened = stack(Axis(0), &[kernel1.view(), kernel2.view(), kernel3.view()]).unwrap();
         assert_eq!(
             flatten(flattened),
-            Array::<f32, _>::from_iter((0..27).map(|el| el as f32))
+            (0..27)
+                .map(|el| el as f32)
+                .collect::<Array<f32, _>>()
                 .into_shape((3, 9))
                 .unwrap()
         );
@@ -1413,7 +1421,7 @@ mod tests {
         use super::*;
         use ndarray::Ix3;
 
-        let input_elems = Array::<f32, _>::from_iter((0..150).map(|el| el as f32));
+        let input_elems = (0..150).map(|el| el as f32).collect::<Array<f32, _>>();
         let input = input_elems.into_shape((5, 3, 10)).unwrap();
         let kernel = Array::<f32, _>::ones((6, 3, 5));
         let stride = &[1];
@@ -1524,7 +1532,7 @@ mod tests {
         use ndarray::Ix4;
 
         // This is an input with a batch size of 3, 2 input channels each of 5 by 5.
-        let input_elems = Array::<f32, _>::from_iter((0..150).map(|el| el as f32));
+        let input_elems = (0..150).map(|el| el as f32).collect::<Array<f32, _>>();
         let input = input_elems.into_shape((3, 2, 5, 5)).unwrap();
         let kernel = Array::<f32, _>::ones((3, 2, 2, 2));
 
@@ -1604,7 +1612,7 @@ mod tests {
         use ndarray::Ix4;
 
         // This is an input with a batch size of 3, 2 input channels each of 5 by 5.
-        let input_elems = Array::<f32, _>::from_iter((0..150).map(|el| el as f32));
+        let input_elems = (0..150).map(|el| el as f32).collect::<Array<f32, _>>();
         let input = input_elems.into_shape((3, 2, 5, 5)).unwrap();
         let kernel = Array::<f32, _>::ones((3, 2, 2, 2));
 
@@ -1676,7 +1684,7 @@ mod tests {
         use ndarray::Ix4;
 
         // This is an input with a batch size of 3, 2 input channels each of 5 by 5.
-        let input_elems = Array::<f32, _>::from_iter((0..150).map(|el| el as f32));
+        let input_elems = (0..150).map(|el| el as f32).collect::<Array<f32, _>>();
         let input = input_elems.into_shape((3, 2, 5, 5)).unwrap();
         let kernel = Array::<f32, _>::ones((3, 2, 2, 2));
 
@@ -1750,7 +1758,9 @@ mod tests {
         use ndarray::Ix4;
         // This is an input with a batch size of 4, 8 input channels each of 5 by 5.
         // Constructing an input.
-        let input: Array<f32, Ix4> = Array::<f32, _>::from_iter((0..800).map(|el| el as f32))
+        let input: Array<f32, Ix4> = (0..800)
+            .map(|el| el as f32)
+            .collect::<Array<f32, _>>()
             .into_shape((4, 8, 5, 5))
             .unwrap();
 

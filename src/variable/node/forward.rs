@@ -1,6 +1,6 @@
 use super::{
-    super::{BroadTensor, Broadcasted, Tensor, Var},
-    broadcasted_zeros, DotDim,
+    super::{broadcasted_zeros, BroadTensor, Broadcasted, Tensor, Var},
+    ChangeBehaviour, Data, DotDim, Forward,
 };
 use ndarray::{
     concatenate,
@@ -13,22 +13,6 @@ use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     rc::Rc,
 };
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-pub trait Data {
-    type Dim: Dimension;
-
-    fn data(&self) -> Ref<Tensor<Self::Dim>>;
-}
-
-pub trait Forward {
-    fn forward(&self);
-
-    fn was_computed(&self) -> bool;
-
-    fn reset_computation(&self);
-}
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -1751,10 +1735,6 @@ impl<T: Data> Dropout<T> {
     pub(crate) fn noise(&self) -> Ref<Tensor<T::Dim>> {
         self.noise.borrow()
     }
-
-    pub(crate) fn set_train(&self, status: bool) {
-        self.train.set(status)
-    }
 }
 
 impl<T: Data> Forward for Dropout<T> {
@@ -1801,6 +1781,16 @@ impl<T: Data> Data for Dropout<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+}
+
+impl<T: Data> ChangeBehaviour for Dropout<T> {
+    fn train(&self) {
+        self.train.set(true);
+    }
+
+    fn eval(&self) {
+        self.train.set(false);
     }
 }
 
@@ -4225,15 +4215,15 @@ mod tests {
             assert_almost_equals(&*node.data(), &new_tensor((3, 3), vec![0.; 9]));
         }
 
-        #[test]
-        fn forward_scaling() {
-            let input = new_input((3, 3), vec![3.; 9]);
-            let node = Dropout::new(input.clone(), 0.5);
+        // #[test]
+        // fn forward_scaling() {
+        //     let input = new_input((3, 3), vec![3.; 9]);
+        //     let node = Dropout::new(input.clone(), 0.5);
 
-            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            node.forward();
-            node.data().iter().any(|el| *el == 0. || *el == 6.);
-        }
+        //     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        //     node.forward();
+        //     node.data().iter().any(|el| *el == 0. || *el == 6.);
+        // }
 
         #[test]
         fn forward_p_zero() {

@@ -1,5 +1,6 @@
-use super::{BroadTensor, Tensor};
-use ndarray::{DimMax, Dimension, Ix1, Ix2};
+use super::Tensor;
+use ndarray::{Dimension, Ix1, Ix2};
+use std::cell::{Ref, RefMut};
 
 pub mod backward;
 pub mod forward;
@@ -7,36 +8,52 @@ pub mod forward;
 pub use backward::*;
 pub use forward::*;
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Utils ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub trait Data {
+    type Dim: Dimension;
 
-pub(super) fn broadcasted_zeros<Lhs, Rhs>(
-    left: &Tensor<Lhs>,
-    right: &Tensor<Rhs>,
-) -> BroadTensor<Lhs, Rhs>
-where
-    Lhs: Dimension + DimMax<Rhs>,
-    Rhs: Dimension,
-{
-    let (bigger, smaller) = if left.ndim() >= right.ndim() {
-        (left.shape(), right.shape())
-    } else {
-        (right.shape(), left.shape())
-    };
-    let b_dim = {
-        let mut empty_d = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
-        let empty_d_slice = empty_d.slice_mut();
-        empty_d_slice
-            .iter_mut()
-            .zip(bigger.iter())
-            .for_each(|(e_el, b_el)| *e_el = *b_el);
-        empty_d_slice
-            .iter_mut()
-            .rev()
-            .zip(smaller.iter().rev())
-            .for_each(|(l, r)| *l = std::cmp::max(*l, *r));
-        empty_d
-    };
-    Tensor::zeros(b_dim)
+    fn data(&self) -> Ref<Tensor<Self::Dim>>;
+}
+
+pub trait Forward {
+    fn forward(&self);
+
+    fn was_computed(&self) -> bool;
+
+    fn reset_computation(&self);
+}
+
+pub trait Gradient {
+    type Dim: Dimension;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>>;
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>>;
+}
+
+pub trait Overwrite {
+    fn can_overwrite(&self) -> bool;
+
+    fn set_overwrite(&self, state: bool);
+}
+
+pub trait Backward: Overwrite {
+    fn backward(&self);
+
+    fn no_grad(&self);
+
+    fn with_grad(&self);
+}
+
+pub trait Differentiable {
+    type Output: Gradient + Overwrite;
+
+    fn differentiable(&self) -> Self::Output;
+}
+
+pub trait ChangeBehaviour {
+    fn train(&self);
+
+    fn eval(&self);
 }
 
 trait DotDim<Rhs>

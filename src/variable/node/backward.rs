@@ -1,8 +1,9 @@
 use super::{
-    super::{BroadTensor, Broadcasted, DynTensor, Tensor},
-    broadcasted_zeros,
-    forward::{Data, Input},
-    DotDim, Dropout,
+    super::{
+        broadcasted_zeros, expect_tensor, expect_tensor_mut, BroadTensor, Broadcasted, DynTensor,
+        Tensor,
+    },
+    Backward, ChangeBehaviour, Data, Differentiable, DotDim, Dropout, Gradient, Input, Overwrite,
 };
 use ndarray::{
     concatenate,
@@ -126,54 +127,16 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-pub trait Gradient {
-    type Dim: Dimension;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>>;
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>>;
-}
-
-pub trait Overwrite {
-    fn can_overwrite(&self) -> bool;
-
-    fn set_overwrite(&self, state: bool);
-}
-
-pub trait Backward: Overwrite {
-    fn backward(&self);
-}
-
-pub trait Differentiable {
-    type Output: Gradient + Overwrite;
-
-    fn differentiable(&self) -> Self::Output;
-}
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ InputBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct InputBackward<D: Dimension> {
-    gradient: RefCell<Tensor<D>>,
+    gradient: RefCell<Option<Tensor<D>>>,
     overwrite: Cell<bool>,
 }
 
 impl<D: Dimension> InputBackward<D> {
     pub fn zero_grad(&self) {
-        self.gradient.borrow_mut().fill(0.);
-    }
-}
-
-impl<D: Dimension> Gradient for InputBackward<D> {
-    type Dim = D;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
-    }
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient).fill(0.);
     }
 }
 
@@ -182,9 +145,21 @@ impl<D: Dimension> Differentiable for Input<D> {
 
     fn differentiable(&self) -> Self::Output {
         Self::Output {
-            gradient: RefCell::new(Tensor::zeros(self.data().raw_dim())),
+            gradient: RefCell::new(Some(Tensor::zeros(self.data().raw_dim()))),
             overwrite: Cell::new(true),
         }
+    }
+}
+
+impl<D: Dimension> Gradient for InputBackward<D> {
+    type Dim = D;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -201,19 +176,21 @@ impl<D: Dimension> Overwrite for InputBackward<D> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NegationBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct NegationBackward<T: Gradient + Overwrite> {
-    operand: Rc<T>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    operand: Rc<T>,
 }
 
 impl<T: Gradient + Overwrite> NegationBackward<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand.gradient().raw_dim()));
+        let shape = operand.gradient().raw_dim();
 
         Self {
-            operand,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            operand,
         }
     }
 }
@@ -222,17 +199,11 @@ impl<T: Gradient + Overwrite> Gradient for NegationBackward<T> {
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T: Gradient + Overwrite> Backward for NegationBackward<T> {
-    fn backward(&self) {
-        push_gradient(&*self.operand, &-(&*self.gradient()));
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -246,22 +217,38 @@ impl<T: Gradient + Overwrite> Overwrite for NegationBackward<T> {
     }
 }
 
+impl<T: Gradient + Overwrite> Backward for NegationBackward<T> {
+    fn backward(&self) {
+        push_gradient(&*self.operand, &-(&*self.gradient()));
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ TransposeBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct TransposeBackward<T: Gradient + Overwrite> {
-    operand: Rc<T>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    operand: Rc<T>,
 }
 
 impl<T: Gradient + Overwrite> TransposeBackward<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand.gradient().t().raw_dim()));
+        let shape = operand.gradient().t().raw_dim();
 
         Self {
-            operand,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            operand,
         }
     }
 }
@@ -270,17 +257,11 @@ impl<T: Gradient + Overwrite> Gradient for TransposeBackward<T> {
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T: Gradient + Overwrite> Backward for TransposeBackward<T> {
-    fn backward(&self) {
-        push_gradient(&*self.operand, self.gradient().t());
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -294,6 +275,20 @@ impl<T: Gradient + Overwrite> Overwrite for TransposeBackward<T> {
     }
 }
 
+impl<T: Gradient + Overwrite> Backward for TransposeBackward<T> {
+    fn backward(&self) {
+        push_gradient(&*self.operand, self.gradient().t());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AdditionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct AdditionBackward<Lhs, Rhs>
@@ -302,10 +297,11 @@ where
     Rhs: Gradient + Overwrite,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
+    gradient: RefCell<Option<BroadTensor<Lhs::Dim, Rhs::Dim>>>,
+    shape: Broadcasted<Lhs::Dim, Rhs::Dim>,
+    overwrite: Cell<bool>,
     left: Rc<Lhs>,
     right: Rc<Rhs>,
-    gradient: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<Lhs, Rhs> AdditionBackward<Lhs, Rhs>
@@ -315,29 +311,16 @@ where
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(&left.gradient(), &right.gradient()));
+        let gradient = broadcasted_zeros(&left.gradient(), &right.gradient());
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            overwrite: Cell::new(true),
             left,
             right,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<Lhs, Rhs> Backward for AdditionBackward<Lhs, Rhs>
-where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
-    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
-{
-    fn backward(&self) {
-        let reduced = reduce(&*self.left.gradient_mut(), &self.gradient());
-        push_gradient(&*self.left, &reduced.as_standard_layout());
-
-        let reduced = reduce(&*self.right.gradient_mut(), &self.gradient());
-        push_gradient(&*self.right, &reduced.as_standard_layout());
     }
 }
 
@@ -350,11 +333,11 @@ where
     type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -373,6 +356,29 @@ where
     }
 }
 
+impl<Lhs, Rhs> Backward for AdditionBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient + Overwrite,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn backward(&self) {
+        let reduced = reduce(&self.left.gradient_mut(), &self.gradient());
+        push_gradient(&*self.left, &reduced.as_standard_layout());
+
+        let reduced = reduce(&self.right.gradient_mut(), &self.gradient());
+        push_gradient(&*self.right, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AdditionBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct AdditionBackwardUnary<T, U>
@@ -381,9 +387,10 @@ where
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    diff_operand: Rc<T>,
-    gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
+    gradient: RefCell<Option<BroadTensor<T::Dim, U::Dim>>>,
+    shape: Broadcasted<T::Dim, U::Dim>,
     overwrite: Cell<bool>,
+    operand: Rc<T>,
 }
 
 impl<T, U> AdditionBackwardUnary<T, U>
@@ -392,29 +399,16 @@ where
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(
-            &*diff_operand.gradient(),
-            &*no_diff_operand.data(),
-        ));
+    pub fn new(diff: Rc<T>, no_diff: Rc<U>) -> Self {
+        let gradient = broadcasted_zeros(&diff.gradient(), &no_diff.data());
+        let shape = gradient.raw_dim();
 
         Self {
-            diff_operand,
-            gradient,
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            operand: diff,
             overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<T, U> Backward for AdditionBackwardUnary<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data,
-    T::Dim: Dimension + DimMax<U::Dim>,
-{
-    fn backward(&self) {
-        let reduced = reduce(&*self.diff_operand.gradient(), &*self.gradient());
-        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -427,11 +421,11 @@ where
     type Dim = Broadcasted<T::Dim, U::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -450,6 +444,26 @@ where
     }
 }
 
+impl<T, U> Backward for AdditionBackwardUnary<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn backward(&self) {
+        let reduced = reduce(&self.operand.gradient(), &self.gradient());
+        push_gradient(&*self.operand, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SubtractionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct SubtractionBackward<Lhs, Rhs>
@@ -458,10 +472,11 @@ where
     Rhs: Gradient + Overwrite,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
+    gradient: RefCell<Option<BroadTensor<Lhs::Dim, Rhs::Dim>>>,
+    shape: Broadcasted<Lhs::Dim, Rhs::Dim>,
+    overwrite: Cell<bool>,
     left: Rc<Lhs>,
     right: Rc<Rhs>,
-    gradient: RefCell<BroadTensor<Lhs::Dim, Rhs::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<Lhs, Rhs> SubtractionBackward<Lhs, Rhs>
@@ -471,29 +486,16 @@ where
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(&left.gradient(), &right.gradient()));
+        let gradient = broadcasted_zeros(&left.gradient(), &right.gradient());
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            overwrite: Cell::new(true),
             left,
             right,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<Lhs, Rhs> Backward for SubtractionBackward<Lhs, Rhs>
-where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
-    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
-{
-    fn backward(&self) {
-        let reduced = reduce(&*self.left.gradient_mut(), &self.gradient());
-        push_gradient(&*self.left, &reduced.as_standard_layout());
-
-        let reduced = -reduce(&*self.right.gradient_mut(), &self.gradient());
-        push_gradient(&*self.right, &reduced.as_standard_layout());
     }
 }
 
@@ -506,11 +508,11 @@ where
     type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -529,6 +531,29 @@ where
     }
 }
 
+impl<Lhs, Rhs> Backward for SubtractionBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient + Overwrite,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn backward(&self) {
+        let reduced = reduce(&self.left.gradient_mut(), &self.gradient());
+        push_gradient(&*self.left, &reduced.as_standard_layout());
+
+        let reduced = -reduce(&self.right.gradient_mut(), &self.gradient());
+        push_gradient(&*self.right, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SubtractionBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct SubtractionBackwardLeft<T, U>
@@ -537,9 +562,10 @@ where
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    diff_operand: Rc<T>,
-    gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
+    gradient: RefCell<Option<BroadTensor<T::Dim, U::Dim>>>,
+    shape: Broadcasted<T::Dim, U::Dim>,
     overwrite: Cell<bool>,
+    operand: Rc<T>,
 }
 
 impl<T, U> SubtractionBackwardLeft<T, U>
@@ -548,29 +574,16 @@ where
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    pub fn new(diff_operand: Rc<T>, operand: Rc<U>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(
-            &*diff_operand.gradient(),
-            &*operand.data(),
-        ));
+    pub fn new(diff: Rc<T>, no_diff: Rc<U>) -> Self {
+        let gradient = broadcasted_zeros(&diff.gradient(), &no_diff.data());
+        let shape = gradient.raw_dim();
 
         Self {
-            diff_operand,
-            gradient,
+            gradient: RefCell::new(Some(gradient)),
+            shape,
             overwrite: Cell::new(true),
+            operand: diff,
         }
-    }
-}
-
-impl<T, U> Backward for SubtractionBackwardLeft<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data,
-    T::Dim: Dimension + DimMax<U::Dim>,
-{
-    fn backward(&self) {
-        let reduced = reduce(&*self.diff_operand.gradient_mut(), &self.gradient());
-        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -583,11 +596,11 @@ where
     type Dim = Broadcasted<T::Dim, U::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -606,6 +619,26 @@ where
     }
 }
 
+impl<T, U> Backward for SubtractionBackwardLeft<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn backward(&self) {
+        let reduced = reduce(&self.operand.gradient_mut(), &self.gradient());
+        push_gradient(&*self.operand, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SubtractionBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct SubtractionBackwardRight<T, U>
@@ -614,9 +647,10 @@ where
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    diff_operand: Rc<T>,
-    gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
+    gradient: RefCell<Option<BroadTensor<T::Dim, U::Dim>>>,
+    shape: Broadcasted<T::Dim, U::Dim>,
     overwrite: Cell<bool>,
+    operand: Rc<T>,
 }
 
 impl<T, U> SubtractionBackwardRight<T, U>
@@ -625,29 +659,16 @@ where
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
-    pub fn new(diff_operand: Rc<T>, operand: Rc<U>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(
-            &*diff_operand.gradient(),
-            &*operand.data(),
-        ));
+    pub fn new(diff: Rc<T>, no_diff: Rc<U>) -> Self {
+        let gradient = broadcasted_zeros(&diff.gradient(), &no_diff.data());
+        let shape = gradient.raw_dim();
 
         Self {
-            diff_operand,
-            gradient,
+            gradient: RefCell::new(Some(gradient)),
+            shape,
             overwrite: Cell::new(true),
+            operand: diff,
         }
-    }
-}
-
-impl<T, U> Backward for SubtractionBackwardRight<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data,
-    T::Dim: Dimension + DimMax<U::Dim>,
-{
-    fn backward(&self) {
-        let reduced = -reduce(&*self.diff_operand.gradient_mut(), &self.gradient());
-        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -660,11 +681,11 @@ where
     type Dim = Broadcasted<T::Dim, U::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -683,6 +704,26 @@ where
     }
 }
 
+impl<T, U> Backward for SubtractionBackwardRight<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn backward(&self) {
+        let reduced = -reduce(&*self.operand.gradient_mut(), &self.gradient());
+        push_gradient(&*self.operand, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiplicationBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
@@ -694,13 +735,14 @@ where
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
+    gradient: RefCell<Option<BroadTensor<LhsG::Dim, RhsG::Dim>>>,
+    shape: Broadcasted<LhsG::Dim, RhsG::Dim>,
+    overwrite: Cell<bool>,
+    buffer: RefCell<Option<BroadTensor<LhsG::Dim, RhsG::Dim>>>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<BroadTensor<LhsG::Dim, RhsG::Dim>>,
-    buffer: RefCell<BroadTensor<LhsG::Dim, RhsG::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
@@ -718,52 +760,19 @@ where
         right_data: Rc<RhsD>,
         right_grad: Rc<RhsG>,
     ) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(
-            &left_grad.gradient(),
-            &right_grad.gradient(),
-        ));
-        let buffer = RefCell::new(broadcasted_zeros(
-            &left_grad.gradient(),
-            &right_grad.gradient(),
-        ));
+        let gradient = broadcasted_zeros(&left_grad.gradient(), &right_grad.gradient());
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape: shape.clone(),
+            overwrite: Cell::new(true),
+            buffer: RefCell::new(Some(Tensor::zeros(shape))),
             left_data,
             left_grad,
             right_data,
             right_grad,
-            gradient,
-            buffer,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, LhsG, RhsD, RhsG> Backward for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data,
-    RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
-    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
-    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        let mut buffer = self.buffer.borrow_mut();
-        Zip::from(&mut *buffer)
-            .and(&*gradient)
-            .and_broadcast(&*self.right_data.data())
-            .for_each(|d, g, r| *d = g * r);
-        let reduced = reduce(&*self.left_grad.gradient(), &buffer);
-        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
-
-        Zip::from(&mut *buffer)
-            .and(&*gradient)
-            .and_broadcast(&*self.left_data.data())
-            .for_each(|d, g, l| *d = g * l);
-        let reduced = reduce(&*self.right_grad.gradient(), &buffer);
-        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -779,11 +788,11 @@ where
     type Dim = Broadcasted<LhsG::Dim, RhsG::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -805,6 +814,42 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Backward for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
+    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        let mut buffer = expect_tensor_mut(&self.buffer);
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
+            .and_broadcast(&*self.right_data.data())
+            .for_each(|d, g, r| *d = g * r);
+        let reduced = reduce(&self.left_grad.gradient(), &buffer);
+        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
+
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
+            .and_broadcast(&*self.left_data.data())
+            .for_each(|d, g, l| *d = g * l);
+        let reduced = reduce(&self.right_grad.gradient(), &buffer);
+        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiplicationBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MultiplicationBackwardUnary<T, U>
@@ -813,11 +858,12 @@ where
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
+    gradient: RefCell<Option<BroadTensor<T::Dim, U::Dim>>>,
+    shape: Broadcasted<T::Dim, U::Dim>,
+    overwrite: Cell<bool>,
+    buffer: RefCell<Option<BroadTensor<T::Dim, U::Dim>>>,
     diff_operand: Rc<T>,
     no_diff_operand: Rc<U>,
-    gradient: RefCell<BroadTensor<T::Dim, U::Dim>>,
-    buffer: RefCell<BroadTensor<T::Dim, U::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<T, U> MultiplicationBackwardUnary<T, U>
@@ -827,41 +873,17 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(
-            &*diff_operand.gradient(),
-            &*no_diff_operand.data(),
-        ));
-        let buffer = RefCell::new(broadcasted_zeros(
-            &*diff_operand.gradient(),
-            &*no_diff_operand.data(),
-        ));
+        let gradient = broadcasted_zeros(&diff_operand.gradient(), &no_diff_operand.data());
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape: shape.clone(),
+            overwrite: Cell::new(true),
+            buffer: RefCell::new(Some(Tensor::zeros(shape))),
             diff_operand,
             no_diff_operand,
-            gradient,
-            buffer,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<T, U> Backward for MultiplicationBackwardUnary<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data,
-    T::Dim: Dimension + DimMax<U::Dim>,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        let mut buffer = self.buffer.borrow_mut();
-
-        Zip::from(&mut *buffer)
-            .and(&*gradient)
-            .and_broadcast(&*self.no_diff_operand.data())
-            .for_each(|d, g, v| *d = g * v);
-        let reduced = reduce(&self.diff_operand.gradient_mut(), &buffer);
-        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
     }
 }
 
@@ -874,11 +896,11 @@ where
     type Dim = Broadcasted<T::Dim, U::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -897,6 +919,33 @@ where
     }
 }
 
+impl<T, U> Backward for MultiplicationBackwardUnary<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        let mut buffer = expect_tensor_mut(&self.buffer);
+
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
+            .and_broadcast(&*self.no_diff_operand.data())
+            .for_each(|d, g, v| *d = g * v);
+        let reduced = reduce(&self.diff_operand.gradient_mut(), &buffer);
+        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct DivisionBackward<LhsD, LhsG, RhsD, RhsG>
@@ -908,13 +957,14 @@ where
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
+    gradient: RefCell<Option<BroadTensor<LhsG::Dim, RhsG::Dim>>>,
+    shape: Broadcasted<LhsG::Dim, RhsG::Dim>,
+    overwrite: Cell<bool>,
+    buffer: RefCell<Option<BroadTensor<LhsG::Dim, RhsG::Dim>>>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<BroadTensor<LhsG::Dim, RhsG::Dim>>,
-    buffer: RefCell<BroadTensor<LhsG::Dim, RhsG::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> DivisionBackward<LhsD, LhsG, RhsD, RhsG>
@@ -932,54 +982,19 @@ where
         right_data: Rc<RhsD>,
         right_grad: Rc<RhsG>,
     ) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(
-            &left_grad.gradient(),
-            &right_grad.gradient(),
-        ));
-        let buffer = RefCell::new(broadcasted_zeros(
-            &left_grad.gradient(),
-            &right_grad.gradient(),
-        ));
+        let gradient = broadcasted_zeros(&left_grad.gradient(), &right_grad.gradient());
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape: shape.clone(),
+            overwrite: Cell::new(true),
+            buffer: RefCell::new(Some(Tensor::zeros(shape))),
             left_data,
             left_grad,
             right_data,
             right_grad,
-            gradient,
-            buffer,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, LhsG, RhsD, RhsG> Backward for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data,
-    RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
-    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
-    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        let mut buffer = self.buffer.borrow_mut();
-
-        Zip::from(&mut *buffer)
-            .and(&*gradient)
-            .and_broadcast(&*self.right_data.data())
-            .for_each(|d, g, r| *d = g / r);
-        let reduced = reduce(&*self.left_grad.gradient(), &buffer);
-        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
-
-        Zip::from(&mut *buffer)
-            .and(&*gradient)
-            .and_broadcast(&*self.left_data.data())
-            .and_broadcast(&*self.right_data.data())
-            .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
-        let reduced = reduce(&*self.right_grad.gradient(), &buffer);
-        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -995,11 +1010,11 @@ where
     type Dim = Broadcasted<LhsG::Dim, RhsG::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1021,6 +1036,44 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Backward for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
+    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        let mut buffer = expect_tensor_mut(&self.buffer);
+
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
+            .and_broadcast(&*self.right_data.data())
+            .for_each(|d, g, r| *d = g / r);
+        let reduced = reduce(&self.left_grad.gradient(), &buffer);
+        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
+
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
+            .and_broadcast(&*self.left_data.data())
+            .and_broadcast(&*self.right_data.data())
+            .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
+        let reduced = reduce(&self.right_grad.gradient(), &buffer);
+        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct DivisionBackwardLeft<LhsG, RhsD>
@@ -1029,11 +1082,12 @@ where
     LhsG: Gradient + Overwrite,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
+    gradient: RefCell<Option<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>>,
+    shape: Broadcasted<LhsG::Dim, RhsD::Dim>,
+    overwrite: Cell<bool>,
+    buffer: RefCell<Option<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
-    gradient: RefCell<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>,
-    buffer: RefCell<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsG, RhsD> DivisionBackwardLeft<LhsG, RhsD>
@@ -1043,35 +1097,17 @@ where
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(&left_grad.gradient(), &right_data.data()));
-        let buffer = RefCell::new(broadcasted_zeros(&left_grad.gradient(), &right_data.data()));
+        let gradient = broadcasted_zeros(&left_grad.gradient(), &right_data.data());
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape: shape.clone(),
+            overwrite: Cell::new(true),
+            buffer: RefCell::new(Some(Tensor::zeros(shape))),
             left_grad,
             right_data,
-            gradient,
-            buffer,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsG, RhsD> Backward for DivisionBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        let mut buffer = self.buffer.borrow_mut();
-
-        Zip::from(&mut *buffer)
-            .and(&*gradient)
-            .and_broadcast(&*self.right_data.data())
-            .for_each(|d, g, r| *d = g / r);
-        let reduced = reduce(&*self.left_grad.gradient(), &buffer);
-        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -1084,11 +1120,11 @@ where
     type Dim = Broadcasted<LhsG::Dim, RhsD::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1107,6 +1143,33 @@ where
     }
 }
 
+impl<LhsG, RhsD> Backward for DivisionBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        let mut buffer = expect_tensor_mut(&self.buffer);
+
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
+            .and_broadcast(&*self.right_data.data())
+            .for_each(|d, g, r| *d = g / r);
+        let reduced = reduce(&self.left_grad.gradient(), &buffer);
+        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct DivisionBackwardRight<LhsD, RhsD, RhsG>
@@ -1116,12 +1179,13 @@ where
     RhsG: Gradient + Overwrite,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
+    gradient: RefCell<Option<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>>,
+    shape: Broadcasted<LhsD::Dim, RhsG::Dim>,
+    overwrite: Cell<bool>,
+    buffer: RefCell<Option<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>>,
     left_data: Rc<LhsD>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>,
-    buffer: RefCell<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, RhsD, RhsG> DivisionBackwardRight<LhsD, RhsD, RhsG>
@@ -1132,38 +1196,18 @@ where
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     pub fn new(left_data: Rc<LhsD>, right_data: Rc<RhsD>, right_grad: Rc<RhsG>) -> Self {
-        let gradient = RefCell::new(broadcasted_zeros(&left_data.data(), &right_grad.gradient()));
-        let buffer = RefCell::new(broadcasted_zeros(&left_data.data(), &right_grad.gradient()));
+        let gradient = broadcasted_zeros(&left_data.data(), &right_grad.gradient());
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape: shape.clone(),
+            overwrite: Cell::new(true),
+            buffer: RefCell::new(Some(Tensor::zeros(shape))),
             left_data,
             right_data,
             right_grad,
-            gradient,
-            buffer,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, RhsD, RhsG> Backward for DivisionBackwardRight<LhsD, RhsD, RhsG>
-where
-    LhsD: Data,
-    RhsD: Data,
-    RhsG: Gradient + Overwrite,
-    LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        let mut buffer = self.buffer.borrow_mut();
-
-        Zip::from(&mut *buffer)
-            .and(&*gradient)
-            .and_broadcast(&*self.left_data.data())
-            .and_broadcast(&*self.right_data.data())
-            .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
-        let reduced = reduce(&*self.right_grad.gradient(), &buffer);
-        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
     }
 }
 
@@ -1177,11 +1221,11 @@ where
     type Dim = Broadcasted<LhsD::Dim, RhsG::Dim>;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1201,6 +1245,35 @@ where
     }
 }
 
+impl<LhsD, RhsD, RhsG> Backward for DivisionBackwardRight<LhsD, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        let mut buffer = expect_tensor_mut(&self.buffer);
+
+        Zip::from(&mut *buffer)
+            .and(&*gradient)
+            .and_broadcast(&*self.left_data.data())
+            .and_broadcast(&*self.right_data.data())
+            .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
+        let reduced = reduce(&self.right_grad.gradient(), &buffer);
+        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MattrixMatrixMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1210,12 +1283,13 @@ where
     LhsG: Gradient<Dim = Ix2> + Overwrite,
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix2>>>,
+    shape: Ix2,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix2>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1235,30 +1309,16 @@ where
             left_grad.gradient().raw_dim(),
             right_grad.gradient().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             left_grad,
             right_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        push_mat_mat_gradient(&*self.left_grad, &gradient, &self.right_data.data().t());
-        push_mat_mat_gradient(&*self.right_grad, &self.left_data.data().t(), &gradient);
     }
 }
 
@@ -1272,11 +1332,11 @@ where
     type Dim = Ix2;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1296,6 +1356,28 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2> + Overwrite,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        push_mat_mat_gradient(&*self.left_grad, &gradient, &self.right_data.data().t());
+        push_mat_mat_gradient(&*self.right_grad, &self.left_data.data().t(), &gradient);
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulBackwardLeft<LhsG, RhsD>
@@ -1303,10 +1385,11 @@ where
     RhsD: Data<Dim = Ix2>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix2>>>,
+    shape: Ix2,
+    overwrite: Cell<bool>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
-    gradient: RefCell<Tensor<Ix2>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsG, RhsD> MatrixMatrixMulBackwardLeft<LhsG, RhsD>
@@ -1316,28 +1399,14 @@ where
 {
     pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
         let shape = DotDim::shape(left_grad.gradient().raw_dim(), right_data.data().raw_dim());
-        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_grad,
             right_data,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsG, RhsD> Backward for MatrixMatrixMulBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        push_mat_mat_gradient(
-            &*self.left_grad,
-            &self.gradient(),
-            &self.right_data.data().t(),
-        );
     }
 }
 
@@ -1349,11 +1418,11 @@ where
     type Dim = Ix2;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1371,6 +1440,28 @@ where
     }
 }
 
+impl<LhsG, RhsD> Backward for MatrixMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        push_mat_mat_gradient(
+            &*self.left_grad,
+            &self.gradient(),
+            &self.right_data.data().t(),
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulBackwardRight<LhsD, RhsG>
@@ -1378,10 +1469,11 @@ where
     LhsD: Data<Dim = Ix2>,
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix2>>>,
+    shape: Ix2,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix2>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, RhsG> MatrixMatrixMulBackwardRight<LhsD, RhsG>
@@ -1391,28 +1483,14 @@ where
 {
     pub fn new(left_data: Rc<LhsD>, right_grad: Rc<RhsG>) -> Self {
         let shape = DotDim::shape(left_data.data().raw_dim(), right_grad.gradient().raw_dim());
-        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, RhsG> Backward for MatrixMatrixMulBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        push_mat_mat_gradient(
-            &*self.right_grad,
-            &self.left_data.data().t(),
-            &self.gradient(),
-        );
     }
 }
 
@@ -1424,11 +1502,11 @@ where
     type Dim = Ix2;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1446,6 +1524,28 @@ where
     }
 }
 
+impl<LhsD, RhsG> Backward for MatrixMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        push_mat_mat_gradient(
+            &*self.right_grad,
+            &self.left_data.data().t(),
+            &self.gradient(),
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MattrixMatrixMulTBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1455,12 +1555,13 @@ where
     LhsG: Gradient<Dim = Ix2> + Overwrite,
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix2>>>,
+    shape: Ix2,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix2>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1480,30 +1581,16 @@ where
             left_grad.gradient().raw_dim(),
             right_grad.gradient().t().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             left_grad,
             right_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        push_mat_mat_gradient(&*self.left_grad, &gradient, &self.right_data.data());
-        push_mat_mat_gradient(&*self.right_grad, &gradient.t(), &self.left_data.data());
     }
 }
 
@@ -1517,11 +1604,11 @@ where
     type Dim = Ix2;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1541,6 +1628,28 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2> + Overwrite,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        push_mat_mat_gradient(&*self.left_grad, &gradient, &self.right_data.data());
+        push_mat_mat_gradient(&*self.right_grad, &gradient.t(), &self.left_data.data());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulTBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
@@ -1548,10 +1657,11 @@ where
     RhsD: Data<Dim = Ix2>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix2>>>,
+    shape: Ix2,
+    overwrite: Cell<bool>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
-    gradient: RefCell<Tensor<Ix2>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsG, RhsD> MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
@@ -1564,24 +1674,14 @@ where
             left_grad.gradient().raw_dim(),
             right_data.data().t().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_grad,
             right_data,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsG, RhsD> Backward for MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        push_mat_mat_gradient(&*self.left_grad, &self.gradient(), &self.right_data.data());
     }
 }
 
@@ -1593,11 +1693,11 @@ where
     type Dim = Ix2;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1615,6 +1715,24 @@ where
     }
 }
 
+impl<LhsG, RhsD> Backward for MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        push_mat_mat_gradient(&*self.left_grad, &self.gradient(), &self.right_data.data());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixMatrixMulTBackwardRight<LhsD, RhsG>
@@ -1622,10 +1740,11 @@ where
     LhsD: Data<Dim = Ix2>,
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix2>>>,
+    shape: Ix2,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix2>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, RhsG> MatrixMatrixMulTBackwardRight<LhsD, RhsG>
@@ -1638,28 +1757,14 @@ where
             left_data.data().raw_dim(),
             right_grad.gradient().t().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros((shape[0], shape[1])));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, RhsG> Backward for MatrixMatrixMulTBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        push_mat_mat_gradient(
-            &*self.right_grad,
-            &self.gradient().t(),
-            &self.left_data.data(),
-        );
     }
 }
 
@@ -1671,11 +1776,11 @@ where
     type Dim = Ix2;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1693,6 +1798,28 @@ where
     }
 }
 
+impl<LhsD, RhsG> Backward for MatrixMatrixMulTBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        push_mat_mat_gradient(
+            &*self.right_grad,
+            &self.gradient().t(),
+            &self.left_data.data(),
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1702,12 +1829,13 @@ where
     LhsG: Gradient<Dim = Ix2> + Overwrite,
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1727,34 +1855,16 @@ where
             left_grad.gradient().raw_dim(),
             right_grad.gradient().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             left_grad,
             right_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        push_mat_vec_gradient(
-            &*self.left_grad,
-            &gradient.slice(s![.., NewAxis]),
-            &self.right_data.data(),
-        );
-        push_vec_mat_gradient(&*self.right_grad, &self.left_data.data().t(), &gradient);
     }
 }
 
@@ -1768,11 +1878,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1792,6 +1902,32 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2> + Overwrite,
+    RhsG: Gradient<Dim = Ix1> + Overwrite,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        push_mat_vec_gradient(
+            &*self.left_grad,
+            &gradient.slice(s![.., NewAxis]),
+            &self.right_data.data(),
+        );
+        push_vec_mat_gradient(&*self.right_grad, &self.left_data.data().t(), &gradient);
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixVectorMulBackwardLeft<LhsG, RhsD>
@@ -1799,10 +1935,11 @@ where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsG, RhsD> MatrixVectorMulBackwardLeft<LhsG, RhsD>
@@ -1812,28 +1949,14 @@ where
 {
     pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
         let shape = DotDim::shape(left_grad.gradient().raw_dim(), right_data.data().raw_dim());
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_grad,
             right_data,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsG, RhsD> Backward for MatrixVectorMulBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        push_mat_vec_gradient(
-            &*self.left_grad,
-            &self.gradient().slice(s![.., NewAxis]),
-            &self.right_data.data(),
-        );
     }
 }
 
@@ -1845,11 +1968,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1867,6 +1990,28 @@ where
     }
 }
 
+impl<LhsG, RhsD> Backward for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        push_mat_vec_gradient(
+            &*self.left_grad,
+            &self.gradient().slice(s![.., NewAxis]),
+            &self.right_data.data(),
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct MatrixVectorMulBackwardRight<LhsD, RhsG>
@@ -1874,10 +2019,11 @@ where
     LhsD: Data<Dim = Ix2>,
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, RhsG> MatrixVectorMulBackwardRight<LhsD, RhsG>
@@ -1887,28 +2033,14 @@ where
 {
     pub fn new(left_data: Rc<LhsD>, right_grad: Rc<RhsG>) -> Self {
         let shape = DotDim::shape(left_data.data().raw_dim(), right_grad.gradient().raw_dim());
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, RhsG> Backward for MatrixVectorMulBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
-{
-    fn backward(&self) {
-        push_vec_mat_gradient(
-            &*self.right_grad,
-            &self.left_data.data().t(),
-            &self.gradient(),
-        );
     }
 }
 
@@ -1920,11 +2052,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -1942,6 +2074,28 @@ where
     }
 }
 
+impl<LhsD, RhsG> Backward for MatrixVectorMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix2>,
+    RhsG: Gradient<Dim = Ix1> + Overwrite,
+{
+    fn backward(&self) {
+        push_vec_mat_gradient(
+            &*self.right_grad,
+            &self.left_data.data().t(),
+            &self.gradient(),
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
@@ -1950,12 +2104,13 @@ where
     LhsG: Gradient<Dim = Ix1> + Overwrite,
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -1975,34 +2130,16 @@ where
             left_grad.gradient().raw_dim(),
             right_grad.gradient().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             left_grad,
             right_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, LhsG, RhsD, RhsG> Backward for VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix1>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        push_vec_mat_gradient(&*self.left_grad, &self.right_data.data(), &gradient);
-        push_mat_vec_gradient(
-            &*self.right_grad,
-            &self.left_data.data().slice(s![.., NewAxis]),
-            &gradient,
-        );
     }
 }
 
@@ -2016,11 +2153,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2040,44 +2177,61 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Backward for VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        push_vec_mat_gradient(&*self.left_grad, &self.right_data.data(), &gradient);
+        push_mat_vec_gradient(
+            &*self.right_grad,
+            &self.left_data.data().slice(s![.., NewAxis]),
+            &gradient,
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct VectorMatrixMulBackwardLeft<LhsG, RhsD>
 where
-    RhsD: Data<Dim = Ix2>,
     LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsD: Data<Dim = Ix2>,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsG, RhsD> VectorMatrixMulBackwardLeft<LhsG, RhsD>
 where
-    RhsD: Data<Dim = Ix2>,
     LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsD: Data<Dim = Ix2>,
 {
     pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
         let shape = DotDim::shape(left_grad.gradient().raw_dim(), right_data.data().raw_dim());
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_grad,
             right_data,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsG, RhsD> Backward for VectorMatrixMulBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-{
-    fn backward(&self) {
-        push_vec_mat_gradient(&*self.left_grad, &self.right_data.data(), &self.gradient());
     }
 }
 
@@ -2089,11 +2243,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2111,6 +2265,24 @@ where
     }
 }
 
+impl<LhsG, RhsD> Backward for VectorMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsD: Data<Dim = Ix2>,
+{
+    fn backward(&self) {
+        push_vec_mat_gradient(&*self.left_grad, &self.right_data.data(), &self.gradient());
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct VectorMatrixMulBackwardRight<LhsD, RhsG>
@@ -2118,10 +2290,11 @@ where
     LhsD: Data<Dim = Ix1>,
     RhsG: Gradient<Dim = Ix2> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, RhsG> VectorMatrixMulBackwardRight<LhsD, RhsG>
@@ -2131,28 +2304,14 @@ where
 {
     pub fn new(left_data: Rc<LhsD>, right_grad: Rc<RhsG>) -> Self {
         let shape = DotDim::shape(left_data.data().raw_dim(), right_grad.gradient().raw_dim());
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, RhsG> Backward for VectorMatrixMulBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix1>,
-    RhsG: Gradient<Dim = Ix2> + Overwrite,
-{
-    fn backward(&self) {
-        push_mat_vec_gradient(
-            &*self.right_grad,
-            &self.left_data.data().slice(s![.., NewAxis]),
-            &self.gradient(),
-        );
     }
 }
 
@@ -2164,11 +2323,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2186,6 +2345,28 @@ where
     }
 }
 
+impl<LhsD, RhsG> Backward for VectorMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn backward(&self) {
+        push_mat_vec_gradient(
+            &*self.right_grad,
+            &self.left_data.data().slice(s![.., NewAxis]),
+            &self.gradient(),
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -2195,12 +2376,13 @@ where
     LhsG: Gradient<Dim = Ix1> + Overwrite,
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<LhsD, LhsG, RhsD, RhsG> VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
@@ -2220,30 +2402,16 @@ where
             left_grad.gradient().raw_dim(),
             right_grad.gradient().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             left_data,
             left_grad,
             right_data,
             right_grad,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<LhsD, LhsG, RhsD, RhsG> Backward for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix1>,
-    RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        push_vec_vec_gradient(&*self.left_grad, &self.right_data.data(), &gradient[0]);
-        push_vec_vec_gradient(&*self.right_grad, &self.left_data.data(), &gradient[0]);
     }
 }
 
@@ -2257,11 +2425,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2281,6 +2449,28 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Backward for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix1>,
+    LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1> + Overwrite,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        push_vec_vec_gradient(&*self.left_grad, &self.right_data.data(), &gradient[0]);
+        push_vec_vec_gradient(&*self.right_grad, &self.left_data.data(), &gradient[0]);
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMulBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct VectorVectorMulBackwardUnary<T, U>
@@ -2288,10 +2478,11 @@ where
     T: Gradient<Dim = Ix1> + Overwrite,
     U: Data<Dim = Ix1>,
 {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    shape: Ix1,
+    overwrite: Cell<bool>,
     diff_operand: Rc<T>,
     no_diff_operand: Rc<U>,
-    gradient: RefCell<Tensor<Ix1>>,
-    overwrite: Cell<bool>,
 }
 
 impl<T, U> VectorVectorMulBackwardUnary<T, U>
@@ -2304,28 +2495,14 @@ where
             diff_operand.gradient().raw_dim(),
             no_diff_operand.data().raw_dim(),
         );
-        let gradient = RefCell::new(Tensor::zeros(shape[0]));
 
         Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape))),
+            shape,
+            overwrite: Cell::new(true),
             diff_operand,
             no_diff_operand,
-            gradient,
-            overwrite: Cell::new(true),
         }
-    }
-}
-
-impl<T, U> Backward for VectorVectorMulBackwardUnary<T, U>
-where
-    T: Gradient<Dim = Ix1> + Overwrite,
-    U: Data<Dim = Ix1>,
-{
-    fn backward(&self) {
-        push_vec_vec_gradient(
-            &*self.diff_operand,
-            &self.no_diff_operand.data(),
-            &self.gradient()[0],
-        );
     }
 }
 
@@ -2337,11 +2514,11 @@ where
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2359,6 +2536,28 @@ where
     }
 }
 
+impl<T, U> Backward for VectorVectorMulBackwardUnary<T, U>
+where
+    T: Gradient<Dim = Ix1> + Overwrite,
+    U: Data<Dim = Ix1>,
+{
+    fn backward(&self) {
+        push_vec_vec_gradient(
+            &*self.diff_operand,
+            &self.no_diff_operand.data(),
+            &self.gradient()[0],
+        );
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ PowerBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct PowerBackward<T, U>
@@ -2366,11 +2565,12 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    operand_data: Rc<U>,
-    exp: i32,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
+    exp: i32,
 }
 
 impl<T, U> PowerBackward<T, U>
@@ -2378,15 +2578,16 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, operand_data: Rc<U>, exp: i32) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>, exp: i32) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            operand_data,
-            exp,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
+            exp,
         }
     }
 }
@@ -2399,36 +2600,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for PowerBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let op_data = self.operand_data.data();
-        let grad = self.gradient();
-        let exp = self.exp;
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = grad_el * op_data_el.powi(exp - 1) * exp as f32
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += grad_el * op_data_el.powi(exp - 1) * exp as f32
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2446,21 +2622,52 @@ where
     }
 }
 
+impl<T, U> Backward for PowerBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let op_data = self.no_diff_operand.data();
+        let grad = self.gradient();
+        let exp = self.exp;
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el = grad_el * op_data_el.powi(exp - 1) * exp as f32
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el += grad_el * op_data_el.powi(exp - 1) * exp as f32
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SumBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct SumBackward<T: Gradient + Overwrite> {
-    operand: Rc<T>,
-    gradient: RefCell<Tensor<Ix1>>,
+    gradient: RefCell<Option<Tensor<Ix1>>>,
     overwrite: Cell<bool>,
+    operand: Rc<T>,
 }
 
 impl<T: Gradient + Overwrite> SumBackward<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(1));
-
         Self {
             operand,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
             overwrite: Cell::new(true),
         }
     }
@@ -2470,11 +2677,21 @@ impl<T: Gradient + Overwrite> Gradient for SumBackward<T> {
     type Dim = Ix1;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T: Gradient + Overwrite> Overwrite for SumBackward<T> {
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
@@ -2491,15 +2708,13 @@ impl<T: Gradient + Overwrite> Backward for SumBackward<T> {
             zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
         }
     }
-}
 
-impl<T: Gradient + Overwrite> Overwrite for SumBackward<T> {
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
     }
 
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
     }
 }
 
@@ -2510,10 +2725,11 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    operand_data: Rc<U>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
 }
 
 impl<T, U> LognBackward<T, U>
@@ -2521,14 +2737,15 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, operand_data: Rc<U>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            operand_data,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
         }
     }
 }
@@ -2541,31 +2758,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for LognBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let op_data = self.operand_data.data();
-        let grad = self.gradient();
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| *op_grad_el = grad_el / op_data_el);
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| *op_grad_el += grad_el / op_data_el);
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2583,6 +2780,34 @@ where
     }
 }
 
+impl<T, U> Backward for LognBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let op_data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| *op_grad_el = grad_el / op_data_el);
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| *op_grad_el += grad_el / op_data_el);
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ReLUBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[allow(clippy::clippy::upper_case_acronyms)]
@@ -2591,10 +2816,11 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    operand_data: Rc<U>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
 }
 
 impl<T, U> ReLUBackward<T, U>
@@ -2602,14 +2828,15 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, operand_data: Rc<U>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            operand_data,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
         }
     }
 }
@@ -2622,35 +2849,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for ReLUBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let op_data = self.operand_data.data();
-        let grad = self.gradient();
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = ((*op_data_el > 0.0) as usize as f32) * grad_el
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += ((*op_data_el > 0.0) as usize as f32) * grad_el
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2668,6 +2871,38 @@ where
     }
 }
 
+impl<T, U> Backward for ReLUBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let op_data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el = ((*op_data_el > 0.0) as usize as f32) * grad_el
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el += ((*op_data_el > 0.0) as usize as f32) * grad_el
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLUBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[allow(clippy::clippy::upper_case_acronyms)]
@@ -2676,10 +2911,11 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    operand_data: Rc<U>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
 }
 
 impl<T, U> LeakyReLUBackward<T, U>
@@ -2687,14 +2923,15 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, operand_data: Rc<U>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            operand_data,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
         }
     }
 }
@@ -2707,35 +2944,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for LeakyReLUBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let op_data = self.operand_data.data();
-        let grad = self.gradient();
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = if *op_data_el > 0.0 { *grad_el } else { 0.01 }
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += if *op_data_el > 0.0 { *grad_el } else { 0.01 }
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2753,6 +2966,38 @@ where
     }
 }
 
+impl<T, U> Backward for LeakyReLUBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let op_data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el = if *op_data_el > 0.0 { *grad_el } else { 0.01 }
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el += if *op_data_el > 0.0 { *grad_el } else { 0.01 }
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SoftPlusBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~S
 
 pub struct SoftPlusBackward<T, U>
@@ -2760,10 +3005,11 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    operand_data: Rc<U>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
 }
 
 impl<T, U> SoftPlusBackward<T, U>
@@ -2771,14 +3017,15 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, operand_data: Rc<U>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            operand_data,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
         }
     }
 }
@@ -2791,47 +3038,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for SoftPlusBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let op_data = self.operand_data.data();
-        let grad = self.gradient();
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = if *op_data_el >= 15.0 {
-                    *grad_el
-                } else if *op_data_el <= -15.0 {
-                    0.0
-                } else {
-                    grad_el / (1.0 + (-*op_data_el).exp())
-                }
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += if *op_data_el >= 15.0 {
-                    *grad_el
-                } else if *op_data_el <= -15.0 {
-                    0.0
-                } else {
-                    grad_el / (1.0 + (-*op_data_el).exp())
-                }
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2849,6 +3060,50 @@ where
     }
 }
 
+impl<T, U> Backward for SoftPlusBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let op_data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el = if *op_data_el >= 15.0 {
+                    *grad_el
+                } else if *op_data_el <= -15.0 {
+                    0.0
+                } else {
+                    grad_el / (1.0 + (-*op_data_el).exp())
+                }
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, op_data_el| {
+                *op_grad_el += if *op_data_el >= 15.0 {
+                    *grad_el
+                } else if *op_data_el <= -15.0 {
+                    0.0
+                } else {
+                    grad_el / (1.0 + (-*op_data_el).exp())
+                }
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SigmoidBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct SigmoidBackward<T, U>
@@ -2856,10 +3111,11 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    data: Rc<U>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
 }
 
 impl<T, U> SigmoidBackward<T, U>
@@ -2867,14 +3123,15 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, data: Rc<U>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            data,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
         }
     }
 }
@@ -2887,35 +3144,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for SigmoidBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let data = self.data.data();
-        let grad = self.gradient();
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, data_el| {
-                *op_grad_el = *grad_el * *data_el * (1.0 - *data_el)
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, data_el| {
-                *op_grad_el += *grad_el * *data_el * (1.0 - *data_el)
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -2933,6 +3166,38 @@ where
     }
 }
 
+impl<T, U> Backward for SigmoidBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, data_el| {
+                *op_grad_el = *grad_el * *data_el * (1.0 - *data_el)
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, data_el| {
+                *op_grad_el += *grad_el * *data_el * (1.0 - *data_el)
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ TanHBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct TanHBackward<T, U>
@@ -2940,10 +3205,11 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    data: Rc<U>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
 }
 
 impl<T, U> TanHBackward<T, U>
@@ -2951,14 +3217,15 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, data: Rc<U>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            data,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
         }
     }
 }
@@ -2971,35 +3238,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for TanHBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let data = self.data.data();
-        let grad = self.gradient();
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, data_el| {
-                *op_grad_el = *grad_el * (1.0 - data_el.powi(2))
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, data_el| {
-                *op_grad_el += *grad_el * (1.0 - data_el.powi(2))
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -3017,6 +3260,38 @@ where
     }
 }
 
+impl<T, U> Backward for TanHBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, data_el| {
+                *op_grad_el = *grad_el * (1.0 - data_el.powi(2))
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, data_el| {
+                *op_grad_el += *grad_el * (1.0 - data_el.powi(2))
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ExpBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct ExpBackward<T, U>
@@ -3024,10 +3299,11 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    data: Rc<U>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
 }
 
 impl<T, U> ExpBackward<T, U>
@@ -3035,14 +3311,15 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, data: Rc<U>) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            data,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
         }
     }
 }
@@ -3055,31 +3332,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for ExpBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let data = self.data.data();
-        let grad = self.gradient();
-
-        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el = *grad_el * data_el);
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el += *grad_el * data_el);
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -3097,6 +3354,34 @@ where
     }
 }
 
+impl<T, U> Backward for ExpBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el = *grad_el * data_el);
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el += *grad_el * data_el);
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SoftmaxBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct SoftmaxBackward<T, U>
@@ -3104,11 +3389,12 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    data: Rc<U>,
-    axis: usize,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
+    axis: usize,
 }
 
 impl<T, U> SoftmaxBackward<T, U>
@@ -3116,15 +3402,16 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, data: Rc<U>, axis: usize) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>, axis: usize) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            data,
-            axis,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
+            axis,
         }
     }
 }
@@ -3137,54 +3424,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for SoftmaxBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let data = self.data.data();
-        let grad = self.gradient();
-        let axis = self.axis;
-        let zip = Zip::from(op_grad.lanes_mut(Axis(axis)))
-            .and(grad.lanes(Axis(axis)))
-            .and(data.lanes(Axis(axis)));
-
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
-                let sum = Zip::from(grad_lane)
-                    .and(data_lane)
-                    .fold(0., |acc, grad_el, data_el| acc + grad_el * data_el);
-                Zip::from(&mut op_grad_lane)
-                    .and(&grad_lane)
-                    .and(&data_lane)
-                    .for_each(|op_grad_el, grad_el, data_el| {
-                        *op_grad_el = data_el * (grad_el - sum)
-                    })
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
-                let sum = Zip::from(grad_lane)
-                    .and(data_lane)
-                    .fold(0., |acc, grad_el, data_el| acc + grad_el * data_el);
-                Zip::from(&mut op_grad_lane)
-                    .and(&grad_lane)
-                    .and(&data_lane)
-                    .for_each(|op_grad_el, grad_el, data_el| {
-                        *op_grad_el += data_el * (grad_el - sum)
-                    })
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -3202,6 +3446,57 @@ where
     }
 }
 
+impl<T, U> Backward for SoftmaxBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let data = self.no_diff_operand.data();
+        let grad = self.gradient();
+        let axis = self.axis;
+        let zip = Zip::from(op_grad.lanes_mut(Axis(axis)))
+            .and(grad.lanes(Axis(axis)))
+            .and(data.lanes(Axis(axis)));
+
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
+                let sum = Zip::from(grad_lane)
+                    .and(data_lane)
+                    .fold(0., |acc, grad_el, data_el| acc + grad_el * data_el);
+                Zip::from(&mut op_grad_lane)
+                    .and(&grad_lane)
+                    .and(&data_lane)
+                    .for_each(|op_grad_el, grad_el, data_el| {
+                        *op_grad_el = data_el * (grad_el - sum)
+                    })
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
+                let sum = Zip::from(grad_lane)
+                    .and(data_lane)
+                    .fold(0., |acc, grad_el, data_el| acc + grad_el * data_el);
+                Zip::from(&mut op_grad_lane)
+                    .and(&grad_lane)
+                    .and(&data_lane)
+                    .for_each(|op_grad_el, grad_el, data_el| {
+                        *op_grad_el += data_el * (grad_el - sum)
+                    })
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmaxBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct LogSoftmaxBackward<T, U>
@@ -3209,11 +3504,12 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    forward_data: Rc<U>,
-    axis: usize,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
+    axis: usize,
 }
 
 impl<T, U> LogSoftmaxBackward<T, U>
@@ -3221,15 +3517,16 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(operand_grad: Rc<T>, forward_data: Rc<U>, axis: usize) -> Self {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>, axis: usize) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            forward_data,
-            axis,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
             overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
+            axis,
         }
     }
 }
@@ -3242,50 +3539,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for LogSoftmaxBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn backward(&self) {
-        let mut op_grad = self.operand_grad.gradient_mut();
-        let data = self.forward_data.data();
-        let grad = self.gradient();
-        let axis = self.axis;
-
-        let zip = Zip::from(op_grad.lanes_mut(Axis(axis)))
-            .and(grad.lanes(Axis(axis)))
-            .and(data.lanes(Axis(axis)));
-        if self.operand_grad.can_overwrite() {
-            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
-                let gradient_sum = grad_lane.sum();
-                Zip::from(&mut op_grad_lane)
-                    .and(&grad_lane)
-                    .and(&data_lane)
-                    .for_each(|op_grad_el, grad_el, data_el| {
-                        *op_grad_el = grad_el - data_el.exp() * gradient_sum
-                    })
-            });
-            self.operand_grad.set_overwrite(false);
-        } else {
-            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
-                let gradient_sum = grad_lane.sum();
-                Zip::from(&mut op_grad_lane)
-                    .and(&grad_lane)
-                    .and(&data_lane)
-                    .for_each(|op_grad_el, grad_el, data_el| {
-                        *op_grad_el += grad_el - data_el.exp() * gradient_sum
-                    })
-            });
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -3303,6 +3561,53 @@ where
     }
 }
 
+impl<T, U> Backward for LogSoftmaxBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let data = self.no_diff_operand.data();
+        let grad = self.gradient();
+        let axis = self.axis;
+
+        let zip = Zip::from(op_grad.lanes_mut(Axis(axis)))
+            .and(grad.lanes(Axis(axis)))
+            .and(data.lanes(Axis(axis)));
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
+                let gradient_sum = grad_lane.sum();
+                Zip::from(&mut op_grad_lane)
+                    .and(&grad_lane)
+                    .and(&data_lane)
+                    .for_each(|op_grad_el, grad_el, data_el| {
+                        *op_grad_el = grad_el - data_el.exp() * gradient_sum
+                    })
+            });
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|mut op_grad_lane, grad_lane, data_lane| {
+                let gradient_sum = grad_lane.sum();
+                Zip::from(&mut op_grad_lane)
+                    .and(&grad_lane)
+                    .and(&data_lane)
+                    .for_each(|op_grad_el, grad_el, data_el| {
+                        *op_grad_el += grad_el - data_el.exp() * gradient_sum
+                    })
+            });
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct ConcatenateBackward<Lhs, Rhs>
@@ -3311,11 +3616,12 @@ where
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
+    gradient: RefCell<Option<Tensor<Lhs::Dim>>>,
+    shape: Lhs::Dim,
+    overwrite: Cell<bool>,
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     axis: usize,
-    gradient: RefCell<Tensor<Lhs::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<Lhs, Rhs> ConcatenateBackward<Lhs, Rhs>
@@ -3325,20 +3631,20 @@ where
     Lhs::Dim: RemoveAxis,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
-        let gradient = RefCell::new(
-            concatenate(
-                Axis(axis),
-                &[left.gradient().view(), right.gradient().view()],
-            )
-            .unwrap(),
-        );
+        let gradient = concatenate(
+            Axis(axis),
+            &[left.gradient().view(), right.gradient().view()],
+        )
+        .unwrap();
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            overwrite: Cell::new(true),
             left,
             right,
-            gradient,
             axis,
-            overwrite: Cell::new(true),
         }
     }
 }
@@ -3352,11 +3658,26 @@ where
     type Dim = Lhs::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<Lhs, Rhs> Overwrite for ConcatenateBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs::Dim: RemoveAxis,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
@@ -3376,20 +3697,13 @@ where
         push_gradient(&*self.left, lhs_part);
         push_gradient(&*self.right, rhs_part);
     }
-}
 
-impl<Lhs, Rhs> Overwrite for ConcatenateBackward<Lhs, Rhs>
-where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
-    Lhs::Dim: RemoveAxis,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
     }
 
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 
@@ -3399,10 +3713,11 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
+    overwrite: Cell<bool>,
     left: Rc<T>,
     axis: usize,
-    gradient: RefCell<Tensor<T::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<T> ConcatenateBackwardLeft<T>
@@ -3410,19 +3725,17 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self
-    where
-        U: Data<Dim = T::Dim>,
-    {
-        let gradient = RefCell::new(
-            concatenate(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap(),
-        );
+    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self {
+        let gradient =
+            concatenate(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap();
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            overwrite: Cell::new(true),
             left,
             axis,
-            gradient,
-            overwrite: Cell::new(true),
         }
     }
 }
@@ -3435,27 +3748,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T> Backward for ConcatenateBackwardLeft<T>
-where
-    T: Gradient + Overwrite,
-    T::Dim: RemoveAxis,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        let (lhs_part, _) = gradient.view().split_at(
-            Axis(self.axis),
-            self.left.gradient_mut().len_of(Axis(self.axis)),
-        );
-
-        push_gradient(&*self.left, lhs_part);
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -3473,6 +3770,30 @@ where
     }
 }
 
+impl<T> Backward for ConcatenateBackwardLeft<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        let (lhs_part, _) = gradient.view().split_at(
+            Axis(self.axis),
+            self.left.gradient_mut().len_of(Axis(self.axis)),
+        );
+
+        push_gradient(&*self.left, lhs_part);
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct ConcatenateBackwardRight<T>
@@ -3480,11 +3801,12 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
+    overwrite: Cell<bool>,
     offset: usize,
     right: Rc<T>,
     axis: usize,
-    gradient: RefCell<Tensor<T::Dim>>,
-    overwrite: Cell<bool>,
 }
 
 impl<T> ConcatenateBackwardRight<T>
@@ -3492,20 +3814,18 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self
-    where
-        U: Data<Dim = T::Dim>,
-    {
-        let gradient = RefCell::new(
-            concatenate(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap(),
-        );
+    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self {
+        let gradient =
+            concatenate(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap();
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            overwrite: Cell::new(true),
             right,
-            gradient,
             offset: left.data().len_of(Axis(axis)),
             axis,
-            overwrite: Cell::new(true),
         }
     }
 }
@@ -3518,23 +3838,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T> Backward for ConcatenateBackwardRight<T>
-where
-    T: Gradient + Overwrite,
-    T::Dim: RemoveAxis,
-{
-    fn backward(&self) {
-        let gradient = self.gradient();
-        let (_, rhs_part) = gradient.view().split_at(Axis(self.axis), self.offset);
-        push_gradient(&*self.right, rhs_part);
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -3552,6 +3860,26 @@ where
     }
 }
 
+impl<T> Backward for ConcatenateBackwardRight<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn backward(&self) {
+        let gradient = self.gradient();
+        let (_, rhs_part) = gradient.view().split_at(Axis(self.axis), self.offset);
+        push_gradient(&*self.right, rhs_part);
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct StackBackward<Lhs, Rhs>
@@ -3560,11 +3888,12 @@ where
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
+    gradient: RefCell<Option<Tensor<<Lhs::Dim as Dimension>::Larger>>>,
+    shape: <Lhs::Dim as Dimension>::Larger,
+    overwrite: Cell<bool>,
     left: Rc<Lhs>,
     right: Rc<Rhs>,
     axis: usize,
-    gradient: RefCell<Tensor<<Lhs::Dim as Dimension>::Larger>>,
-    overwrite: Cell<bool>,
 }
 
 impl<Lhs, Rhs> StackBackward<Lhs, Rhs>
@@ -3574,20 +3903,20 @@ where
     Lhs::Dim: RemoveAxis,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
-        let gradient = RefCell::new(
-            stack(
-                Axis(axis),
-                &[left.gradient().view(), right.gradient().view()],
-            )
-            .unwrap(),
-        );
+        let gradient = stack(
+            Axis(axis),
+            &[left.gradient().view(), right.gradient().view()],
+        )
+        .unwrap();
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            overwrite: Cell::new(true),
             left,
             right,
-            gradient,
             axis,
-            overwrite: Cell::new(true),
         }
     }
 }
@@ -3601,11 +3930,26 @@ where
     type Dim = <Lhs::Dim as Dimension>::Larger;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<Lhs, Rhs> Overwrite for StackBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs::Dim: RemoveAxis,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
@@ -3635,20 +3979,13 @@ where
                 .unwrap(),
         );
     }
-}
 
-impl<Lhs, Rhs> Overwrite for StackBackward<Lhs, Rhs>
-where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
-    Lhs::Dim: RemoveAxis,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
     }
 
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 
@@ -3658,10 +3995,11 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
+    gradient: RefCell<Option<Tensor<<T::Dim as Dimension>::Larger>>>,
+    shape: <T::Dim as Dimension>::Larger,
+    overwrite: Cell<bool>,
     left: Rc<T>,
     axis: usize,
-    gradient: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
-    overwrite: Cell<bool>,
 }
 
 impl<T> StackBackwardLeft<T>
@@ -3669,19 +4007,16 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self
-    where
-        U: Data<Dim = T::Dim>,
-    {
-        let gradient = RefCell::new(
-            stack(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap(),
-        );
+    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self {
+        let gradient = stack(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap();
+        let shape = gradient.raw_dim();
 
         Self {
-            left,
-            gradient,
-            axis,
+            gradient: RefCell::new(Some(gradient)),
+            shape,
             overwrite: Cell::new(true),
+            left,
+            axis,
         }
     }
 }
@@ -3694,11 +4029,25 @@ where
     type Dim = <T::Dim as Dimension>::Larger;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T> Overwrite for StackBackwardLeft<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
@@ -3718,19 +4067,13 @@ where
                 .unwrap(),
         );
     }
-}
 
-impl<T> Overwrite for StackBackwardLeft<T>
-where
-    T: Gradient + Overwrite,
-    T::Dim: RemoveAxis,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
     }
 
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 
@@ -3741,10 +4084,11 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
+    gradient: RefCell<Option<Tensor<<T::Dim as Dimension>::Larger>>>,
+    shape: <T::Dim as Dimension>::Larger,
+    overwrite: Cell<bool>,
     right: Rc<T>,
     axis: usize,
-    gradient: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
-    overwrite: Cell<bool>,
 }
 
 impl<T> StackBackwardRight<T>
@@ -3752,19 +4096,16 @@ where
     T: Gradient + Overwrite,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self
-    where
-        U: Data<Dim = T::Dim>,
-    {
-        let gradient = RefCell::new(
-            stack(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap(),
-        );
+    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self {
+        let gradient = stack(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap();
+        let shape = gradient.raw_dim();
 
         Self {
-            right,
-            gradient,
-            axis,
+            gradient: RefCell::new(Some(gradient)),
+            shape,
             overwrite: Cell::new(true),
+            right,
+            axis,
         }
     }
 }
@@ -3777,11 +4118,25 @@ where
     type Dim = <T::Dim as Dimension>::Larger;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T> Overwrite for StackBackwardRight<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
@@ -3801,41 +4156,37 @@ where
                 .unwrap(),
         );
     }
-}
 
-impl<T> Overwrite for StackBackwardRight<T>
-where
-    T: Gradient + Overwrite,
-    T::Dim: RemoveAxis,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
     }
 
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ UnsqueezeBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct UnsqueezeBackward<T: Gradient + Overwrite> {
+    gradient: RefCell<Option<Tensor<<T::Dim as Dimension>::Larger>>>,
+    shape: <T::Dim as Dimension>::Larger,
+    overwrite: Cell<bool>,
     operand: Rc<T>,
     axis: usize,
-    gradient: RefCell<Tensor<<T::Dim as Dimension>::Larger>>,
-    overwrite: Cell<bool>,
 }
 
 impl<T: Gradient + Overwrite> UnsqueezeBackward<T> {
     pub fn new(operand: Rc<T>, axis: usize) -> Self {
-        let shape = operand.gradient().raw_dim();
-        let gradient = RefCell::new(Tensor::zeros(shape.insert_axis(Axis(axis))));
+        let gradient = Tensor::zeros(operand.gradient().raw_dim().insert_axis(Axis(axis)));
+        let shape = gradient.raw_dim();
 
         Self {
+            gradient: RefCell::new(Some(gradient)),
+            shape,
+            overwrite: Cell::new(true),
             operand,
             axis,
-            gradient,
-            overwrite: Cell::new(true),
         }
     }
 }
@@ -3844,11 +4195,21 @@ impl<T: Gradient + Overwrite> Gradient for UnsqueezeBackward<T> {
     type Dim = <T::Dim as Dimension>::Larger;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T: Gradient + Overwrite> Overwrite for UnsqueezeBackward<T> {
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
     }
 }
 
@@ -3864,36 +4225,36 @@ impl<T: Gradient + Overwrite> Backward for UnsqueezeBackward<T> {
                 .unwrap(),
         );
     }
-}
 
-impl<T: Gradient + Overwrite> Overwrite for UnsqueezeBackward<T> {
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
     }
 
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ChunkBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct ChunkBackward<T: Gradient + Overwrite> {
-    operand: Rc<T>,
-    chunk_no: usize,
-    chunk_shape: T::Dim,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
     overwrite: Cell<bool>,
+    operand: Rc<T>,
+    chunk_id: usize,
 }
 
 impl<T: Gradient + Overwrite> ChunkBackward<T> {
-    pub fn new(operand: Rc<T>, grad_chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
+    pub fn new(operand: Rc<T>, grad_chunk: Tensor<T::Dim>, chunk_id: usize) -> Self {
+        let shape = grad_chunk.raw_dim();
+
         Self {
-            operand,
-            chunk_no,
-            chunk_shape: grad_chunk.raw_dim(),
-            gradient: RefCell::new(grad_chunk),
+            gradient: RefCell::new(Some(grad_chunk)),
+            shape,
             overwrite: Cell::new(true),
+            operand,
+            chunk_id,
         }
     }
 }
@@ -3902,34 +4263,11 @@ impl<T: Gradient + Overwrite> Gradient for ChunkBackward<T> {
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
-    fn backward(&self) {
-        let mut operand_grad = self.operand.gradient_mut();
-        let grad = self.gradient();
-        let (chunk_no, chunk_shape) = (self.chunk_no, &self.chunk_shape);
-        let mut op_gradient_chunk = operand_grad
-            .exact_chunks_mut(chunk_shape.clone())
-            .into_iter()
-            .skip(chunk_no)
-            .take(1)
-            .next()
-            .unwrap();
-
-        let zip = Zip::from(&mut op_gradient_chunk).and(&*grad);
-        if self.operand.can_overwrite() {
-            zip.for_each(|dest, src| *dest = *src);
-            self.operand.set_overwrite(false);
-        } else {
-            zip.for_each(|dest, src| *dest += src);
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -3943,18 +4281,49 @@ impl<T: Gradient + Overwrite> Overwrite for ChunkBackward<T> {
     }
 }
 
+impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
+    fn backward(&self) {
+        let mut diff_operand = self.operand.gradient_mut();
+        let grad = self.gradient();
+        let mut op_gradient_chunk = diff_operand
+            .exact_chunks_mut(self.shape.clone())
+            .into_iter()
+            .skip(self.chunk_id)
+            .take(1)
+            .next()
+            .unwrap();
+
+        let zip = Zip::from(&mut op_gradient_chunk).and(&*grad);
+        if self.operand.can_overwrite() {
+            zip.for_each(|dest, src| *dest = *src);
+            self.operand.set_overwrite(false);
+        } else {
+            zip.for_each(|dest, src| *dest += src);
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DropoutBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct DropoutBackward<T, U>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    operand_grad: Rc<T>,
-    dropout_forward: Rc<Dropout<U>>,
-    gradient: RefCell<Tensor<T::Dim>>,
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
+    overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<Dropout<U>>,
     p: f64,
     train: Cell<bool>,
-    overwrite: Cell<bool>,
 }
 
 impl<T, U> DropoutBackward<T, U>
@@ -3963,24 +4332,35 @@ where
     U: Data<Dim = T::Dim>,
 {
     pub fn new(
-        operand_grad: Rc<T>,
-        dropout_forward: Rc<Dropout<U>>,
+        diff_operand: Rc<T>,
+        no_diff_operand: Rc<Dropout<U>>,
         p: f64,
     ) -> DropoutBackward<T, U> {
-        let gradient = RefCell::new(Tensor::zeros(operand_grad.gradient().raw_dim()));
+        let shape = diff_operand.gradient().raw_dim();
 
         Self {
-            operand_grad,
-            dropout_forward,
-            gradient,
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
+            overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
             p,
             train: Cell::new(true),
-            overwrite: Cell::new(true),
         }
     }
+}
 
-    pub(crate) fn set_train(&self, status: bool) {
-        self.train.set(status)
+impl<T, U> ChangeBehaviour for DropoutBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn train(&self) {
+        self.train.set(true);
+    }
+
+    fn eval(&self) {
+        self.train.set(false);
     }
 }
 
@@ -3992,51 +4372,11 @@ where
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        self.gradient.borrow()
+        expect_tensor(&self.gradient)
     }
 
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.gradient.borrow_mut()
-    }
-}
-
-impl<T, U> Backward for DropoutBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    #[allow(clippy::float_cmp)]
-    fn backward(&self) {
-        if self.train.get() {
-            let mut op_grad = self.operand_grad.gradient_mut();
-            let grad = self.gradient();
-            let p = &self.p;
-            if *p == 1. {
-                if self.operand_grad.can_overwrite() {
-                    Zip::from(&mut *op_grad).for_each(|op_grad_el| *op_grad_el = 0.);
-                    self.operand_grad.set_overwrite(false);
-                }
-            } else if *p == 0. {
-                let zip = Zip::from(&mut *op_grad).and(&*grad);
-                if self.operand_grad.can_overwrite() {
-                    zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
-                    self.operand_grad.set_overwrite(false);
-                } else {
-                    zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
-                }
-            } else {
-                let noise = self.dropout_forward.noise();
-                let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*noise);
-                if self.operand_grad.can_overwrite() {
-                    zip.for_each(|op_grad_el, grad_el, noise_el| *op_grad_el = *grad_el * noise_el);
-                    self.operand_grad.set_overwrite(false);
-                } else {
-                    zip.for_each(|op_grad_el, grad_el, noise_el| {
-                        *op_grad_el += *grad_el * noise_el
-                    });
-                }
-            }
-        }
+        expect_tensor_mut(&self.gradient)
     }
 }
 
@@ -4051,6 +4391,54 @@ where
 
     fn set_overwrite(&self, state: bool) {
         self.overwrite.set(state);
+    }
+}
+
+impl<T, U> Backward for DropoutBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    #[allow(clippy::float_cmp)]
+    fn backward(&self) {
+        if self.train.get() {
+            let mut op_grad = self.diff_operand.gradient_mut();
+            let grad = self.gradient();
+            let p = &self.p;
+            if *p == 1. {
+                if self.diff_operand.can_overwrite() {
+                    Zip::from(&mut *op_grad).for_each(|op_grad_el| *op_grad_el = 0.);
+                    self.diff_operand.set_overwrite(false);
+                }
+            } else if *p == 0. {
+                let zip = Zip::from(&mut *op_grad).and(&*grad);
+                if self.diff_operand.can_overwrite() {
+                    zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
+                    self.diff_operand.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
+                }
+            } else {
+                let noise = self.no_diff_operand.noise();
+                let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*noise);
+                if self.diff_operand.can_overwrite() {
+                    zip.for_each(|op_grad_el, grad_el, noise_el| *op_grad_el = *grad_el * noise_el);
+                    self.diff_operand.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad_el, grad_el, noise_el| {
+                        *op_grad_el += *grad_el * noise_el
+                    });
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 
