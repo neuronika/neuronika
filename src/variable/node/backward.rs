@@ -1082,10 +1082,10 @@ where
     LhsG: Gradient + Overwrite,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
-    gradient: RefCell<Option<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>>,
+    gradient: RefCell<Option<BroadTensor<LhsG::Dim, RhsD::Dim>>>,
     shape: Broadcasted<LhsG::Dim, RhsD::Dim>,
     overwrite: Cell<bool>,
-    buffer: RefCell<Option<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>>,
+    buffer: RefCell<Option<BroadTensor<LhsG::Dim, RhsD::Dim>>>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
 }
@@ -1179,10 +1179,10 @@ where
     RhsG: Gradient + Overwrite,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
-    gradient: RefCell<Option<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>>,
+    gradient: RefCell<Option<BroadTensor<LhsD::Dim, RhsG::Dim>>>,
     shape: Broadcasted<LhsD::Dim, RhsG::Dim>,
     overwrite: Cell<bool>,
-    buffer: RefCell<Option<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>>,
+    buffer: RefCell<Option<BroadTensor<LhsD::Dim, RhsG::Dim>>>,
     left_data: Rc<LhsD>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
@@ -4399,18 +4399,17 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    #[allow(clippy::float_cmp)]
     fn backward(&self) {
         if self.train.get() {
             let mut op_grad = self.diff_operand.gradient_mut();
             let grad = self.gradient();
             let p = &self.p;
-            if *p == 1. {
+            if (*p - 1.).abs() <= f64::EPSILON {
                 if self.diff_operand.can_overwrite() {
                     Zip::from(&mut *op_grad).for_each(|op_grad_el| *op_grad_el = 0.);
                     self.diff_operand.set_overwrite(false);
                 }
-            } else if *p == 0. {
+            } else if *p <= f64::EPSILON {
                 let zip = Zip::from(&mut *op_grad).and(&*grad);
                 if self.diff_operand.can_overwrite() {
                     zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);

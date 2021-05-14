@@ -1738,7 +1738,6 @@ impl<T: Data> Dropout<T> {
 }
 
 impl<T: Data> Forward for Dropout<T> {
-    #[allow(clippy::float_cmp)]
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -1748,9 +1747,9 @@ impl<T: Data> Forward for Dropout<T> {
         if self.train.get() {
             let mut thread_rng = thread_rng();
             let (mut noise, distr, p) = (self.noise.borrow_mut(), &self.distr, &self.p);
-            if *p == 1. {
+            if (*p - 1.).abs() <= f64::EPSILON {
                 Zip::from(&mut *self.data.borrow_mut()).for_each(|data_el| *data_el = 0.0);
-            } else if *p == 0. {
+            } else if *p <= f64::EPSILON {
                 Zip::from(&mut *self.data.borrow_mut())
                     .and(&*self.operand.data())
                     .for_each(|data_el, operand_data_el| *data_el = *operand_data_el);
@@ -4220,11 +4219,13 @@ mod tests {
         #[test]
         fn forward_scaling() {
             let input = new_input((3, 3), vec![3.; 9]);
-            let node = Dropout::new(input.clone(), 0.5);
+            let node = Dropout::new(input, 0.5);
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
-            node.data().iter().all(|el| *el == 0. || *el == 6.);
+            node.data()
+                .iter()
+                .all(|el| *el <= f32::EPSILON || (el - 6.).abs() <= f32::EPSILON);
         }
 
         #[test]
