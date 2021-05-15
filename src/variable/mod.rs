@@ -330,6 +330,16 @@ impl<D: Dimension> Var<Input<D>> {
 
 impl<T: Data + Forward + 'static> Var<T> {
     pub fn forward(&mut self) {
+        if self.node.was_computed() {
+            // If the user has already called `.forward()` on this var,
+            // then he wants to recompute it.
+
+            assert_eq!(self.past.len(), self.past.buffer().len());
+            for node in self.past.buffer() {
+                node.reset_computation();
+            }
+        }
+
         self.past.prepare_buffer();
 
         let buffer = self.past.buffer();
