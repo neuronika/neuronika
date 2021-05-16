@@ -1,5 +1,4 @@
-pub mod data_loading;
-pub mod model_selection;
+pub mod data;
 pub mod nn;
 pub mod optim;
 mod variable;

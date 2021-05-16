@@ -1,4 +1,232 @@
-use std::{borrow::Borrow, collections::HashMap, hash::Hash};
+use crate::variable::Tensor;
+use csv::{DeserializeRecordsIter, Reader, ReaderBuilder};
+use ndarray::{Array, IntoDimension};
+use serde::de::DeserializeOwned;
+use std::{
+    borrow::Borrow, collections::HashMap, error::Error, fmt::Debug, fs::File, hash::Hash, io::Read,
+    str::FromStr,
+};
+/// Basic Dataset struct.
+///
+/// Please note that if the data and the labels to be parsed differ in the type `AnnotatedDataset`
+/// must be used instead, as the `Dataset` struct assumes the data and the labels to be typed
+/// **homogeneously**.
+pub struct Dataset<T> {
+    data: Vec<T>,
+    num_records: usize,
+}
+
+impl<'a, T: DeserializeOwned + Copy> Dataset<T> {
+    /// Creates an empty Dataset.
+    pub fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            num_records: 0,
+        }
+    }
+
+    /// Separates the data from the labels. Consumes `self` and creates an `AnnotatedDataset`
+    /// instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `labels_colums` - the columns to be considered labels
+    pub fn with_annotations(self, labels_columns: &[usize]) -> AnnotatedDataset<T, T> {
+        let row_len = self.num_records / self.data.len();
+        let (enumerated_data, enumerated_labels): (Vec<(usize, &T)>, Vec<(usize, &T)>) =
+            self.data.iter().enumerate().partition(|(i, _)| {
+                labels_columns
+                    .iter()
+                    .any(|col| *col == i.rem_euclid(row_len))
+            });
+
+        let (data, labels, num_records) = {
+            (
+                enumerated_data.iter().map(|(_, &el)| el).collect(),
+                enumerated_labels.iter().map(|(_, &el)| el).collect(),
+                self.num_records,
+            )
+        };
+
+        AnnotatedDataset {
+            data,
+            labels,
+            num_records,
+        }
+    }
+
+    /// Loads the data from a **.csv** file into `self`.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - the path to the *csv* file
+    /// * `has_headers` - whether the *csv* file has headers that must be skipped
+    pub fn load_csv(&mut self, file_path: &str, has_headers: bool) {
+        let file = match File::open(file_path) {
+            Ok(file) => file,
+            Err(e) => panic!("error: neuronika couldn't open {}, {}", file_path, e),
+        };
+
+        let mut reader = ReaderBuilder::new()
+            .has_headers(has_headers)
+            .from_reader(file);
+
+        self.from_reader(&mut reader);
+    }
+
+    /// Loads the data from a **reader** into `self`.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - the reader to read the data from
+    pub fn from_reader<R: Read>(&mut self, reader: &mut Reader<R>) {
+        let results: DeserializeRecordsIter<'_, R, Vec<T>> = reader.deserialize();
+
+        for result in results {
+            let content = result.unwrap();
+            self.num_records += 1;
+            self.data.extend(content);
+        }
+    }
+
+    /// Consumes `self` and returns the data as a **ndarray's array**.
+    pub fn into_ndarray<Sh: IntoDimension>(self, shape: Sh) -> Array<T, Sh::Dim> {
+        let v = self.data;
+        Array::from_shape_vec(shape, v).unwrap()
+    }
+}
+
+/// An annotated Dataset.
+pub struct AnnotatedDataset<T, U> {
+    data: Vec<T>,
+    labels: Vec<U>,
+    num_records: usize,
+}
+
+impl<T, U> AnnotatedDataset<T, U>
+where
+    T: DeserializeOwned + FromStr,
+    T::Err: Debug,
+    U: DeserializeOwned + FromStr,
+    U::Err: Debug,
+{
+    /// Creates an empty AnnotatedDataset.
+    pub fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            labels: Vec::new(),
+            num_records: 0,
+        }
+    }
+    /// Consumes `self` and returns the data and the labels as a **ndarray's array** tuple.
+    pub fn into_ndarray<ShD: IntoDimension, ShL: IntoDimension>(
+        self,
+        data_shape: ShD,
+        labels_shape: ShL,
+    ) -> (Array<T, ShD::Dim>, Array<U, ShL::Dim>) {
+        let (data, labels) = (self.data, self.labels);
+        (
+            Array::from_shape_vec(data_shape, data).unwrap(),
+            Array::from_shape_vec(labels_shape, labels).unwrap(),
+        )
+    }
+
+    /// Loads the data from a **.csv** file into `self`.
+    /// # Arguments
+    ///
+    /// * `file_path` - the path to the *csv* file
+    /// * `has_headers` - whether the *csv* file has headers that must be skipped
+    /// * `label_columns` - the columns to be considered labels
+    pub fn load_csv(&mut self, file_path: &str, has_headers: bool, labels_columns: &[usize]) {
+        let file = match File::open(file_path) {
+            Ok(file) => file,
+            Err(e) => panic!("error: neuronika couldn't open {}, {}", file_path, e),
+        };
+
+        let mut reader = ReaderBuilder::new()
+            .has_headers(has_headers)
+            .from_reader(file);
+
+        self.from_reader(&mut reader, labels_columns);
+    }
+
+    /// Loads the data from a **reader** into `self`.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - the reader to read the data from
+    /// * `label_columns` - the columns to be considered labels
+    pub fn from_reader<R: Read>(&mut self, reader: &mut Reader<R>, labels_columns: &[usize]) {
+        for result in reader.records() {
+            let record = match result {
+                Ok(res) => res,
+                Err(e) => panic!("error: while parsing records, {}", e),
+            };
+            for i in 0..record.len() {
+                if labels_columns.iter().any(|col| *col == i) {
+                    self.labels.push(record.get(i).unwrap().parse().unwrap())
+                } else {
+                    self.data.push(record.get(i).unwrap().parse().unwrap())
+                }
+            }
+            self.num_records += 1;
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+fn read_from_csv<R: Read>(
+    reader: &mut Reader<R>,
+    split: Option<usize>,
+) -> Result<(Vec<f32>, Vec<f32>), Box<dyn Error>> {
+    let mut results = reader.deserialize();
+
+    let mut content: Vec<f32> = results.next().unwrap()?;
+    let split = match split {
+        Some(id) => id,
+        None => content.len(),
+    };
+
+    let mut inputs = content[..split].to_vec();
+    let mut targets = content[split..].to_vec();
+    for result in results {
+        content = result?;
+        inputs.extend(&content[..split]); // what if the label columns are not contiguous?
+        targets.extend(&content[split..]);
+    }
+
+    Ok((inputs, targets))
+}
+
+fn from_csv<R, Sh>(reader: &mut Reader<R>, shape: Sh) -> Result<Tensor<Sh::Dim>, Box<dyn Error>>
+where
+    R: Read,
+    Sh: IntoDimension,
+{
+    let (inputs, _) = read_from_csv(reader, None)?;
+
+    Ok(Tensor::from_shape_vec(shape, inputs)?)
+}
+
+fn from_csv_with_targets<R, S1, S2>(
+    reader: &mut Reader<R>,
+    input_shape: S1,
+    target_shape: S2,
+    split: usize,
+) -> Result<(Tensor<S1::Dim>, Tensor<S2::Dim>), Box<dyn Error>>
+where
+    R: Read,
+    S1: IntoDimension,
+    S2: IntoDimension,
+{
+    let (inputs, targets) = read_from_csv(reader, Some(split))?;
+
+    Ok((
+        Tensor::from_shape_vec(input_shape, inputs)?,
+        Tensor::from_shape_vec(target_shape, targets)?,
+    ))
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct KFold<'a, T> {
     dataset: &'a [T],
@@ -374,5 +602,65 @@ mod tests {
             assert_eq!(skf.next(), None);
             assert_eq!(skf.next(), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod data_tests {
+    use super::*;
+
+    static CSV_CONTENT: &str = "\
+        1,2,3,4,5,6,7,8,9,10,1\n\
+        10,9,8,7,6,5,4,3,2,1,0\n\
+        1,2,3,4,5,6,7,8,9,10,1\n\
+        10,9,8,7,6,5,4,3,2,1,0\n\
+        1,2,3,4,5,6,7,8,9,10,1";
+
+    #[test]
+    fn read_from_csv() {
+        let mut reader = ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b',')
+            .from_reader(CSV_CONTENT.as_bytes());
+
+        assert_eq!(
+            from_csv(&mut reader, (5, 11)).unwrap(),
+            Tensor::from_shape_vec(
+                (5, 11),
+                vec![
+                    1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 1., 10., 9., 8., 7., 6., 5., 4., 3.,
+                    2., 1., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 1., 10., 9., 8., 7., 6.,
+                    5., 4., 3., 2., 1., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 1.,
+                ]
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn read_from_csv_with_target() {
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b',')
+            .from_reader(CSV_CONTENT.as_bytes());
+
+        let (inputs, targets) = from_csv_with_targets(&mut reader, (5, 10), 5, 10).unwrap();
+        assert_eq!(
+            inputs,
+            Tensor::from_shape_vec(
+                (5, 10),
+                vec![
+                    1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 10., 9., 8., 7., 6., 5., 4., 3., 2.,
+                    1., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 10., 9., 8., 7., 6., 5., 4., 3.,
+                    2., 1., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10.,
+                ]
+            )
+            .unwrap()
+        );
+
+        assert_eq!(
+            targets,
+            Tensor::from_shape_vec(5, vec![1., 0., 1., 0., 1.,]).unwrap()
+        )
     }
 }
