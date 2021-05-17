@@ -1,10 +1,12 @@
+use convolution::{Convolve, ConvolveWithGroups, PaddingMode};
+
 use super::{Input, InputBackward};
 use crate::variable::{
     self,
     node::{Backward, Data, Forward, Gradient, Overwrite},
     MatMatMulT, Tensor, Var, VarDiff,
 };
-use ndarray::{Ix1, Ix2, Ix4};
+use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -78,6 +80,42 @@ pub mod init {
                 *el = 1.
             } else {
                 *el = 0.
+            }
+        }
+    }
+
+    /// Fills the *{3, 4, 5}-dimensional* parameter with the Dirac delta function. Preserves the
+    /// identity of the inputs in convolutional layers, where as many input channels
+    /// are preserved as possible. In case of `groups` > 1, each group of channels preserves
+    /// identity.
+    pub fn dirac<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, groups: usize) {
+        let mut data = param.data_mut();
+        let shape = data.shape().to_vec();
+        let no_dim = shape.len();
+
+        if !(3..=5).contains(&no_dim) {
+            panic!("error: only 3, 4 and 5 dimensional parameters are supported.");
+        }
+        assert_eq!(
+            shape[0].rem_euclid(groups),
+            0,
+            "error: output channels must be divisible by groups."
+        );
+        let out_channels_per_groups = shape[0] / groups;
+        let min_dim = out_channels_per_groups.min(shape[1]);
+
+        for g in 0..groups {
+            for d in 0..min_dim {
+                let mut index = D::zeros(no_dim);
+                index[0] = g * out_channels_per_groups + d;
+                index[1] = d;
+                index
+                    .slice_mut()
+                    .iter_mut()
+                    .skip(2)
+                    .zip(shape.iter().skip(2))
+                    .for_each(|(el, sh)| *el = sh / 2);
+                data[index] = 1.
             }
         }
     }
@@ -164,10 +202,10 @@ impl Linear {
     /// `out_features` – size of each output sample.
     ///
     /// The learnable weight of the layer is of shape `(out_features, in_features)`. The values
-    /// are initialised from **U(-k, k)** where `k = 1. /(in_features as f32).sqrt()`.
+    /// are initialised from **U(-k, k)** where `k = (1. / in_features as f32).sqrt()`.
     ///
     /// The learnable bias of the layer is of shape `out_features`. The values
-    /// are initialised from **U(-k, k)** where `k = 1. /(in_features as f32).sqrt()`.
+    /// are initialised from **U(-k, k)** where `k = (1. / in_features as f32).sqrt()`.
     pub fn new(in_features: usize, out_features: usize) -> Self {
         let mut weight = Input::new(Tensor::zeros((out_features, in_features))).requires_grad();
         let mut bias = Input::new(Tensor::zeros(out_features)).requires_grad();
@@ -212,7 +250,7 @@ impl LSTMCell {
     /// `hidden_size` - The number of features in the hidden state.
     ///
     /// All the weight and biases are initialised from **U(-k, k)** where
-    /// `k = 1. /(hidden_size as f32).sqrt()`.
+    /// `k = (1. / hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
             let xhidden_size = 4 * hidden_size;
@@ -310,7 +348,7 @@ impl GRUCell {
     /// `hidden_size` - The number of features in the hidden state.
     ///
     /// All the weight and biases are initialised from **U(-k, k)** where
-    /// `k = 1. /(hidden_size as f32).sqrt()`.
+    /// `k = (1. /hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
             let xhidden_size = 3 * hidden_size;
@@ -382,10 +420,333 @@ impl GRUCell {
     }
 }
 
-pub struct Conv2d {
-    in_channels: usize,
-    out_channels: usize,
-    kernel_size: (usize, usize),
+/// Applies a **temporal convolution** over an input signal composed of several input planes.
+pub struct Conv1d<Pad: PaddingMode> {
+    padding: usize,
+    padding_mode: Pad,
+    stride: usize,
+    dilation: usize,
+    weight: VarDiff<Input<Ix3>, InputBackward<Ix3>>,
+    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+}
+
+impl<Pad: PaddingMode> Conv1d<Pad> {
+    /// Creates a new Conv1d.
+    ///
+    /// * `in_channels` - the number of planes in the input signal.
+    ///
+    /// * `out_channels` - the number of planes in the output signal.
+    ///
+    /// * `kernel_size` - the size of the kernel, a number for this one-dimensional case.
+    ///
+    /// * `padding` - the padding to be applied to the input, a number for this one-dimensional
+    /// case.
+    ///
+    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// **replicative**.
+    ///
+    /// * `stride` - the stride of the convolution, a number for this one-dimensional case
+    ///
+    /// * `dilation` - controls the spacing between the kernel points, a number for this
+    /// one-dimensional case
+    ///
+    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// `k = (1. /(in_channels * kernel_size) as f32).sqrt()`.
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        padding: usize,
+        padding_mode: Pad,
+        stride: usize,
+        dilation: usize,
+    ) -> Self {
+        let mut weight =
+            Input::new(Tensor::zeros((out_channels, in_channels, kernel_size))).requires_grad();
+        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+
+        let k = (1. / (in_channels * kernel_size) as f32).sqrt();
+        init::uniform(&mut weight, -k, k);
+        init::uniform(&mut bias, -k, k);
+
+        Self {
+            padding,
+            padding_mode,
+            stride,
+            dilation,
+            weight,
+            bias,
+        }
+    }
+
+    /// Computes a 1-dimensional convolution *(cross correlation)*.
+    ///
+    /// * `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape **(N, Cin, L)**
+    /// * **N** is the batch size
+    /// * **Cin** is the number of input channels
+    /// * **L** is the **length** of the input
+    ///
+    /// The **kernel** must be of shape **(Cout, Cin, Lk)**
+    /// * **Cout** is the number of output channels
+    /// * **Cin** is the number of input channels
+    /// * **Lk** is the **length** of the kernel
+    ///
+    /// The resulting output shape will be **(N, Cout, Lout)**
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Backward + Overwrite>
+    where
+        I: Convolve<I, VarDiff<Input<Ix3>, InputBackward<Ix3>>, Pad>,
+        I::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix3>,
+        U: Gradient<Dim = Ix3> + Overwrite,
+    {
+        I::convolve(
+            input,
+            self.weight.clone(),
+            &[self.stride],
+            &[self.dilation],
+            &[self.padding],
+            self.padding_mode.clone(),
+        )
+        .into()
+            + self.bias.clone()
+    }
+}
+
+/// Applies a **grouped temporal convolution** over an input signal composed of several input
+/// planes.
+pub struct GroupedConv1d<Pad: PaddingMode> {
+    padding: usize,
+    padding_mode: Pad,
+    stride: usize,
+    dilation: usize,
+    groups: usize,
+    weight: VarDiff<Input<Ix3>, InputBackward<Ix3>>,
+    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+}
+
+impl<Pad: PaddingMode> GroupedConv1d<Pad> {
+    /// Creates a new GroupedConv1d.
+    ///
+    /// * `in_channels` - the number of planes in the input signal.
+    ///
+    /// * `out_channels` - the number of planes in the output signal.
+    ///
+    /// * `kernel_size` - the size of the kernel, a number for this one-dimensional case.
+    ///
+    /// * `padding` - the padding to be applied to the input, a number for this one-dimensional
+    /// case.
+    ///
+    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// **replicative**.
+    ///
+    /// * `stride` - the stride of the convolution, a number for this one-dimensional case.
+    ///
+    /// * `dilation` - controls the spacing between the kernel points, a number for this
+    /// one-dimensional case.
+    ///
+    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// `out_channels` must both be **divisible by groups**.
+    ///
+    ///For example:
+    /// * at **groups = 1**, all inputs are convolved to all outputs.
+    /// * at **groups = 2**, the operation becomes equivalent to having two convolutional layers side
+    /// by side, each seeing half the input channels and producing half the output channels, and
+    /// both subsequently concatenated.
+    ///* at **groups = in_channels**, each input channel is convolved with its own set of filters.
+    ///
+    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// `k = (groups /(in_channels * kernel_size) as f32).sqrt()`.
+    #[allow(clippy::clippy::too_many_arguments)]
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        padding: usize,
+        padding_mode: Pad,
+        stride: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Self {
+        let mut weight = Input::new(Tensor::zeros((
+            out_channels,
+            in_channels / groups,
+            kernel_size,
+        )))
+        .requires_grad();
+        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+
+        let k = (groups as f32 / (in_channels * kernel_size) as f32).sqrt();
+        init::uniform(&mut weight, -k, k);
+        init::uniform(&mut bias, -k, k);
+
+        Self {
+            padding,
+            padding_mode,
+            stride,
+            dilation,
+            groups,
+            weight,
+            bias,
+        }
+    }
+
+    /// Computes a 1-dimensional grouped convolution *(cross correlation)*.
+    ///
+    /// * `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape **(N, Cin, L)**
+    /// * **N** is the batch size
+    /// * **Cin** is the number of input channels
+    /// * **L** is the **length** of the input
+    ///
+    /// The **kernel** must be of shape **(Cout, Cin, Lk)**
+    /// * **Cout** is the number of output channels
+    /// * **Cin** is the number of input channels
+    /// * **Lk** is the **length** of the kernel
+    ///
+    /// The resulting output shape will be **(N, Cout, Lout)**
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Backward + Overwrite>
+    where
+        I: ConvolveWithGroups<I, VarDiff<Input<Ix3>, InputBackward<Ix3>>, Pad>,
+        I::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix3>,
+        U: Gradient<Dim = Ix3> + Overwrite,
+    {
+        I::convolve_with_groups(
+            input,
+            self.weight.clone(),
+            &[self.stride],
+            &[self.dilation],
+            &[self.padding],
+            self.padding_mode.clone(),
+            self.groups,
+        )
+        .into()
+            + self.bias.clone()
+    }
+}
+
+/// Applies a **spatial convolution** over an input signal composed of several input planes.
+pub struct Conv2d<Pad: PaddingMode> {
+    padding: (usize, usize),
+    padding_mode: Pad,
+    stride: (usize, usize),
+    dilation: (usize, usize),
+    weight: VarDiff<Input<Ix4>, InputBackward<Ix4>>,
+    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+}
+
+impl<Pad: PaddingMode> Conv2d<Pad> {
+    /// Creates a new Conv2d.
+    ///
+    /// * `in_channels` - the number of planes in the input signal.
+    ///
+    /// * `out_channels` - the number of planes in the output signal.
+    ///
+    /// * `kernel_size` - the size of the kernel, a 2-tuple for this two-dimensional case.
+    ///
+    /// * `padding` - the padding to be applied to the input, a 2-tuple for this two-dimensional
+    /// case.
+    ///
+    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// **replicative**.
+    ///
+    /// * `stride` - the stride of the convolution, a 2-tuple for this two-dimensional case.
+    ///
+    /// * `dilation` - controls the spacing between the kernel points, a 2-tuple for this
+    /// two-dimensional case.
+    ///
+    /// The weight and the bias are initialised from **U(-k, k)** where
+    /// `k = (1. /(in_channels * kernel_w * kernel_h) as f32).sqrt()`.
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize),
+        padding: (usize, usize),
+        padding_mode: Pad,
+        stride: (usize, usize),
+        dilation: (usize, usize),
+    ) -> Self {
+        let (kernel_h, kernel_w) = kernel_size;
+        let mut weight = Input::new(Tensor::zeros((
+            out_channels,
+            in_channels,
+            kernel_h,
+            kernel_w,
+        )))
+        .requires_grad();
+        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+
+        let k = (1. / (in_channels * kernel_h * kernel_w) as f32).sqrt();
+        init::uniform(&mut weight, -k, k);
+        init::uniform(&mut bias, -k, k);
+
+        Self {
+            padding,
+            padding_mode,
+            stride,
+            dilation,
+            weight,
+            bias,
+        }
+    }
+
+    /// Computes a 2-dimensional convolution *(cross correlation)*.
+    ///
+    /// * `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape **(N, Cin, H, W)**
+    /// * **N** is the batch size
+    /// * **Cin** is the number of input channels
+    /// * **H** is the **height** of the input
+    /// * **W** is the **width** of the input
+    ///
+    /// The **kernel** must be of shape **(Cout, Cin, Hk, Wk)**
+    /// * **Cout** is the number of output channels
+    /// * **Cin** is the number of input channels
+    /// * **Hk** is the **height** of the kernel
+    /// * **Wk** is the **width** of the kernel
+    ///
+    /// The resulting output shape will be **(N, Cout, Hout, Wout)**
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Backward + Overwrite>
+    where
+        I: Convolve<I, VarDiff<Input<Ix4>, InputBackward<Ix4>>, Pad>,
+        I::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix4>,
+        U: Gradient<Dim = Ix4> + Overwrite,
+    {
+        let (stride_h, stride_w) = self.stride;
+        let (padding_h, padding_w) = self.padding;
+        let (dilation_h, dilation_w) = self.dilation;
+
+        I::convolve(
+            input,
+            self.weight.clone(),
+            &[stride_h, stride_w],
+            &[dilation_h, dilation_w],
+            &[padding_h, padding_w],
+            self.padding_mode.clone(),
+        )
+        .into()
+            + self.bias.clone()
+    }
+}
+
+// Applies a **spatial grouped convolution** over an input signal composed of several input planes.
+pub struct GroupedConv2d<Pad: PaddingMode> {
+    padding: (usize, usize),
+    padding_mode: Pad,
     stride: (usize, usize),
     dilation: (usize, usize),
     groups: usize,
@@ -393,15 +754,355 @@ pub struct Conv2d {
     bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
 }
 
-impl Conv2d {
-    fn new(
+impl<Pad: PaddingMode> GroupedConv2d<Pad> {
+    /// Creates a new GroupedConv2d.
+    ///
+    /// * `in_channels` - the number of planes in the input signal.
+    ///
+    /// * `out_channels` - the number of planes in the output signal.
+    ///
+    /// * `kernel_size` - the size of the kernel, a 2-tuple  for this two-dimensional case.
+    ///
+    /// * `padding` - the padding to be applied to the input, a 2-tuple  for this two-dimensional
+    /// case.
+    ///
+    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// **replicative**.
+    ///
+    /// * `stride` - the stride of the convolution, a 2-tuple  for this two-dimensional case.
+    ///
+    /// * `dilation` - controls the spacing between the kernel points, a 2-tuple  for this
+    /// two-dimensional case.
+    ///
+    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// `out_channels` must both be divisible by groups.
+    ///
+    /// For example:
+    /// * at **groups = 1**, all inputs are convolved to all outputs.
+    /// *  at **groups = 2**, the operation becomes equivalent to having two convolutional layers
+    /// side by side, each seeing half the input channels and producing half the output channels,
+    /// and both subsequently concatenated.
+    /// * at groups = in_channels, each input channel is convolved with its own set of filters.
+    ///
+    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// `k = (groups /(in_channels * kernel_h * kernel_w) as f32).sqrt()`.
+    #[allow(clippy::clippy::too_many_arguments)]
+    pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize),
+        padding: (usize, usize),
+        padding_mode: Pad,
         stride: (usize, usize),
         dilation: (usize, usize),
         groups: usize,
     ) -> Self {
-        todo!()
+        let (kernel_h, kernel_w) = kernel_size;
+        let mut weight = Input::new(Tensor::zeros((
+            out_channels,
+            in_channels,
+            kernel_h,
+            kernel_w,
+        )))
+        .requires_grad();
+        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+
+        let k = (groups as f32 / (in_channels * kernel_h * kernel_w) as f32).sqrt();
+        init::uniform(&mut weight, -k, k);
+        init::uniform(&mut bias, -k, k);
+
+        Self {
+            padding,
+            padding_mode,
+            stride,
+            dilation,
+            groups,
+            weight,
+            bias,
+        }
+    }
+
+    /// Computes a 2-dimensional grouped convolution *(cross correlation)*.
+    ///
+    /// * `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape **(N, Cin, H, W)**
+    /// * **N** is the batch size
+    /// * **Cin** is the number of input channels
+    /// * **H** is the **height** of the input
+    /// * **W** is the **width** of the input
+    ///
+    /// The **kernel** must be of shape **(Cout, Cin, Hk, Wk)**
+    /// * **Cout** is the number of output channels
+    /// * **Cin** is the number of input channels
+    /// * **Hk** is the **height** of the kernel
+    /// * **Wk** is the **width** of the kernel
+    ///
+    /// The resulting output shape will be **(N, Cout, Hout, Wout)**
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Backward + Overwrite>
+    where
+        I: ConvolveWithGroups<I, VarDiff<Input<Ix4>, InputBackward<Ix4>>, Pad>,
+        I::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix4>,
+        U: Gradient<Dim = Ix4> + Overwrite,
+    {
+        let (stride_h, stride_w) = self.stride;
+        let (padding_h, padding_w) = self.padding;
+        let (dilation_h, dilation_w) = self.dilation;
+
+        I::convolve_with_groups(
+            input,
+            self.weight.clone(),
+            &[stride_h, stride_w],
+            &[dilation_h, dilation_w],
+            &[padding_h, padding_w],
+            self.padding_mode.clone(),
+            self.groups,
+        )
+        .into()
+            + self.bias.clone()
+    }
+}
+
+/// Applies a **volumetric convolution** over an input signal composed of several input planes.
+pub struct Conv3d<Pad: PaddingMode> {
+    padding: (usize, usize, usize),
+    padding_mode: Pad,
+    stride: (usize, usize, usize),
+    dilation: (usize, usize, usize),
+    weight: VarDiff<Input<Ix5>, InputBackward<Ix5>>,
+    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+}
+
+impl<Pad: PaddingMode> Conv3d<Pad> {
+    /// Creates a new Conv3d.
+    ///
+    /// * `in_channels` - the number of planes in the input signal.
+    ///
+    /// * `out_channels` - the number of planes in the output signal.
+    ///
+    /// * `kernel_size` - the size of the kernel, a 3-tuple for this three-dimensional case.
+    ///
+    /// * `padding` - the padding to be applied to the input, a 3-tuple for this three-dimensional
+    /// case.
+    ///
+    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// **replicative**.
+    ///
+    /// * `stride` - the stride of the convolution, a 3-tuple for this three-dimensional case.
+    ///
+    /// * `dilation` - controls the spacing between the kernel points, a 3-tuple for this
+    /// three-dimensional case.
+    ///
+    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// `k = (1. /(in_channels * kernel_d * kernel_w * kernel_h) as f32).sqrt()`.
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize, usize),
+        padding: (usize, usize, usize),
+        padding_mode: Pad,
+        stride: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+    ) -> Self {
+        let (kernel_d, kernel_h, kernel_w) = kernel_size;
+        let mut weight = Input::new(Tensor::zeros((
+            out_channels,
+            in_channels,
+            kernel_d,
+            kernel_h,
+            kernel_w,
+        )))
+        .requires_grad();
+        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+
+        let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
+        init::uniform(&mut weight, -k, k);
+        init::uniform(&mut bias, -k, k);
+
+        Self {
+            padding,
+            padding_mode,
+            stride,
+            dilation,
+            weight,
+            bias,
+        }
+    }
+
+    /// Computes a 3-dimensional convolution *(cross correlation)*.
+    ///
+    /// * `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape **(N, Cin, D, H, W)**
+    /// * **N** is the batch size
+    /// * **Cin** is the number of input channels
+    /// * **D** is the **depth** of the input
+    /// * **H** is the **height** of the input
+    /// * **W** is the **width** of the input
+    ///
+    /// The **kernel** must be of shape **(Cout, Cin, Dk,  Hk, Wk)**
+    /// * **Cout** is the number of output channels
+    /// * **Cin** is the number of input channels
+    /// * **Dk** is the **depth** of the kernel
+    /// * **Hk** is the **height** of the kernel
+    /// * **Wk** is the **width** of the kernel
+    ///
+    /// The resulting output shape will be **(N, Cout, Dout, Hout, Wout)**
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Backward + Overwrite>
+    where
+        I: Convolve<I, VarDiff<Input<Ix5>, InputBackward<Ix5>>, Pad>,
+        I::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix5>,
+        U: Gradient<Dim = Ix5> + Overwrite,
+    {
+        let (stride_d, stride_h, stride_w) = self.stride;
+        let (padding_d, padding_h, padding_w) = self.padding;
+        let (dilation_d, dilation_h, dilation_w) = self.dilation;
+
+        I::convolve(
+            input,
+            self.weight.clone(),
+            &[stride_d, stride_h, stride_w],
+            &[dilation_d, dilation_h, dilation_w],
+            &[padding_d, padding_h, padding_w],
+            self.padding_mode.clone(),
+        )
+        .into()
+            + self.bias.clone()
+    }
+}
+
+/// Applies a **grouped volumetric convolution** over an input signal composed of several input
+/// planes.
+pub struct GroupedConv3d<Pad: PaddingMode> {
+    padding: (usize, usize, usize),
+    padding_mode: Pad,
+    stride: (usize, usize, usize),
+    dilation: (usize, usize, usize),
+    groups: usize,
+    weight: VarDiff<Input<Ix5>, InputBackward<Ix5>>,
+    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+}
+
+impl<Pad: PaddingMode> GroupedConv3d<Pad> {
+    /// Creates a new GroupedConv3d.
+    ///
+    /// * `in_channels` - the number of planes in the input signal.
+    ///
+    /// * `out_channels` - the number of planes in the output signal.
+    ///
+    /// * `kernel_size` - the size of the kernel, a 3-tuple  for this three-dimensional case.
+    ///
+    /// * `padding` - the padding to be applied to the input, a 3-tuple  for this three-dimensional
+    /// case.
+    ///
+    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// **replicative**.
+    ///
+    /// * `stride` - the stride of the convolution, a 3-tuple  for this three-dimensional case.
+    ///
+    /// * `dilation` - controls the spacing between the kernel points, a 3-tuple  for this
+    /// three-dimensional case.
+    ///
+    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// `out_channels` must both be divisible by groups.
+    ///
+    /// For example:
+    /// * at **groups = 1**, all inputs are convolved to all outputs.
+    /// *  at **groups = 2**, the operation becomes equivalent to having two convolutional layers
+    /// side by side, each seeing half the input channels and producing half the output channels,
+    /// and both subsequently concatenated.
+    /// * at **groups = in_channels**, each input channel is convolved with its own set of filters.
+    ///
+    /// The weight and the bias are initialised from **U(-k, k)** where
+    /// `k = (groups /(in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt()`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize, usize),
+        padding: (usize, usize, usize),
+        padding_mode: Pad,
+        stride: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+        groups: usize,
+    ) -> Self {
+        let (kernel_d, kernel_h, kernel_w) = kernel_size;
+        let mut weight = Input::new(Tensor::zeros((
+            out_channels,
+            in_channels,
+            kernel_d,
+            kernel_h,
+            kernel_w,
+        )))
+        .requires_grad();
+        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+
+        let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
+        init::uniform(&mut weight, -k, k);
+        init::uniform(&mut bias, -k, k);
+
+        Self {
+            padding,
+            padding_mode,
+            stride,
+            dilation,
+            groups,
+            weight,
+            bias,
+        }
+    }
+
+    /// Computes a 3-dimensional grouped convolution *(cross correlation)*.
+    ///
+    /// * `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape **(N, Cin, D, H, W)**
+    /// * **N** is the batch size
+    /// * **Cin** is the number of input channels
+    /// * **D** is the **depth** of the input
+    /// * **H** is the **height** of the input
+    /// * **W** is the **width** of the input
+    ///
+    /// The **kernel** must be of shape **(Cout, Cin, Dk,  Hk, Wk)**
+    /// * **Cout** is the number of output channels
+    /// * **Cin** is the number of input channels
+    /// * **Dk** is the **depth** of the kernel
+    /// * **Hk** is the **height** of the kernel
+    /// * **Wk** is the **width** of the kernel
+    ///
+    /// The resulting output shape will be **(N, Cout, Dout, Hout, Wout)**
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Backward + Overwrite>
+    where
+        I: ConvolveWithGroups<I, VarDiff<Input<Ix5>, InputBackward<Ix5>>, Pad>,
+        I::Output: Into<VarDiff<T, U>>,
+        T: Data<Dim = Ix5>,
+        U: Gradient<Dim = Ix5> + Overwrite,
+    {
+        let (stride_d, stride_h, stride_w) = self.stride;
+        let (padding_d, padding_h, padding_w) = self.padding;
+        let (dilation_d, dilation_h, dilation_w) = self.dilation;
+
+        I::convolve_with_groups(
+            input,
+            self.weight.clone(),
+            &[stride_d, stride_h, stride_w],
+            &[dilation_d, dilation_h, dilation_w],
+            &[padding_d, padding_h, padding_w],
+            self.padding_mode.clone(),
+            self.groups,
+        )
+        .into()
+            + self.bias.clone()
     }
 }
