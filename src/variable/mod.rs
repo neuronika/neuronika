@@ -537,7 +537,7 @@ impl<T: Data + 'static> Var<T> {
     /// [Improving neural networks by preventing co-adaptation of feature detectors](https://arxiv.org/abs/1207.0580)
     ///
     /// Furthermore, the outputs are scaled by a factor of 1/(1 - p) during training. This means
-    /// that during evaluation the module simply computes an identity function.
+    /// that during evaluation the resulting variable simply computes an identity function.
     pub fn dropout(self, p: f64) -> Var<Dropout<T>> {
         Var::from_changable(Dropout::new(self.node, p), self.past)
     }
@@ -849,10 +849,10 @@ where
     ///
     /// This has proven to be an effective technique for regularization and preventing the
     /// co-adaptation of neurons as described in the paper
-    /// [Improving neural networks by preventing co-adaptation of feature detectors](https://arxiv.org/abs/1207.0580)
+    /// [Improving neural networks by preventing co-adaptation of feature detectors](https://arxiv.org/abs/1207.0580).
     ///
     /// Furthermore, the outputs are scaled by a factor of 1/(1 - p) during training. This means
-    /// that during evaluation the module simply computes an identity function.
+    /// that during evaluation the resulting variable simply computes an identity function.
     pub fn dropout(self, p: f64) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
         let var = self.var.dropout(p);
         let node = DropoutBackward::new(self.node, var.node.clone(), p);
