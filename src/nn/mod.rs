@@ -199,15 +199,17 @@ pub struct Linear {
 impl Linear {
     /// Creates a linear layer.
     ///
+    /// # Arguments
+    ///
     /// `in_features` – size of each input sample.
     ///
     /// `out_features` – size of each output sample.
     ///
-    /// The learnable weight of the layer is of shape `(out_features, in_features)`. The values
-    /// are initialised from **U(-k, k)** where `k = (1. / in_features as f32).sqrt()`.
+    /// The learnable weight of the layer is of shape `(out_features, in_features)`. The learnable
+    /// bias of the layer is of shape `out_features`.
     ///
-    /// The learnable bias of the layer is of shape `out_features`. The values
-    /// are initialised from **U(-k, k)** where `k = (1. / in_features as f32).sqrt()`.
+    /// The values for both the weight and bias are initialised from *U(-k, k)* where
+    /// `k = (1. / in_features as f32).sqrt()`.
     pub fn new(in_features: usize, out_features: usize) -> Self {
         let mut weight = Input::new(Tensor::zeros((out_features, in_features))).requires_grad();
         let mut bias = Input::new(Tensor::zeros(out_features)).requires_grad();
@@ -218,9 +220,12 @@ impl Linear {
         Self { weight, bias }
     }
 
-    /// Applies the linear transformation **y = xA^T + b** to the incoming data.
+    /// Applies the linear transformation *y = xA^T + b* to the incoming data.
     ///
-    /// `data` - `(N, in_features)`, the output will be `(N, out_features)`.
+    /// # Arguments
+    ///
+    /// `data` - a tensor of shape *(N, in_features)*, the output's shape will be
+    /// *(N, out_features)*.
     pub fn forward<W, T, U>(
         &self,
         input: W,
@@ -247,11 +252,13 @@ pub struct LSTMCell {
 impl LSTMCell {
     /// Creates a new LSTMCell.
     ///
-    /// `input_size` - The number of expected features in the input.
+    /// # Arguments
     ///
-    /// `hidden_size` - The number of features in the hidden state.
+    /// `input_size` - number of expected features in the input.
     ///
-    /// All the weight and biases are initialised from **U(-k, k)** where
+    /// `hidden_size` - number of features in the hidden state.
+    ///
+    /// All the weight and biases are initialised from *U(-k, k)* where
     /// `k = (1. / hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
@@ -283,15 +290,17 @@ impl LSTMCell {
 
     /// Computes a single **LSTM step**.
     ///
-    /// `state` - a tuple of tensors, both of shape `(batch, hidden_size)`, containing the
+    /// # Arguments
+    ///
+    /// `state` - a tuple of tensors, both of shape *(batch, hidden_size)*, containing the
     /// initial hidden state for each element in the batch and the initial cell's state for
     /// each element in the batch.
     ///
-    /// `input` - a tensor containing the input features of shape `(batch, input_size)`.
+    /// `input` - a tensor containing the input features of shape *(batch, input_size)*.
     ///
     /// The **output** is a tuple of tensors made of the next hidden state for each element in
-    /// the batch, of shape `(batch, hidden_size)` and the next cell's state for each element in
-    /// the batch, of shape `(batch, hidden_size)`.
+    /// the batch, of shape *(batch, hidden_size)* and the next cell's state for each element in
+    /// the batch, of shape *(batch, hidden_size)*.
     pub fn forward<Cf, Cb, Hf, Hb, I, T, U>(
         &self,
         state: (VarDiff<Cf, Cb>, VarDiff<Hf, Hb>),
@@ -345,11 +354,13 @@ pub struct GRUCell {
 impl GRUCell {
     /// Creates a new GRUCell.
     ///
-    /// `input_size` - The number of expected features in the input.
+    /// # Arguments
     ///
-    /// `hidden_size` - The number of features in the hidden state.
+    /// `input_size` - number of expected features in the input.
     ///
-    /// All the weight and biases are initialised from **U(-k, k)** where
+    /// `hidden_size` - number of features in the hidden state.
+    ///
+    /// All the weight and biases are initialised from *U(-k, k)* where
     /// `k = (1. /hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
@@ -381,13 +392,13 @@ impl GRUCell {
 
     /// Computes a single **GRU step**.
     ///
-    /// `hidden` - a tensor of shape `(batch, hidden_size)`, containing the initial hidden state
+    /// `hidden` - a tensor of shape *(batch, hidden_size)*, containing the initial hidden state
     /// for each element in the batch.
     ///
-    /// `input` - a tensor containing the input features of shape `(batch, input_size)`.
+    /// `input` - a tensor containing the input features of shape *(batch, input_size)*.
     ///
     /// The **output** is  a tensor made of the next hidden state for each element in
-    /// the batch, of shape `(batch, hidden_size)`.
+    /// the batch, of shape *(batch, hidden_size)*.
     pub fn forward<Hf, Hb, I, T, U>(
         &self,
         hidden: VarDiff<Hf, Hb>,
@@ -435,24 +446,25 @@ pub struct Conv1d<Pad: PaddingMode> {
 impl<Pad: PaddingMode> Conv1d<Pad> {
     /// Creates a new Conv1d.
     ///
-    /// * `in_channels` - the number of planes in the input signal.
+    /// # Arguments
     ///
-    /// * `out_channels` - the number of planes in the output signal.
+    /// `in_channels` - number of planes in the input signal.
     ///
-    /// * `kernel_size` - the size of the kernel, a number for this one-dimensional case.
+    /// `out_channels` - number of planes in the output signal.
     ///
-    /// * `padding` - the padding to be applied to the input, a number for this one-dimensional
-    /// case.
+    /// `kernel_size` - size of the kernel, a number for this one-dimensional case.
     ///
-    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// `padding` - padding to be applied to the input, a number for this one-dimensional case.
+    ///
+    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
     /// **replicative**.
     ///
-    /// * `stride` - the stride of the convolution, a number for this one-dimensional case
+    /// `stride` - stride of the convolution, a number for this one-dimensional case.
     ///
-    /// * `dilation` - controls the spacing between the kernel points, a number for this
-    /// one-dimensional case
+    /// `dilation` - controls the spacing between the kernel points, a number for this
+    /// one-dimensional case.
     ///
-    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_size) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -483,19 +495,21 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
 
     /// Computes a 1-dimensional convolution *(cross correlation)*.
     ///
-    /// * `input` - the signal to convolve.
+    /// # Arguments
     ///
-    /// The **input** must be of shape **(N, Cin, L)**
+    /// `input` - signal to convolve.
+    ///
+    /// The **input** must be of shape *(N, Cin, L)*
     /// * **N** is the batch size
     /// * **Cin** is the number of input channels
     /// * **L** is the **length** of the input
     ///
-    /// The **kernel** must be of shape **(Cout, Cin, Lk)**
+    /// The **kernel** must be of shape *(Cout, Cin, Lk)*
     /// * **Cout** is the number of output channels
     /// * **Cin** is the number of input channels
     /// * **Lk** is the **length** of the kernel
     ///
-    /// The resulting output shape will be **(N, Cout, Lout)**
+    /// The resulting output shape will be *(N, Cout, Lout)*
     pub fn forward<I, T, U>(
         &self,
         input: I,
@@ -534,34 +548,35 @@ pub struct GroupedConv1d<Pad: PaddingMode> {
 impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     /// Creates a new GroupedConv1d.
     ///
-    /// * `in_channels` - the number of planes in the input signal.
+    /// # Arguments
     ///
-    /// * `out_channels` - the number of planes in the output signal.
+    /// `in_channels` - number of planes in the input signal.
     ///
-    /// * `kernel_size` - the size of the kernel, a number for this one-dimensional case.
+    /// `out_channels` - number of planes in the output signal.
     ///
-    /// * `padding` - the padding to be applied to the input, a number for this one-dimensional
-    /// case.
+    /// `kernel_size` - size of the kernel, a number for this one-dimensional case.
     ///
-    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// `padding` - padding to be applied to the input, a number for this one-dimensional case.
+    ///
+    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
     /// **replicative**.
     ///
-    /// * `stride` - the stride of the convolution, a number for this one-dimensional case.
+    /// `stride` - stride of the convolution, a number for this one-dimensional case.
     ///
-    /// * `dilation` - controls the spacing between the kernel points, a number for this
+    /// `dilation` - controls the spacing between the kernel points, a number for this
     /// one-dimensional case.
     ///
-    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// `groups` -  controls the connections between inputs and outputs. `in_channels` and
     /// `out_channels` must both be **divisible by groups**.
     ///
-    ///For example:
-    /// * at **groups = 1**, all inputs are convolved to all outputs.
-    /// * at **groups = 2**, the operation becomes equivalent to having two convolutional layers side
+    /// For example:
+    /// * at `groups = 1`, all inputs are convolved to all outputs.
+    /// * at `groups = 2`, the operation becomes equivalent to having two convolutional layers side
     /// by side, each seeing half the input channels and producing half the output channels, and
     /// both subsequently concatenated.
-    ///* at **groups = in_channels**, each input channel is convolved with its own set of filters.
+    ///* at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_size) as f32).sqrt()`.
     #[allow(clippy::clippy::too_many_arguments)]
     pub fn new(
@@ -599,19 +614,21 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
 
     /// Computes a 1-dimensional grouped convolution *(cross correlation)*.
     ///
-    /// * `input` - the signal to convolve.
+    /// # Arguments
     ///
-    /// The **input** must be of shape **(N, Cin, L)**
+    /// `input` - signal to convolve.
+    ///
+    /// The **input** must be of shape *(N, Cin, L)*
     /// * **N** is the batch size
     /// * **Cin** is the number of input channels
     /// * **L** is the **length** of the input
     ///
-    /// The **kernel** must be of shape **(Cout, Cin, Lk)**
+    /// The **kernel** must be of shape *(Cout, Cin, Lk)*
     /// * **Cout** is the number of output channels
     /// * **Cin** is the number of input channels
     /// * **Lk** is the **length** of the kernel
     ///
-    /// The resulting output shape will be **(N, Cout, Lout)**
+    /// The resulting output shape will be *(N, Cout, Lout)*
     pub fn forward<I, T, U>(
         &self,
         input: I,
@@ -649,24 +666,25 @@ pub struct Conv2d<Pad: PaddingMode> {
 impl<Pad: PaddingMode> Conv2d<Pad> {
     /// Creates a new Conv2d.
     ///
-    /// * `in_channels` - the number of planes in the input signal.
+    /// # Arguments
     ///
-    /// * `out_channels` - the number of planes in the output signal.
+    /// `in_channels` - number of planes in the input signal.
     ///
-    /// * `kernel_size` - the size of the kernel, a 2-tuple for this two-dimensional case.
+    /// `out_channels` - number of planes in the output signal.
     ///
-    /// * `padding` - the padding to be applied to the input, a 2-tuple for this two-dimensional
-    /// case.
+    /// `kernel_size` - size of the kernel, a 2-tuple for this two-dimensional case.
     ///
-    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// `padding` - padding to be applied to the input, a 2-tuple for this two-dimensional case.
+    ///
+    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
     /// **replicative**.
     ///
-    /// * `stride` - the stride of the convolution, a 2-tuple for this two-dimensional case.
+    /// `stride` - stride of the convolution, a 2-tuple for this two-dimensional case.
     ///
-    /// * `dilation` - controls the spacing between the kernel points, a 2-tuple for this
+    /// `dilation` - controls the spacing between the kernel points, a 2-tuple for this
     /// two-dimensional case.
     ///
-    /// The weight and the bias are initialised from **U(-k, k)** where
+    /// The weight and the bias are initialised from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_w * kernel_h) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -703,21 +721,23 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
 
     /// Computes a 2-dimensional convolution *(cross correlation)*.
     ///
-    /// * `input` - the signal to convolve.
+    /// # Arguments
     ///
-    /// The **input** must be of shape **(N, Cin, H, W)**
+    /// `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape *(N, Cin, H, W)*
     /// * **N** is the batch size
     /// * **Cin** is the number of input channels
     /// * **H** is the **height** of the input
     /// * **W** is the **width** of the input
     ///
-    /// The **kernel** must be of shape **(Cout, Cin, Hk, Wk)**
+    /// The **kernel** must be of shape *(Cout, Cin, Hk, Wk)*
     /// * **Cout** is the number of output channels
     /// * **Cin** is the number of input channels
     /// * **Hk** is the **height** of the kernel
     /// * **Wk** is the **width** of the kernel
     ///
-    /// The resulting output shape will be **(N, Cout, Hout, Wout)**
+    /// The resulting output shape will be *(N, Cout, Hout, Wout)*
     pub fn forward<I, T, U>(
         &self,
         input: I,
@@ -759,34 +779,35 @@ pub struct GroupedConv2d<Pad: PaddingMode> {
 impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     /// Creates a new GroupedConv2d.
     ///
-    /// * `in_channels` - the number of planes in the input signal.
+    /// # Arguments
     ///
-    /// * `out_channels` - the number of planes in the output signal.
+    /// `in_channels` - number of planes in the input signal.
     ///
-    /// * `kernel_size` - the size of the kernel, a 2-tuple  for this two-dimensional case.
+    /// `out_channels` - number of planes in the output signal.
     ///
-    /// * `padding` - the padding to be applied to the input, a 2-tuple  for this two-dimensional
-    /// case.
+    /// `kernel_size` - size of the kernel, a 2-tuple  for this two-dimensional case.
     ///
-    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// `padding` - padding to be applied to the input, a 2-tuple  for this two-dimensional case.
+    ///
+    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
     /// **replicative**.
     ///
-    /// * `stride` - the stride of the convolution, a 2-tuple  for this two-dimensional case.
+    /// `stride` - stride of the convolution, a 2-tuple  for this two-dimensional case.
     ///
-    /// * `dilation` - controls the spacing between the kernel points, a 2-tuple  for this
+    /// `dilation` - controls the spacing between the kernel points, a 2-tuple  for this
     /// two-dimensional case.
     ///
-    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// `groups` -  controls the connections between inputs and outputs. `in_channels` and
     /// `out_channels` must both be divisible by groups.
     ///
     /// For example:
-    /// * at **groups = 1**, all inputs are convolved to all outputs.
-    /// *  at **groups = 2**, the operation becomes equivalent to having two convolutional layers
+    /// * at `groups = 1`, all inputs are convolved to all outputs.
+    /// *  at `groups = 2`, the operation becomes equivalent to having two convolutional layers
     /// side by side, each seeing half the input channels and producing half the output channels,
     /// and both subsequently concatenated.
-    /// * at groups = in_channels, each input channel is convolved with its own set of filters.
+    /// * at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_h * kernel_w) as f32).sqrt()`.
     #[allow(clippy::clippy::too_many_arguments)]
     pub fn new(
@@ -826,21 +847,23 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
 
     /// Computes a 2-dimensional grouped convolution *(cross correlation)*.
     ///
-    /// * `input` - the signal to convolve.
+    /// # Arguments
     ///
-    /// The **input** must be of shape **(N, Cin, H, W)**
+    /// `input` - the signal to convolve.
+    ///
+    /// The **input** must be of shape *(N, Cin, H, W)*
     /// * **N** is the batch size
     /// * **Cin** is the number of input channels
     /// * **H** is the **height** of the input
     /// * **W** is the **width** of the input
     ///
-    /// The **kernel** must be of shape **(Cout, Cin, Hk, Wk)**
+    /// The **kernel** must be of shape *(Cout, Cin, Hk, Wk)*
     /// * **Cout** is the number of output channels
     /// * **Cin** is the number of input channels
     /// * **Hk** is the **height** of the kernel
     /// * **Wk** is the **width** of the kernel
     ///
-    /// The resulting output shape will be **(N, Cout, Hout, Wout)**
+    /// The resulting output shape will be *(N, Cout, Hout, Wout)*
     pub fn forward<I, T, U>(
         &self,
         input: I,
@@ -882,24 +905,25 @@ pub struct Conv3d<Pad: PaddingMode> {
 impl<Pad: PaddingMode> Conv3d<Pad> {
     /// Creates a new Conv3d.
     ///
-    /// * `in_channels` - the number of planes in the input signal.
+    /// # Arguments
     ///
-    /// * `out_channels` - the number of planes in the output signal.
+    /// `in_channels` - number of planes in the input signal.
     ///
-    /// * `kernel_size` - the size of the kernel, a 3-tuple for this three-dimensional case.
+    /// `out_channels` - number of planes in the output signal.
     ///
-    /// * `padding` - the padding to be applied to the input, a 3-tuple for this three-dimensional
-    /// case.
+    /// `kernel_size` - size of the kernel, a 3-tuple for this three-dimensional case.
     ///
-    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// `padding` - padding to be applied to the input, a 3-tuple for this three-dimensional case.
+    ///
+    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
     /// **replicative**.
     ///
-    /// * `stride` - the stride of the convolution, a 3-tuple for this three-dimensional case.
+    /// `stride` - stride of the convolution, a 3-tuple for this three-dimensional case.
     ///
-    /// * `dilation` - controls the spacing between the kernel points, a 3-tuple for this
+    /// `dilation` - controls the spacing between the kernel points, a 3-tuple for this
     /// three-dimensional case.
     ///
-    /// The weight and the bias of the layer are initialised from **U(-k, k)** where
+    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_d * kernel_w * kernel_h) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -937,23 +961,25 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
 
     /// Computes a 3-dimensional convolution *(cross correlation)*.
     ///
-    /// * `input` - the signal to convolve.
+    /// # Arguments
     ///
-    /// The **input** must be of shape **(N, Cin, D, H, W)**
+    /// `input` - signal to convolve.
+    ///
+    /// The **input** must be of shape *(N, Cin, D, H, W)*
     /// * **N** is the batch size
     /// * **Cin** is the number of input channels
     /// * **D** is the **depth** of the input
     /// * **H** is the **height** of the input
     /// * **W** is the **width** of the input
     ///
-    /// The **kernel** must be of shape **(Cout, Cin, Dk,  Hk, Wk)**
+    /// The **kernel** must be of shape *(Cout, Cin, Dk,  Hk, Wk)*
     /// * **Cout** is the number of output channels
     /// * **Cin** is the number of input channels
     /// * **Dk** is the **depth** of the kernel
     /// * **Hk** is the **height** of the kernel
     /// * **Wk** is the **width** of the kernel
     ///
-    /// The resulting output shape will be **(N, Cout, Dout, Hout, Wout)**
+    /// The resulting output shape will be *(N, Cout, Dout, Hout, Wout)*
     pub fn forward<I, T, U>(
         &self,
         input: I,
@@ -996,34 +1022,35 @@ pub struct GroupedConv3d<Pad: PaddingMode> {
 impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     /// Creates a new GroupedConv3d.
     ///
-    /// * `in_channels` - the number of planes in the input signal.
+    /// # Arguments
     ///
-    /// * `out_channels` - the number of planes in the output signal.
+    /// `in_channels` - number of planes in the input signal.
     ///
-    /// * `kernel_size` - the size of the kernel, a 3-tuple  for this three-dimensional case.
+    /// `out_channels` - number of planes in the output signal.
     ///
-    /// * `padding` - the padding to be applied to the input, a 3-tuple  for this three-dimensional
-    /// case.
+    /// `kernel_size` - size of the kernel, a 3-tuple  for this three-dimensional case.
     ///
-    /// * `padding_mode` - the padding mode, it can be: **zeros**, **constant**, **reflective** or
+    /// `padding` - padding to be applied to the input, a 3-tuple  for this three-dimensional case.
+    ///
+    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
     /// **replicative**.
     ///
-    /// * `stride` - the stride of the convolution, a 3-tuple  for this three-dimensional case.
+    /// `stride` - stride of the convolution, a 3-tuple  for this three-dimensional case.
     ///
-    /// * `dilation` - controls the spacing between the kernel points, a 3-tuple  for this
+    /// `dilation` - controls the spacing between the kernel points, a 3-tuple  for this
     /// three-dimensional case.
     ///
-    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// `groups` -  controls the connections between inputs and outputs. `in_channels` and
     /// `out_channels` must both be divisible by groups.
     ///
     /// For example:
-    /// * at **groups = 1**, all inputs are convolved to all outputs.
-    /// *  at **groups = 2**, the operation becomes equivalent to having two convolutional layers
+    /// * at `groups = 1`, all inputs are convolved to all outputs.
+    /// *  at `groups = 2`, the operation becomes equivalent to having two convolutional layers
     /// side by side, each seeing half the input channels and producing half the output channels,
     /// and both subsequently concatenated.
-    /// * at **groups = in_channels**, each input channel is convolved with its own set of filters.
+    /// * at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias are initialised from **U(-k, k)** where
+    /// The weight and the bias are initialised from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt()`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -1066,21 +1093,21 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     ///
     /// * `input` - the signal to convolve.
     ///
-    /// The **input** must be of shape **(N, Cin, D, H, W)**
+    /// The **input** must be of shape *(N, Cin, D, H, W)*
     /// * **N** is the batch size
     /// * **Cin** is the number of input channels
     /// * **D** is the **depth** of the input
     /// * **H** is the **height** of the input
     /// * **W** is the **width** of the input
     ///
-    /// The **kernel** must be of shape **(Cout, Cin, Dk,  Hk, Wk)**
+    /// The **kernel** must be of shape *(Cout, Cin, Dk,  Hk, Wk)*
     /// * **Cout** is the number of output channels
     /// * **Cin** is the number of input channels
     /// * **Dk** is the **depth** of the kernel
     /// * **Hk** is the **height** of the kernel
     /// * **Wk** is the **width** of the kernel
     ///
-    /// The resulting output shape will be **(N, Cout, Dout, Hout, Wout)**
+    /// The resulting output shape will be *(N, Cout, Dout, Hout, Wout)*
     pub fn forward<I, T, U>(
         &self,
         input: I,
