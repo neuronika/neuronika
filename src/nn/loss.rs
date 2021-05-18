@@ -208,7 +208,7 @@ where
 }
 
 /// Computes a criterion that measures the **mean squared error** *(squared L2 norm)*
-/// between each element in the `input` **x**  and `target`**y**.
+/// between each element in the `input` **x**  and `target` **y**.
 ///
 /// ```text
 ///        1   n

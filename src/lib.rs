@@ -7,11 +7,9 @@ use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 use variable::node::{Input, InputBackward};
-pub use variable::{Cat, MatMatMul, MatVecMul, Stack, Var, VarDiff, VecMatMul, VecVecMul};
+pub use variable::{Cat, MatMatMul, MatVecMul, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul};
 
-/// Creates an Input node from a **ndarray** array.
-///
-/// # Examples
+/// Creates an Input from a **ndarray** array.
 ///
 /// ```
 /// use ndarray;
@@ -27,11 +25,9 @@ pub fn from_ndarray<D: Dimension>(array: Array<f32, D>) -> Var<Input<D>> {
     Input::new(array)
 }
 
-/// Creates an Input node node with zeroed data.
+/// Creates an Input node with zeroed data.
 ///
 /// The shape is of type `ndarray::ShapeBuilder`.
-///
-/// # Examples
 ///
 /// ```
 /// use neuronika;
@@ -49,11 +45,9 @@ pub fn zeros<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>
     Input::new(Array::from_elem(shape, 0.0))
 }
 
-/// Creates an Input node with data filled with ones.
+/// Creates an Input with data filled with ones.
 ///
 /// The shape is of type `ndarray::ShapeBuilder`.
-///
-/// # Examples
 ///
 /// ```
 /// use neuronika;
@@ -71,11 +65,9 @@ pub fn ones<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
     Input::new(Array::from_elem(shape, 1.0))
 }
 
-/// Creates an Input node with data filled with the `f32` value `el`.
+/// Creates an Input with data filled with the `f32` value `el`.
 ///
 /// The shape is of type `ndarray::ShapeBuilder`.
-///
-/// # Examples
 ///
 /// ```
 /// use neuronika;
@@ -93,14 +85,12 @@ pub fn full<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh, elem: f32) -> Va
     Input::new(Array::from_elem(shape, elem))
 }
 
-/// Returns an Input node with values sampled from a uniform distribution
+/// Creates an Input with values sampled from a uniform distribution
 /// on the interval **[0,1)**.
 ///
 /// The shape is of type `ndarray::ShapeBuilder`.
 ///
-/// # Examples
-///
-/// ```rust
+/// ```
 /// use neuronika;
 /// let t = neuronika::rand([4,5,6]);
 ///
@@ -110,21 +100,14 @@ pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
     Input::new(Array::random(shape, Uniform::new(0., 1.)))
 }
 
-/// Creates an identity matrix of size `n` (a square 2D matrix).
+/// Creates an Input with an identity matrix of size `n` (a square 2D matrix).
 ///
-/// # Panics
+/// **Panics** if `n * n` would overflow `isize`.
 ///
-/// If `n * n` would overflow `isize`.
-///
-/// # Examples
-///
-/// ```rust
+/// ```
 /// use neuronika;
 /// use ndarray::Array2;
 ///
-/// // [[1., 0., 0.],
-/// // [0., 1., 0.],
-/// // [0., 0., 1.]]
 /// let tensor = neuronika::eye(3);
 ///
 /// assert_eq!(*tensor.data(), Array2::eye(3));
@@ -133,17 +116,12 @@ pub fn eye(n: usize) -> Var<Input<Ix2>> {
     Input::new(Array2::eye(n))
 }
 
-/// Create a one-dimensional array with `n` evenly spaced elements from `start` to `end`
+/// Creates a one-dimensional Input with `n` evenly spaced elements from `start` to `end`
 /// (exclusive). The elements must be `f32`.
 ///
+/// **Panics** if the length is greater than `isize::MAX`.
 ///
-/// # Panics
-///
-/// If the length is greater than `isize::MAX`.
-///
-/// # Examples
-///
-/// ```rust
+/// ```
 /// use neuronika;
 /// use ndarray::arr1;
 ///
@@ -154,42 +132,37 @@ pub fn linspace(start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::linspace(start, end, n))
 }
 
-/// Create a one-dimensional array with `n` logarithmically spaced
+/// Creates a one-dimensional Input with `n` logarithmically spaced
 /// elements, with the starting value being `base.powf(start)` and the
 /// final one being `base.powf(end)`. Elements must be `f32`.
 ///
 /// If `base` is negative, all values will be negative.
 ///
-/// # Panics
-//
-/// If `n` is greater than `isize::MAX` or if converting `n - 1`
+/// **panics** if `n` is greater than `isize::MAX` or if converting `n - 1`
 /// to type `f32` fails.
 pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::logspace(base, start, end, n))
 }
 
-/// Create a one-dimensional array with `n` geometrically spaced elements
+/// Create a one-dimensional Input with `n` geometrically spaced elements
 /// from `start` to `end` (inclusive). Elements must be `f32`.
 ///
 /// Returns `None` if `start` and `end` have different signs or if either
 /// one is zero. Conceptually, this means that in order to obtain a `Some`
 /// result, `end / start` must be positive.
 ///
-/// # Panics
-/// If `n` is greater than `isize::MAX` or if converting `n - 1`
+/// **Panics** if `n` is greater than `isize::MAX` or if converting `n - 1`
 /// to type `f32` fails.
 pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
     Array::geomspace(start, end, n).map(Input::new)
 }
 
-/// Create a one-dimensional array with elements from `start` to `end`
+/// Create a one-dimensional Input with elements from `start` to `end`
 /// (exclusive), incrementing by `step`. Elements must be `f32`.
 ///
-/// # Panics
+/// **Panics** if the length is greater than `isize::MAX`.
 ///
-/// If the length is greater than `isize::MAX`.
-///
-/// ```rust
+/// ```
 /// use neuronika;
 /// use ndarray::arr1;
 ///

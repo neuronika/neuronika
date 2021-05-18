@@ -745,7 +745,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     }
 }
 
-// Applies a **spatial grouped convolution** over an input signal composed of several input planes.
+/// Applies a **spatial grouped convolution** over an input signal composed of several input planes.
 pub struct GroupedConv2d<Pad: PaddingMode> {
     padding: (usize, usize),
     padding_mode: Pad,
