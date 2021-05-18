@@ -270,9 +270,9 @@ mod tests {
         assert_eq!(t3.data().shape(), &[1, 2, 3]);
 
         assert!(
-            t1.data().into_iter().all(|el| *el <= f32::EPSILON)
-                && t2.data().into_iter().all(|el| *el <= f32::EPSILON)
-                && t3.data().into_iter().all(|el| *el <= f32::EPSILON)
+            t1.data().iter().all(|el| *el <= f32::EPSILON)
+                && t2.data().iter().all(|el| *el <= f32::EPSILON)
+                && t3.data().iter().all(|el| *el <= f32::EPSILON)
         )
     }
     #[test]
@@ -288,17 +288,9 @@ mod tests {
         assert_eq!(t3.data().shape(), &[1, 2, 3]);
 
         assert!(
-            t1.data()
-                .into_iter()
-                .all(|el| (*el - 1.).abs() <= f32::EPSILON)
-                && t2
-                    .data()
-                    .into_iter()
-                    .all(|el| (*el - 1.).abs() <= f32::EPSILON)
-                && t3
-                    .data()
-                    .into_iter()
-                    .all(|el| (*el - 1.).abs() <= f32::EPSILON)
+            t1.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
+                && t2.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
+                && t3.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
         )
     }
     #[test]
@@ -310,17 +302,9 @@ mod tests {
         let t3 = full([1, 2, 3], 8.);
 
         assert!(
-            t1.data()
-                .into_iter()
-                .all(|el| (*el - 5.).abs() <= f32::EPSILON)
-                && t2
-                    .data()
-                    .into_iter()
-                    .all(|el| (*el - 6.).abs() <= f32::EPSILON)
-                && t3
-                    .data()
-                    .into_iter()
-                    .all(|el| (*el - 8.).abs() <= f32::EPSILON)
+            t1.data().iter().all(|el| (*el - 5.).abs() <= f32::EPSILON)
+                && t2.data().iter().all(|el| (*el - 6.).abs() <= f32::EPSILON)
+                && t3.data().iter().all(|el| (*el - 8.).abs() <= f32::EPSILON)
         )
     }
 

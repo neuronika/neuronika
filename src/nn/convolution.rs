@@ -1684,19 +1684,41 @@ fn unpad<'a, S: Data<Elem = f32> + 'a, D: Dimension + 'a>(
     })
 }
 
-/// Returns a **rolling window view** of the input array.
+/// Computes the shape of a rolling window view.
 ///
 /// # Arguments
 /// * `input` - input array
 /// * `window_shape` - the shape of each of the windows
 /// * `stride` - the stride
 /// * `dilation` - the spacing between each element of the windows
-fn as_windows<'a, D: Dimension, S: Data<Elem = f32>>(
+fn compute_rolling_window_shape<D: Dimension, S: Data<Elem = f32>>(
     input: &ArrayBase<S, D>,
     window_shape: &[usize],
     stride: &[usize],
     dilation: &[usize],
-) -> ArrayView<'a, f32, IxDyn> {
+) -> Vec<usize> {
+    let mut win_indices_shape: D =
+        conv_out_shape_padded(input.shape(), window_shape, stride, dilation);
+    win_indices_shape[1] = 1;
+    win_indices_shape
+        .slice()
+        .iter()
+        .chain(window_shape.iter().skip(1))
+        .cloned()
+        .collect()
+}
+
+/// Computes the strides of a rolling window view.
+///
+/// # Arguments
+/// * `input` - input array
+/// * `stride` - the stride
+/// * `dilation` - the spacing between each element of the windows
+fn compute_rolling_window_strides<D: Dimension, S: Data<Elem = f32>>(
+    input: &ArrayBase<S, D>,
+    stride: &[usize],
+    dilation: &[usize],
+) -> Vec<usize> {
     let indexing_strides: Vec<isize> = {
         let view = input.slice_each_axis(|ax| {
             let axis_index = ax.axis.index();
@@ -1724,22 +1746,37 @@ fn as_windows<'a, D: Dimension, S: Data<Elem = f32>>(
             }
         })
         .collect();
-    let mut win_indices_shape: D =
-        conv_out_shape_padded(input.shape(), window_shape, stride, dilation);
-    win_indices_shape[1] = 1;
-    let new_shape: Vec<usize> = win_indices_shape
-        .slice()
-        .iter()
-        .chain(window_shape.iter().skip(1))
-        .cloned()
-        .collect();
-    let strides: Vec<usize> = indexing_strides
+    indexing_strides
         .iter()
         .chain(window_strides.iter())
         .map(|s| *s as usize)
-        .collect();
+        .collect()
+}
 
-    unsafe { ArrayView::from_shape_ptr(new_shape.strides(strides), input.as_ptr()) }
+/// Returns a **rolling window view** of the input array.
+///
+/// # Arguments
+/// * `input` - input array
+/// * `window_shape` - the shape of each of the windows
+/// * `stride` - the stride
+/// * `dilation` - the spacing between each element of the windows
+fn as_windows<'a, D: Dimension, S: Data<Elem = f32>>(
+    input: &ArrayBase<S, D>,
+    window_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> ArrayView<'a, f32, IxDyn> {
+    let rolling_window_shape: Vec<usize> =
+        compute_rolling_window_shape(input, window_shape, stride, dilation);
+    let rolling_window_strides: Vec<usize> =
+        compute_rolling_window_strides(input, stride, dilation);
+
+    unsafe {
+        ArrayView::from_shape_ptr(
+            rolling_window_shape.strides(rolling_window_strides),
+            input.as_ptr(),
+        )
+    }
 }
 
 /// Returns a **mutable rolling window view** of the input array.
@@ -1755,49 +1792,17 @@ fn as_windows_mut<'a, D: Dimension, S: DataMut<Elem = f32>>(
     stride: &[usize],
     dilation: &[usize],
 ) -> ArrayViewMut<'a, f32, IxDyn> {
-    let indexing_strides: Vec<isize> = {
-        let view = input.slice_each_axis(|ax| {
-            let axis_index = ax.axis.index();
-            if axis_index == 0 || axis_index == 1 {
-                Slice::new(0, None, 1) // Batch stride and channel stride
-            } else {
-                Slice::new(0, None, stride[ax.axis.index() - 2] as isize)
-            }
-        });
-        let view_strides: &[isize] = view.strides();
-        view_strides.to_vec()
-    };
-    // Number of in channels doesn't count for the window's strides,
-    // it must be left unchanged.
-    let window_strides: Vec<isize> = input
-        .strides()
-        .iter()
-        .skip(1) // Skip out channels
-        .enumerate()
-        .map(|(i, is)| {
-            if i < 1 {
-                *is
-            } else {
-                *is * (dilation[i - 1] as isize)
-            }
-        })
-        .collect();
-    let mut win_indices_shape: D =
-        conv_out_shape_padded(input.shape(), window_shape, stride, dilation);
-    win_indices_shape[1] = 1;
-    let new_shape: Vec<usize> = win_indices_shape
-        .slice()
-        .iter()
-        .chain(window_shape.iter().skip(1))
-        .cloned()
-        .collect();
-    let strides: Vec<usize> = indexing_strides
-        .iter()
-        .chain(window_strides.iter())
-        .map(|s| *s as usize)
-        .collect();
+    let rolling_window_shape: Vec<usize> =
+        compute_rolling_window_shape(input, window_shape, stride, dilation);
+    let rolling_window_strides: Vec<usize> =
+        compute_rolling_window_strides(input, stride, dilation);
 
-    unsafe { ArrayViewMut::from_shape_ptr(new_shape.strides(strides), input.as_mut_ptr()) }
+    unsafe {
+        ArrayViewMut::from_shape_ptr(
+            rolling_window_shape.strides(rolling_window_strides),
+            input.as_mut_ptr(),
+        )
+    }
 }
 
 /// Computes **sig2col**, **im2col** and **vol2col**.
@@ -1934,6 +1939,8 @@ type GroupedBackwardArgs<'a, D> = (
     AxisChunksIter<'a, f32, D>,
 );
 
+/// Iterators needed for the **backward pass** of a grouped convolution where the kernel
+/// is the only differentiable variable.
 type GroupedBackwardArgsUnary<'a, D> = (
     AxisChunksIterMut<'a, f32, D>,
     AxisChunksIter<'a, f32, D>,
