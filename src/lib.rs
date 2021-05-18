@@ -6,11 +6,8 @@ pub use ndarray;
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
-use variable::{
-    node::{Input, InputBackward},
-    Var,
-};
-pub use variable::{Cat, MatMatMul, MatVecMul, Stack, VecMatMul, VecVecMul};
+use variable::node::{Input, InputBackward};
+pub use variable::{Cat, MatMatMul, MatVecMul, Stack, Var, VarDiff, VecMatMul, VecVecMul};
 
 /// Creates an Input node from a **ndarray** array.
 ///
