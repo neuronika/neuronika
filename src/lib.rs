@@ -2,44 +2,15 @@ pub mod data;
 pub mod nn;
 pub mod optim;
 mod variable;
-pub use ndarray::{self, Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
-pub use ndarray_rand::rand_distr::Uniform;
-pub use ndarray_rand::RandomExt;
-pub use variable::{
+pub use ndarray;
+use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
+use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::RandomExt;
+use variable::{
     node::{Input, InputBackward},
-    Cat, MatMatMul, MatVecMul, Stack, Var, VarDiff, VecMatMul, VecVecMul,
+    Var,
 };
-
-/// Creates an Input node with one, two or three dimensions.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-/// let t1 = neuronika::tensor!([1., 2., 3., 4.]);
-///
-/// let t2 = neuronika::tensor!([[1., 2.],
-///                             [3., 4.]]);
-///
-/// let t3 = neuronika::tensor!([[[1., 2.], [3., 4.]],
-///                             [[5., 6.], [7., 8.]]]);
-///
-/// assert_eq!(t1.data().shape(), &[4]);
-/// assert_eq!(t2.data().shape(), &[2, 2]);
-/// assert_eq!(t3.data().shape(), &[2, 2, 2]);
-/// ```
-#[macro_export]
-macro_rules! tensor {
-    ([$([$([$($x:expr),* $(,)*]),+ $(,)*]),+ $(,)*]) => {{
-        $crate::Input::new($crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]))
-    }};
-    ([$([$($x:expr),* $(,)*]),+ $(,)*]) => {{
-        $crate::Input::new($crate::ndarray::Array2::from(vec![$([$($x,)*],)*]))
-    }};
-    ([$($x:expr),* $(,)*]) => {{
-        $crate::Input::new($crate::ndarray::Array1::from(vec![$($x,)*]))
-    }};
-}
+pub use variable::{Cat, MatMatMul, MatVecMul, Stack, VecMatMul, VecVecMul};
 
 /// Creates an Input node from a **ndarray** array.
 ///
@@ -235,18 +206,6 @@ pub fn range(start: f32, end: f32, step: f32) -> Var<Input<Ix1>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn tensor_test() {
-        use super::*;
-
-        let t1 = tensor!([1., 2., 3., 4.]);
-        let t2 = tensor!([[1., 2.], [3., 4.]]);
-        let t3 = tensor!([[[1., 2.], [3., 4.]], [[5., 6.], [7., 8.]]]);
-
-        assert_eq!(t1.data().shape(), &[4]);
-        assert_eq!(t2.data().shape(), &[2, 2]);
-        assert_eq!(t3.data().shape(), &[2, 2, 2]);
-    }
 
     #[test]
     fn from_ndarray_test() {

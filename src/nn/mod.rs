@@ -186,9 +186,11 @@ pub mod init {
 pub mod convolution;
 pub mod loss;
 
-/// Applies a linear transformation to the incoming data.
+/// Applies a **linear transformation** to the incoming data.
 ///
-/// **y = xA^T + b**
+/// ```text
+/// ʏ = xAᵀ + b
+/// ```
 pub struct Linear {
     pub weight: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
     pub bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
