@@ -2,7 +2,6 @@ pub mod data;
 pub mod nn;
 pub mod optim;
 mod variable;
-pub use ndarray;
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
@@ -144,7 +143,7 @@ pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::logspace(base, start, end, n))
 }
 
-/// Create a one-dimensional Input with `n` geometrically spaced elements
+/// Creates a one-dimensional Input with `n` geometrically spaced elements
 /// from `start` to `end` (inclusive). Elements must be `f32`.
 ///
 /// Returns `None` if `start` and `end` have different signs or if either
@@ -157,7 +156,7 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
     Array::geomspace(start, end, n).map(Input::new)
 }
 
-/// Create a one-dimensional Input with elements from `start` to `end`
+/// Creates a one-dimensional Input with elements from `start` to `end`
 /// (exclusive), incrementing by `step`. Elements must be `f32`.
 ///
 /// **Panics** if the length is greater than `isize::MAX`.
@@ -175,8 +174,6 @@ pub fn range(start: f32, end: f32, step: f32) -> Var<Input<Ix1>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn from_ndarray_test() {
         use super::*;
