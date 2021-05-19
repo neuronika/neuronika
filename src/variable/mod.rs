@@ -158,6 +158,9 @@ impl DiffVarHistory {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Param Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// A builder of mutable views over a differentiable variable's data and gradient.
+///
+/// See also [`VarDiff::parameters()`] for more informations.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Param {
     data: *mut f32,
@@ -170,6 +173,11 @@ impl Param {
         Self { data, grad, shape }
     }
 
+    /// Consumes the Param, yelding mutable views over the data and the gradient of the
+    /// differentiable variable that it refers to. The lifetime `'a` is for the
+    /// scope of the borrow.
+    ///
+    /// The views are [`ndarray::ArrayViewMutD`].
     pub fn get<'a>(self) -> (ArrayViewMutD<'a, f32>, ArrayViewMutD<'a, f32>) {
         unsafe {
             (
@@ -331,6 +339,16 @@ pub(crate) fn expect_tensor_mut<D: Dimension>(
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Non differentiable Variable ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// A non-differentiable variable.
+///
+/// This, together with its differentiable counterpart [`VarDiff`] is the main building block of
+/// every computation.
+///
+/// Conceptually, it can be thought of as a [`ndarray::Array`] for which the computations are
+/// automatically kept track of.
+///
+/// It is important to note that cloning is extremely memory efficient as only a shallow copy is
+/// returned. Cloning a variable is thus the way to go if it must be used multiple times.
 pub struct Var<T: Data + 'static> {
     pub(crate) node: Rc<T>,
     pub(crate) past: VarHistory,
@@ -346,16 +364,45 @@ impl<T: Data + 'static> Clone for Var<T> {
 }
 
 impl<D: Dimension> Var<Input<D>> {
-    /// Turns `self` into a differentiable variable. A subsequent call to `backward()` will
-    /// compute its gradient.
+    /// Promotes `self` to a differentiable variable. A subsequent call to [`VarDiff::backward()`]
+    /// will compute its gradient. One should take care of ensuring that `self` is a children-free
+    /// leaf, otherwise the promotion will fail.
     ///
-    /// **panics** if `self` is not a leaf of the graph.
+    /// # Examples
+    ///
+    /// In the following case the promotion to `VarDiff` will succeed. This is also the preferred
+    /// usage.
+    ///
+    ///```
+    /// use neuronika;
+    ///
+    /// let x = neuronika::ones(5).requires_grad();
+    ///```
+    ///
+    /// In this other scenario, however, it will fail.
+    ///
+    ///```should_panic
+    /// use neuronika;
+    ///
+    /// let x = neuronika::ones(5);
+    /// let y = x.clone() + neuronika::ones(1);
+    ///
+    /// let z = x.requires_grad();
+    ///```
+    /// # Panics
+    ///
+    /// If `self` is not a child-free leaf of the computational graph.
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
         debug_assert_eq!(self.past.is_empty(), true);
 
-        if Rc::strong_count(&self.node) > 2 {
-            panic!("error: cannot make the Input differentiable as it is not a leaf.")
+        let children = Rc::strong_count(&self.node) - 1;
+        if children > 0 {
+            panic!(
+                "error: cannot make the variable differentiable as it has {} childern.",
+                children
+            )
         }
+
         let node = Rc::new(self.node.differentiable());
         let mut gradient = node.gradient_mut();
         let mut parameters = HashSet::new();
@@ -374,6 +421,8 @@ impl<D: Dimension> Var<Input<D>> {
 }
 
 impl<T: Data + Forward + 'static> Var<T> {
+    /// Propagates the computations forwards and populates all the variables and differetiable
+    /// variables from the leaves of the graph to `self`.
     pub fn forward(&mut self) {
         if self.node.was_computed() {
             // If the user has already called `.forward()` on this var,
@@ -417,6 +466,8 @@ impl<T: Data + Forward + 'static> Var<T> {
 
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in training mode.
+    ///    
+    /// See also [`Var::dropout()`].
     pub fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -427,6 +478,8 @@ impl<T: Data + Forward + 'static> Var<T> {
 
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in evaluation mode.
+    ///    
+    /// See also [`Var::dropout()`].
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -470,7 +523,7 @@ impl<T: Data + 'static> Var<T> {
         Var::from(Power::new(self.node, exp), self.past)
     }
 
-    /// Applies the *rectified linear unit function* element-wise and returns a tensor with the
+    /// Applies the *rectified linear unit* element-wise and returns a tensor with the
     /// result.
     ///
     /// *ReLU(x) = max(0, x)*
@@ -478,7 +531,7 @@ impl<T: Data + 'static> Var<T> {
         Var::from(ReLU::new(self.node), self.past)
     }
 
-    /// Applies the *leaky rectified linear unit function* element-wise and returns a tensor with
+    /// Applies the *leaky rectified linear unit* element-wise and returns a tensor with
     /// the result.
     ///
     /// *LeakyReLU(x) = max(0, x) + 0.01 * min(0, x)*
@@ -486,17 +539,17 @@ impl<T: Data + 'static> Var<T> {
         Var::from(LeakyReLU::new(self.node), self.past)
     }
 
-    /// Applies the *softplus function* element-wise and returns a tensor with the result.
+    /// Applies the *softplus* element-wise and returns a tensor with the result.
     pub fn softplus(self) -> Var<SoftPlus<T>> {
         Var::from(SoftPlus::new(self.node), self.past)
     }
 
-    /// Applies the *sigmoid function* element-wise and returns a tensor with the result.
+    /// Applies the *sigmoid* element-wise and returns a tensor with the result.
     pub fn sigmoid(self) -> Var<Sigmoid<T>> {
         Var::from(Sigmoid::new(self.node), self.past)
     }
 
-    /// Applies the *tanh function* element-wise and returns a tensor with the result.
+    /// Applies the *tanh* element-wise and returns a tensor with the result.
     pub fn tanh(self) -> Var<TanH<T>> {
         Var::from(TanH::new(self.node), self.past)
     }
@@ -511,12 +564,12 @@ impl<T: Data + 'static> Var<T> {
         Var::from(Exp::new(self.node), self.past)
     }
 
-    /// Applies the *softmax function* element-wise and returns a tensor with the result.
+    /// Applies the *softmax* to `self` and returns a tensor with the result.
     pub fn softmax(self, axis: usize) -> Var<Softmax<T>> {
         Var::from(Softmax::new(self.node, axis), self.past)
     }
 
-    /// Applies the *log-softmax function* element-wise and returns a tensor with the result.
+    /// Applies the *log-softmax* to `self` and returns a tensor with the result.
     pub fn log_softmax(self, axis: usize) -> Var<LogSoftmax<T>> {
         Var::from(LogSoftmax::new(self.node, axis), self.past)
     }
@@ -573,8 +626,6 @@ where
 }
 
 impl<T: Data + Forward + 'static> ChangeBehaviour for Var<T> {
-    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
-    /// in training mode.
     fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -583,8 +634,6 @@ impl<T: Data + Forward + 'static> ChangeBehaviour for Var<T> {
         }
     }
 
-    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
-    /// in evaluation mode.
     fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -608,6 +657,24 @@ impl<T: Data + Forward + ChangeBehaviour> Var<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Differentiable Variable ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// A differentiable variable.
+///
+/// Differentiable variables can be created in the **two** following ways described hereafter:
+///
+/// 1. By calling `requires_grad()` on a non-differentiable leaf. Do note that care must be taken
+/// to ensure that the leaf has no childern in the computational graph, otherwise this operation
+/// will fail.
+///
+/// 2. By performing any binary operation between a [`Var`] and a [`VarDiff`]. Differentiability
+/// is thus a *contagious* property, that is, if during a computation a `VarDiff` is used, the
+/// result of the computation itself, and that of any other subsequent computations performed on
+/// it, will also be differentiable.
+///
+/// See also [`Var::requires_grad`].
+///
+/// It is important to note that cloning is extremely memory efficient as only a shallow copy is
+/// returned. Cloning a differentiable variable is thus the way to go if it must be used multiple
+/// times.
 pub struct VarDiff<T, U>
 where
     T: Data + 'static,
@@ -690,6 +757,8 @@ where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + Backward + 'static,
 {
+    /// Propagates the computations forwards and populates all the variables and differetiable
+    /// variables from the leaves of the graph to `self`.   
     pub fn forward(&mut self) {
         self.var.forward();
 
@@ -704,6 +773,8 @@ where
         }
     }
 
+    /// Back-propagates through the computational graph and populates the gradients of the
+    /// differentiable leaves.
     pub fn backward(&mut self, seed: f32) {
         debug_assert_eq!(self.past.is_empty(), false);
 
@@ -742,6 +813,30 @@ where
             node.with_grad();
         }
     }
+
+    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
+    /// in training mode.
+    ///    
+    /// See also [`VarDiff::dropout()`].
+    pub fn train(&self) {
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).train();
+            }
+        }
+    }
+
+    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
+    /// in evaluation mode.
+    ///    
+    /// See also [`VarDiff::dropout()`].
+    pub fn eval(&self) {
+        for changeable in &self.past.changeables {
+            unsafe {
+                (&**changeable).eval();
+            }
+        }
+    }
 }
 
 impl<T, U> VarDiff<T, U>
@@ -749,7 +844,32 @@ where
     T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
 {
-    /// Returns a vector containing all the differentiable ancestors of `self`.
+    /// Returns a vector of [`Param`] referencing all the differentiable leaves that are ancestors
+    /// of the variable.
+    ///
+    /// If directly called on a differentiable leaf the resulting vector will include `self` only.
+    ///
+    /// Ancestors that appear multiple times in the computation of the variable are listed only
+    /// once. Thus, the parameters of a differentiable variable *z* resulting from a binary
+    /// operation involving two other differentiable variables *x* and *y* will be the set union
+    /// of the parameters of *x* and *y*. This can be extended to the general case.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use neuronika;
+    ///
+    /// let x = neuronika::rand((3,3)).requires_grad() + neuronika::rand((3,3)).requires_grad();
+    /// let y = neuronika::rand(3).requires_grad() + neuronika::rand(1).requires_grad();
+    ///
+    /// assert!(x.parameters().len() == y.parameters().len() && y.parameters().len() == 2);
+    ///
+    /// let z = x.clone() + y;
+    /// assert_eq!(z.parameters().len(), 4);
+    ///
+    /// let w = z + x;
+    /// assert_eq!(w.parameters().len(), 4);
+    /// ```
     pub fn parameters(&self) -> Vec<Param> {
         self.past.parameters.iter().cloned().collect()
     }
@@ -767,7 +887,7 @@ where
         VarDiff::from(node, self.past, self.var.pow(exp))
     }
 
-    /// Applies the *rectified linear unit function* element-wise and returns a tensor with the
+    /// Applies the *rectified linear unit* element-wise and returns a tensor with the
     /// result.
     ///
     /// *ReLU(x) = max(0, x)*
@@ -776,7 +896,7 @@ where
         VarDiff::from(node, self.past, self.var.relu())
     }
 
-    /// Applies the *leaky rectified linear unit function* element-wise and returns a tensor with
+    /// Applies the *leaky rectified linear unit* element-wise and returns a tensor with
     /// the result.
     ///
     /// *LeakyReLU(x) = max(0, x) + 0.01 * min(0, x)*
@@ -785,20 +905,20 @@ where
         VarDiff::from(node, self.past, self.var.leaky_relu())
     }
 
-    /// Applies the *softplus function* element-wise and returns a tensor with the result.
+    /// Applies the *softplus* element-wise and returns a tensor with the result.
     pub fn softplus(self) -> VarDiff<SoftPlus<T>, SoftPlusBackward<U, T>> {
         let node = SoftPlusBackward::new(self.node, self.var.node.clone());
         VarDiff::from(node, self.past, self.var.softplus())
     }
 
-    /// Applies the *sigmoid function* element-wise and returns a tensor with the result.
+    /// Applies the *sigmoid* element-wise and returns a tensor with the result.
     pub fn sigmoid(self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, Sigmoid<T>>> {
         let var = self.var.sigmoid();
         let node = SigmoidBackward::new(self.node, var.node.clone());
         VarDiff::from(node, self.past, var)
     }
 
-    /// Applies the *tanh function* element-wise and returns a tensor with the result.
+    /// Applies the *tanh* element-wise and returns a tensor with the result.
     pub fn tanh(self) -> VarDiff<TanH<T>, TanHBackward<U, TanH<T>>> {
         let var = self.var.tanh();
         let node = TanHBackward::new(self.node, var.node.clone());
@@ -818,14 +938,14 @@ where
         VarDiff::from(node, self.past, var)
     }
 
-    /// Applies the *softmax function* element-wise and returns a tensor with the result.
+    /// Applies the *softmax* to `self` and returns a tensor with the result.
     pub fn softmax(self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, Softmax<T>>> {
         let var = self.var.softmax(axis);
         let node = SoftmaxBackward::new(self.node, var.node.clone(), axis);
         VarDiff::from(node, self.past, var)
     }
 
-    /// Applies the *log-softmax function* element-wise and returns a tensor with the result.
+    /// Applies the *log-softmax* to `self` and returns a tensor with the result.
     pub fn log_softmax(
         self,
         axis: usize,
@@ -891,8 +1011,6 @@ where
     T: Data + Forward + 'static,
     U: Gradient + Overwrite + Backward + 'static,
 {
-    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
-    /// in training mode.
     fn train(&self) {
         self.var.train();
 
@@ -902,9 +1020,6 @@ where
             }
         }
     }
-
-    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
-    /// in evaluation mode.
     fn eval(&self) {
         self.var.eval();
 
