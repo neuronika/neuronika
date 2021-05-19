@@ -2311,12 +2311,15 @@ pub trait ReplPad: Dimension {
         padding: &[usize],
     );
 }
-/// Pads an **n**-dimensional Array with a constant value.
+/// Pads the input array with a constant value.
 ///
 /// # Arguments
-/// * `input` - the array to be padded
-/// * `padding` - a slice specifying for each dimension the amount of padding for each dimension
-/// * `value` - the value for the padding
+///
+/// `input` - the array to be padded.
+///
+/// `padding` - a slice specifying for each dimension the amount of padding for each dimension.
+///
+/// `value` - the value for the padding.
 ///
 /// # Examples
 ///
@@ -2328,7 +2331,7 @@ pub trait ReplPad: Dimension {
 ///    [4., 5., 6.],
 ///    [7., 8., 9.]
 /// ];
-/// let padded = nn::convolution::constant_pad(&arr, &[1, 1], 0.);
+/// let padded = nn::constant_pad(&arr, &[1, 1], 0.);
 /// let result = ndarray::array![
 ///    [0., 0., 0., 0., 0.],
 ///    [0., 1., 2., 3., 0.],
@@ -2339,7 +2342,7 @@ pub trait ReplPad: Dimension {
 ///
 /// assert_eq!(padded, result);
 /// ```
-fn constant_pad<S, D>(input: &ArrayBase<S, D>, padding: &[usize], val: f32) -> Array<f32, D>
+pub fn constant_pad<S, D>(input: &ArrayBase<S, D>, padding: &[usize], val: f32) -> Array<f32, D>
 where
     D: Dimension,
     S: DataMut<Elem = f32>,
@@ -2358,7 +2361,7 @@ where
     padded
 }
 
-/// Pads an **n**-dimensional Array with a constant value. The operation is done inplace.
+/// Pads the input array with a constant value. The operation is done inplace.
 fn constant_pad_inplace<S, T, D>(
     input: &mut ArrayBase<S, D>,
     original: &ArrayBase<T, D>,
@@ -2390,8 +2393,10 @@ fn constant_pad_inplace<S, T, D>(
 /// Only **1**, **2** and **3** dimensional arrays support reflective padding.
 ///
 /// # Arguments
-/// * `input` - the array to be padded
-/// * `padding` - a slice specifying for each dimension the amount of padding
+///
+/// `input` - the array to be padded.
+///
+/// `padding` - a slice specifying for each dimension the amount of padding.
 ///
 /// # Examples
 ///
@@ -2403,7 +2408,7 @@ fn constant_pad_inplace<S, T, D>(
 ///    [4., 5., 6.],
 ///    [7., 8., 9.]
 /// ];
-/// let padded = nn::convolution::reflection_pad(&arr, &[1, 1]);
+/// let padded = nn::reflection_pad(&arr, &[1, 1]);
 /// let result = ndarray::array![
 ///    [5., 4., 5., 6., 5.],
 ///    [2., 1., 2., 3., 2.],
@@ -2414,7 +2419,7 @@ fn constant_pad_inplace<S, T, D>(
 ///
 /// assert_eq!(padded, result);
 /// ```
-fn reflection_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
+pub fn reflection_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
 where
     D: ReflPad,
 {
@@ -2426,8 +2431,10 @@ where
 /// Only **1**, **2** and **3** dimensional arrays support replicative padding.
 ///
 /// # Arguments
-/// * `input` - the array to be padded
-/// * `padding` - a slice specifying for each dimension the amount of padding
+///
+/// `input` - the array to be padded.
+///
+/// `padding` - a slice specifying for each dimension the amount of padding.
 ///
 /// # Examples
 ///
@@ -2439,7 +2446,7 @@ where
 ///    [4., 5., 6.],
 ///    [7., 8., 9.]
 /// ];
-/// let padded = nn::convolution::replication_pad(&arr, &[1, 1]);
+/// let padded = nn::replication_pad(&arr, &[1, 1]);
 /// let result = ndarray::array![
 ///    [1., 1., 2., 3., 3.],
 ///    [1., 1., 2., 3., 3.],
@@ -2450,7 +2457,7 @@ where
 ///
 /// assert_eq!(padded, result);
 /// ```
-fn replication_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
+pub fn replication_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
 where
     D: ReplPad,
 {

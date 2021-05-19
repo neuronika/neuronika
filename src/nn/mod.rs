@@ -6,6 +6,7 @@ use crate::variable::{
     node::{Backward, Data, Forward, Gradient, Overwrite},
     MatMatMulT, Tensor, Var, VarDiff,
 };
+pub use convolution::{constant_pad, reflection_pad, replication_pad};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
