@@ -1,8 +1,8 @@
 pub mod node;
 
 use ndarray::{
-    Array, ArrayD, ArrayViewMutD, DimMax, Dimension, IntoDimension, Ix, Ix1, Ix2, RawArrayViewMut,
-    RemoveAxis,
+    Array, ArrayD, ArrayView, ArrayViewMutD, DimMax, Dimension, IntoDimension, Ix, Ix1, Ix2,
+    RawArrayViewMut, RemoveAxis,
 };
 use node::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, ChangeBehaviour, Chunk,
@@ -40,6 +40,7 @@ pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type DynTensor = ArrayD<f32>;
 pub(crate) type Tensor<D> = Array<f32, D>;
+pub(crate) type TensorView<'a, D> = ArrayView<'a, f32, D>;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Global Var Identifier ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
