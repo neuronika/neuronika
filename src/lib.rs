@@ -123,7 +123,7 @@ pub fn eye(n: usize) -> Var<Input<Ix2>> {
 }
 
 /// Creates a one-dimensional variable with `n` evenly spaced elements from `start` to `end`
-/// (exclusive). The elements must be `f32`'s.
+/// (exclusive).
 ///
 /// # Panics
 ///
@@ -143,8 +143,7 @@ pub fn linspace(start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
 }
 
 /// Creates a one-dimensional variable with `n` logarithmically spaced elements, with the starting
-/// value being `base.powf(start)` and the final one being `base.powf(end)`. The elements must be
-/// `f32`'s.
+/// value being `base.powf(start)` and the final one being `base.powf(end)`.
 ///
 /// If `base` is negative, all values will be negative.
 ///
@@ -156,7 +155,7 @@ pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
 }
 
 /// Creates a one-dimensional variable with `n` geometrically spaced elements from `start` to `end`
-/// (inclusive). The elements must be `f32`'s.
+/// (inclusive).
 ///
 /// Returns `None` if `start` and `end` have different signs or if either one is zero. Conceptually,
 /// this means that in order to obtain a `Some` result, `end / start` must be positive.
@@ -169,7 +168,7 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
 }
 
 /// Creates a one-dimensional variable with elements from `start` to `end` (exclusive),
-/// incrementing by `step`. The elements must be `f32`'s.
+/// incrementing by `step`.
 ///
 /// # Panics
 ///
