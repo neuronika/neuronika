@@ -161,7 +161,9 @@ impl DiffVarHistory {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// A builder of mutable views over a differentiable variable's data and gradient.
 ///
-/// See also [`VarDiff::parameters()`] for more informations.
+/// See also [`parameters()`] for more informations.
+///
+/// [`parameters()`]: VarDiff::parameters()
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Param {
     data: *mut f32,
@@ -178,7 +180,9 @@ impl Param {
     /// differentiable variable that it refers to. The lifetime `'a` is for the
     /// scope of the borrow.
     ///
-    /// The views are [`ndarray::ArrayViewMutD`].
+    /// The views are [`ArrayViewMutD`].
+    ///
+    /// [`ArrayViewMutD`]: ndarray::ArrayViewMutD
     pub fn get<'a>(self) -> (ArrayViewMutD<'a, f32>, ArrayViewMutD<'a, f32>) {
         unsafe {
             (
@@ -379,8 +383,10 @@ impl<T: Data + 'static> Clone for Var<T> {
 }
 
 impl<D: Dimension> Var<Input<D>> {
-    /// Promotes `self` to a differentiable variable. A subsequent call to [`VarDiff::backward()`]
+    /// Promotes `self` to a differentiable variable. A subsequent call to [`backward()`]
     /// will compute its gradient.
+    ///
+    /// [`backward()`]: VarDiff::backward()
     ///
     /// # Examples
     ///
@@ -473,7 +479,9 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in training mode.
     ///    
-    /// See also [`Var::dropout()`].
+    /// See also [`dropout()`].
+    ///
+    ///  [`dropout()`]: Var::dropout()    
     pub fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -485,7 +493,9 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in evaluation mode.
     ///    
-    /// See also [`Var::dropout()`].
+    /// See also [`dropout()`].
+    ///
+    ///  [`dropout()`]: Var::dropout()   
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -624,7 +634,7 @@ where
     T: Data + 'static,
     T::Dim: RemoveAxis,
 {
-    /// Returns a new tensor with a dimension of size one inserted at the position specified by
+    /// Returns a new variable with a dimension of size one inserted at the position specified by
     /// `axis`.
     pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
         Var::from(Unsqueeze::new(self.node, axis), self.past)
@@ -649,9 +659,11 @@ impl<T: Data + Forward + ChangeBehaviour> Var<T> {
 ///
 /// Differentiable variables can be created in the **two** following ways described hereafter:
 ///
-/// 1. By calling `requires_grad()` on a non-differentiable leaf. See also [`Var::requires_grad`].
+/// 1. By calling [`requires_grad()`] on a non-differentiable leaf.
 ///
-/// 2. By performing any binary operation between a [`Var`] and a [`VarDiff`]. Differentiability
+/// [`requires_grad()`]: Var::requires_grad()
+///
+/// 2. By performing any binary operation between a [`Var`] and a `VarDiff`. Differentiability
 /// is thus a *contagious* property, that is, if during a computation a `VarDiff` is used, the
 /// result of the computation itself, and that of any other subsequent computations performed on
 /// it, will also be differentiable. As an obvious consequence, the results of operations
@@ -766,7 +778,9 @@ where
     /// [chain rule](https://en.wikipedia.org/wiki/Chain_rule).
     ///
     /// The leaves whose gradients are populated by this method are also those referred by the
-    /// vector of [`Param`] returned by [`VarDiff::parameters()`].
+    /// vector of [`Param`] returned by [`parameters()`].
+    ///
+    ///  [`parameters()`]: VarDiff::parameters()
     pub fn backward(&mut self, seed: f32) {
         debug_assert_eq!(self.past.is_empty(), false);
 
@@ -809,7 +823,9 @@ where
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// and differentiable variables in training mode.
     ///    
-    /// See also [`VarDiff::dropout()`].
+    /// See also [`dropout()`].
+    ///
+    ///  [`dropout()`]: VarDiff::dropout()
     pub fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -821,7 +837,9 @@ where
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// and differentiable variables in evaluation mode.
     ///    
-    /// See also [`VarDiff::dropout()`].
+    /// See also [`dropout()`].
+    ///
+    ///  [`dropout()`]: VarDiff::dropout()
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -839,7 +857,8 @@ where
     /// Returns a vector of [`Param`] referencing all the differentiable leaves that are ancestors
     /// of the variable.
     ///
-    /// If directly called on a differentiable leaf the resulting vector will include `self` only.
+    /// If directly called on a differentiable leaf the resulting vector will include only a single
+    /// `Param` referencing `self`.
     ///
     /// Ancestors that appear multiple times in the computation of the variable are listed only
     /// once. Thus, the parameters of a differentiable variable *z* resulting from a binary
@@ -1024,8 +1043,8 @@ where
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: RemoveAxis,
 {
-    /// Returns a new tensor with a dimension of size one inserted at the position specified by
-    /// `axis`.
+    /// Returns a new differentiable variable with a dimension of size one inserted at the position
+    /// specified by `axis`.
     pub fn unsqueeze(self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
         VarDiff::from(
             UnsqueezeBackward::new(self.node, axis),

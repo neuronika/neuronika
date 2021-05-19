@@ -6,7 +6,9 @@ use crate::variable::{
     node::{Backward, Data, Forward, Gradient, Overwrite},
     MatMatMulT, Tensor, Var, VarDiff,
 };
-pub use convolution::{constant_pad, reflection_pad, replication_pad};
+pub use convolution::{
+    constant_pad, reflection_pad, replication_pad, Constant, Reflective, Replicative, Zero,
+};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -455,8 +457,8 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     ///
     /// `padding` - padding to be applied to the input, a number for this one-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
-    /// **replicative**.
+    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// [`Replicative`].
     ///
     /// `stride` - stride of the convolution, a number for this one-dimensional case.
     ///
@@ -557,8 +559,8 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     ///
     /// `padding` - padding to be applied to the input, a number for this one-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
-    /// **replicative**.
+    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// [`Replicative`].
     ///
     /// `stride` - stride of the convolution, a number for this one-dimensional case.
     ///
@@ -675,8 +677,8 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     ///
     /// `padding` - padding to be applied to the input, a 2-tuple for this two-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
-    /// **replicative**.
+    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// [`Replicative`].
     ///
     /// `stride` - stride of the convolution, a 2-tuple for this two-dimensional case.
     ///
@@ -788,8 +790,8 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     ///
     /// `padding` - padding to be applied to the input, a 2-tuple  for this two-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
-    /// **replicative**.
+    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// [`Replicative`].
     ///
     /// `stride` - stride of the convolution, a 2-tuple  for this two-dimensional case.
     ///
@@ -914,8 +916,8 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     ///
     /// `padding` - padding to be applied to the input, a 3-tuple for this three-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
-    /// **replicative**.
+    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// [`Replicative`].
     ///
     /// `stride` - stride of the convolution, a 3-tuple for this three-dimensional case.
     ///
@@ -1031,8 +1033,8 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     ///
     /// `padding` - padding to be applied to the input, a 3-tuple  for this three-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: **zeros**, **constant**, **reflective** or
-    /// **replicative**.
+    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// [`Replicative`].
     ///
     /// `stride` - stride of the convolution, a 3-tuple  for this three-dimensional case.
     ///

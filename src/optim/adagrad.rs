@@ -22,10 +22,14 @@ impl<'a, T> Adagrad<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - `Vec` of parameters to optimize.
+    /// `params` - vector of [`Param`] to optimize.
+    ///
     /// `lr` - learning rate.
+    ///
     /// `lr_decay` - the learning rate decay.
+    ///
     /// `penalty` - penalty regularization.
+    ///
     /// `eps` - small constant for numerical stability. A good default value is *1e-10*.
     pub fn new(params: Vec<Param>, lr: f32, lr_decay: f32, penalty: T, eps: f32) -> Self {
         let params = {

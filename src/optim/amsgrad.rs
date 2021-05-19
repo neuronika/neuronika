@@ -6,7 +6,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AMSGrad ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-///  The **AMSGrad** optimizer.
+/// The **AMSGrad** optimizer.
 ///
 /// It is a variant of the *Adam* algorithm from the paper
 /// [On the Convergence of Adam and Beyond](https://openreview.net/forum?id=ryQu7f-RZ).
@@ -24,11 +24,15 @@ impl<'a, T> AMSGrad<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - `Vec` of parameters to optimize.
+    /// `params` - vector of [`Param`] to optimize.
+    ///
     /// `lr` - learning rate.
+    ///
     /// `betas` - a `tuple` of coefficients used for computing running averages of the gradient
     /// and its square. Good default is: *(0.9, 0.999)*.
+    ///
     /// `penalty` - penalty regularization.
+    ///
     /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, penalty: T, betas: (f32, f32), eps: f32) -> Self {
         let params = {
