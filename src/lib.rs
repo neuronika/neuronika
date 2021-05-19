@@ -169,7 +169,7 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
 }
 
 /// Creates a one-dimensional variable with elements from `start` to `end` (exclusive),
-/// incrementing by `step`. Elements must be `f32`'s.
+/// incrementing by `step`. The elements must be `f32`'s.
 ///
 /// # Panics
 ///
