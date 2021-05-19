@@ -207,8 +207,8 @@ where
     }
 }
 
-/// Computes a criterion that measures the **mean squared error** *(squared L2 norm)*
-/// between each element in the input x  and target y.
+/// Computes the **mean squared error** *(squared L2 norm)* between each element in the input x
+/// and target y.
 ///
 /// ```text
 ///        1   n
@@ -454,8 +454,7 @@ where
     }
 }
 
-/// Computes a criterion that measures the **mean absolute error** *(MAE)* between
-/// each element in the input x and target y.
+/// Computes the **mean absolute error** *(MAE)* between each element in the input x and target y.
 ///
 /// ```text
 ///        1   n
@@ -702,8 +701,7 @@ where
     }
 }
 
-/// Computes a criterion that measures the **binary cross entropy** between
-/// the target y and input x.
+/// Computes the **binary cross entropy** between the target y and input x.
 ///
 /// ```text
 ///        1   n
@@ -970,8 +968,7 @@ where
     }
 }
 
-/// Computes a criterion that measures the **binary cross entropy** between
-/// the target y and input x.
+/// Computes the **binary cross entropy** between the target y and input x.
 ///
 /// ```text
 ///        1   n
@@ -1229,8 +1226,7 @@ where
     }
 }
 
-/// Computes a criterion that measures the **negative log likelihood** between
-/// the target y and input x.
+/// Computes the **negative log likelihood** between the target y and input x.
 ///
 /// ```text
 ///         1   n
