@@ -6,7 +6,9 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AMSGrad ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-///  The **AMSGrad** variant of the **Adam** algorithm from the paper
+///  The **AMSGrad** optimizer.
+///
+/// It is a variant of the *Adam* algorithm from the paper
 /// [On the Convergence of Adam and Beyond](https://openreview.net/forum?id=ryQu7f-RZ).
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct AMSGrad<'a, T> {
@@ -18,14 +20,16 @@ pub struct AMSGrad<'a, T> {
 }
 
 impl<'a, T> AMSGrad<'a, T> {
-    /// Creates a new **AMSGrad** optimizer.
+    /// Creates a new *AMSGrad* optimizer.
     ///
-    /// * `params` - `Vec` of parameters to optimize.
-    /// * `lr` - learning rate.
-    /// * `betas` - a `tuple` of coefficients used for computing running averages of the gradient
-    /// and its square. Good default is: **(0.9, 0.999)**.
-    /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
+    /// # Arguments
+    ///
+    /// `params` - `Vec` of parameters to optimize.
+    /// `lr` - learning rate.
+    /// `betas` - a `tuple` of coefficients used for computing running averages of the gradient
+    /// and its square. Good default is: *(0.9, 0.999)*.
+    /// `penalty` - penalty regularization.
+    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, penalty: T, betas: (f32, f32), eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
@@ -45,9 +49,9 @@ impl<'a, T> AMSGrad<'a, T> {
     }
 }
 
-// A parameter used by the **AMSGrad** optmizier.
+/// A parameter used by the *AMSGrad* optmizier.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct AMSGradParam<'a> {
+struct AMSGradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,

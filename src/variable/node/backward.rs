@@ -2979,12 +2979,14 @@ where
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.diff_operand.can_overwrite() {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = if *op_data_el > 0.0 { *grad_el } else { 0.01 }
+                *op_grad_el = ((*op_data_el > 0.0) as usize as f32) * grad_el
+                    + ((*op_data_el <= 0.0) as usize as f32) * 0.01
             });
             self.diff_operand.set_overwrite(false);
         } else {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += if *op_data_el > 0.0 { *grad_el } else { 0.01 }
+                *op_grad_el += ((*op_data_el > 0.0) as usize as f32) * grad_el
+                    + ((*op_data_el <= 0.0) as usize as f32) * 0.01
             });
         }
     }
@@ -3073,24 +3075,12 @@ where
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.diff_operand.can_overwrite() {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = if *op_data_el >= 15.0 {
-                    *grad_el
-                } else if *op_data_el <= -15.0 {
-                    0.0
-                } else {
-                    grad_el / (1.0 + (-*op_data_el).exp())
-                }
+                *op_grad_el = grad_el / (1.0 + (-*op_data_el).exp())
             });
             self.diff_operand.set_overwrite(false);
         } else {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += if *op_data_el >= 15.0 {
-                    *grad_el
-                } else if *op_data_el <= -15.0 {
-                    0.0
-                } else {
-                    grad_el / (1.0 + (-*op_data_el).exp())
-                }
+                *op_grad_el += grad_el / (1.0 + (-*op_data_el).exp())
             });
         }
     }

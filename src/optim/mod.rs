@@ -1,16 +1,14 @@
 use crate::variable::Param;
-pub use adagrad::{Adagrad, AdagradParam};
-pub use adam::{Adam, AdamParam};
-pub use amsgrad::{AMSGrad, AMSGradParam};
-pub use rmsprop::{
-    RMSProp, RMSPropCentered, RMSPropCenteredParam, RMSPropCenteredWithMomentum,
-    RMSPropCenteredWithMomentumParam, RMSPropParam, RMSPropWithMomentum, RMSPropWithMomentumParam,
-};
-pub use sgd::{SGDParam, SGDParamWithMomentum, SGDWithMomentum, SGD};
+pub use adagrad::Adagrad;
+pub use adam::Adam;
+pub use amsgrad::AMSGrad;
+pub use rmsprop::{RMSProp, RMSPropCentered, RMSPropCenteredWithMomentum, RMSPropWithMomentum};
+pub use sgd::{SGDWithMomentum, SGD};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Optimizer Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// Optimizer trait, defines the optimizer's logic.
 pub trait Optimizer<T: From<Param>> {
     fn step(&mut self);
     fn zero_grad(&mut self);
@@ -18,6 +16,7 @@ pub trait Optimizer<T: From<Param>> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// Penalty trait, defines the penalty regularisation's logic.
 pub trait Penalty: Send + Sync {
     fn penalise(&self, w: &f32) -> f32;
 }
@@ -25,18 +24,17 @@ pub trait Penalty: Send + Sync {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularizations Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// **L2 penalty** also known as *weight decay* or *Tichonov regularization*.
+/// L2 penalty, also known as *weight decay* or *Tichonov regularization*.
 pub struct L2 {
     lambda: f32,
 }
 
-/// **L1 penalty**.
+/// L1 penalty.
 pub struct L1 {
     lambda: f32,
 }
 
-/// **ElasticNet regularization**, this penalty regularization linearly combines the
-/// **L1** and **L2** penalties.
+/// ElasticNet regularization, linearly combines the *L1* and *L2* penalties.
 pub struct ElasticNet {
     lambda_l1: f32,
     lambda_l2: f32,

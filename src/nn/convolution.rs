@@ -76,8 +76,8 @@ impl PaddingMode for Reflective {
     }
 }
 
-impl Replicative {
-    pub fn pad<D: ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+impl PaddingMode for Replicative {
+    fn pad<D: ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
         array: &mut ArrayBase<S, D>,
         original: &ArrayBase<T, D>,
@@ -2284,7 +2284,7 @@ fn convolution_with_groups_unary_backward<D: Dimension>(
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Paddings ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-/// A `ndarray::Dimension` that supports **reflective padding**.
+/// A [`ndarray::Dimension`] that supports **reflective padding**.
 pub trait ReflPad: Dimension {
     fn reflection_pad<S: DataMut<Elem = f32>>(
         input: &ArrayBase<S, Self>,
@@ -2298,7 +2298,7 @@ pub trait ReflPad: Dimension {
     );
 }
 
-/// A `ndarray::Dimension` that supports **replicative padding**.
+/// A [`ndarray::Dimension`] that supports **replicative padding**.
 pub trait ReplPad: Dimension {
     fn replication_pad<S: DataMut<Elem = f32>>(
         input: &ArrayBase<S, Self>,
@@ -2339,7 +2339,7 @@ pub trait ReplPad: Dimension {
 ///
 /// assert_eq!(padded, result);
 /// ```
-pub fn constant_pad<S, D>(input: &ArrayBase<S, D>, padding: &[usize], val: f32) -> Array<f32, D>
+fn constant_pad<S, D>(input: &ArrayBase<S, D>, padding: &[usize], val: f32) -> Array<f32, D>
 where
     D: Dimension,
     S: DataMut<Elem = f32>,
@@ -2359,7 +2359,7 @@ where
 }
 
 /// Pads an **n**-dimensional Array with a constant value. The operation is done inplace.
-pub fn constant_pad_inplace<S, T, D>(
+fn constant_pad_inplace<S, T, D>(
     input: &mut ArrayBase<S, D>,
     original: &ArrayBase<T, D>,
     padding: &[usize],
@@ -2414,7 +2414,7 @@ pub fn constant_pad_inplace<S, T, D>(
 ///
 /// assert_eq!(padded, result);
 /// ```
-pub fn reflection_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
+fn reflection_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
 where
     D: ReflPad,
 {
@@ -2450,7 +2450,7 @@ where
 ///
 /// assert_eq!(padded, result);
 /// ```
-pub fn replication_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
+fn replication_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
 where
     D: ReplPad,
 {

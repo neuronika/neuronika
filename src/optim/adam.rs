@@ -19,14 +19,16 @@ pub struct Adam<'a, T> {
 }
 
 impl<'a, T> Adam<'a, T> {
-    /// Creates a new **Adam** optimizer.
+    /// Creates a new *Adam* optimizer.
     ///
-    /// * `params` - `Vec` of parameters to optimize.
-    /// * `lr` - learning rate.
-    /// * `betas` - a `tuple` of coefficients used for computing running averages of the gradient
-    /// and its square. Good default is: **(0.9, 0.999)**.
-    /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
+    /// # Arguments
+    ///
+    /// `params` - `Vec` of parameters to optimize.
+    /// `lr` - learning rate.
+    /// `betas` - a `tuple` of coefficients used for computing running averages of the gradient
+    /// and its square. Good default is: *(0.9, 0.999)*.
+    /// `penalty` - penalty regularization.
+    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
@@ -46,8 +48,8 @@ impl<'a, T> Adam<'a, T> {
     }
 }
 
-// A Parameter used by the **Adam** optimizer.
-pub struct AdamParam<'a> {
+/// A Parameter used by the *Adam* optimizer.
+struct AdamParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,

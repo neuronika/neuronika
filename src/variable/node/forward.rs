@@ -1029,7 +1029,9 @@ impl<T: Data> Forward for LeakyReLU<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .for_each(|v, o| *v = if *o > 0.0 { *o } else { 0.01 * o });
+            .for_each(|v, o| {
+                *v = ((*o > 0.0) as usize as f32) * *o + ((*o <= 0.0) as usize as f32) * (0.01 * o)
+            });
     }
 
     fn was_computed(&self) -> bool {
@@ -1078,15 +1080,7 @@ impl<T: Data> Forward for SoftPlus<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .for_each(|v, o| {
-                *v = if *o < -15.0 {
-                    0.0
-                } else if *o > 15.0 {
-                    *o
-                } else {
-                    (1.0 + o.exp()).ln()
-                }
-            });
+            .for_each(|v, o| *v = (1.0 + o.exp()).ln());
     }
 
     fn was_computed(&self) -> bool {
@@ -1135,15 +1129,7 @@ impl<T: Data> Forward for Sigmoid<T> {
         self.computed.set(true);
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand.data())
-            .for_each(|v, o| {
-                *v = if *o >= 15.0 {
-                    1.0
-                } else if *o <= -15.0 {
-                    0.0
-                } else {
-                    1.0 / (1.0 + (-*o).exp())
-                }
-            });
+            .for_each(|v, o| *v = 1.0 / (1.0 + (-*o).exp()));
     }
 
     fn was_computed(&self) -> bool {

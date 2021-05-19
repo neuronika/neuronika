@@ -18,13 +18,15 @@ pub struct Adagrad<'a, T> {
 }
 
 impl<'a, T> Adagrad<'a, T> {
-    /// Creates a new **Adagrad** optimizer.
+    /// Creates a new *Adagrad* optimizer.
     ///
-    /// * `params` - `Vec` of parameters to optimize.
-    /// * `lr` - learning rate.
-    /// * `lr_decay` - the learning rate decay.
-    /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-10**.
+    /// # Arguments
+    ///
+    /// `params` - `Vec` of parameters to optimize.
+    /// `lr` - learning rate.
+    /// `lr_decay` - the learning rate decay.
+    /// `penalty` - penalty regularization.
+    /// `eps` - small constant for numerical stability. A good default value is *1e-10*.
     pub fn new(params: Vec<Param>, lr: f32, lr_decay: f32, penalty: T, eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
@@ -44,8 +46,8 @@ impl<'a, T> Adagrad<'a, T> {
     }
 }
 
-/// A parameter used by the **Adagrad** optimizer.
-pub struct AdagradParam<'a> {
+/// A parameter used by the *Adagrad* optimizer.
+struct AdagradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,

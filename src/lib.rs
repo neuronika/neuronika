@@ -10,7 +10,7 @@ pub use variable::{
     Cat, MatMatMul, MatMatMulT, MatVecMul, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
 
-/// Creates a variable from a **ndarray** array.
+/// Creates a variable from a **[ndarray]** array.
 ///
 /// # Examples
 ///

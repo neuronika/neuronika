@@ -7,7 +7,6 @@ use crate::variable::{
     MatMatMulT, Tensor, Var, VarDiff,
 };
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -28,11 +27,10 @@ pub mod init {
         }
     }
 
-    /// For MLPs `fan_in` and `fan_out` are respectively the number of
-    /// inputs and outputs to an hidden unit of the layer.
-    /// For CNNs however, the number of input feature maps and
-    /// the size of the receptive field must be taken into account .
-    fn calculate_fan_in_fan_out<D: Dimension>(
+    /// For MLPs `fan_in` and `fan_out` are respectively the number of inputs and outputs to an
+    /// hidden unit of the layer. For CNNs however, the number of input feature maps and the size
+    /// of the receptive field must be taken into account .
+    pub fn calculate_fan_in_fan_out<D: Dimension>(
         param: &VarDiff<Input<D>, InputBackward<D>>,
     ) -> (f32, f32) {
         let data = param.data();
@@ -183,7 +181,7 @@ pub mod init {
     }
 }
 
-pub mod convolution;
+mod convolution;
 pub mod loss;
 
 /// Applies a **linear transformation** to the incoming data.

@@ -6,7 +6,9 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSProp ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// The **RMSProp** algorithm as proposed by *G. Hinton* in his
+/// The **RMSProp** optimizer.
+///
+/// It was proposed by *G. Hinton* in his
 /// [course](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf).
 ///
 /// The centered version first appears in
@@ -14,8 +16,8 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 ///
 /// The implementation here takes the square root of the gradient average before adding
 /// *epsilon*. Do note that TensorFlow interchanges these two operations. The effective
-/// **learning rate** is thus **lr' / (v.sqrt() + eps)** where **lr'** is the scheduled
-/// learning rate and **v** is the weighted moving average of the square gradient.
+/// *learning rate* is thus *lr' / (v.sqrt() + eps)* where *lr'* is the scheduled
+/// learning rate and *v* is the weighted moving average of the square gradient.
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct RMSProp<'a, T> {
     params: Vec<RMSPropParam<'a>>,
@@ -26,12 +28,15 @@ pub struct RMSProp<'a, T> {
 }
 
 impl<'a, T> RMSProp<'a, T> {
-    /// Creates a **RMSProp** optimizer.
-    /// * `params` - `Vec` of parameters to optimize.
-    /// * `lr` - learning rate.
-    /// * `alpha` - smoothing constant. A good default value is **0.99**
-    /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
+    /// Creates a *RMSProp* optimizer.
+    ///
+    /// # Arguments
+    ///
+    /// `params` - `Vec` of parameters to optimize.
+    /// `lr` - learning rate.
+    /// `alpha` - smoothing constant. A good default value is *0.99*
+    /// `penalty` - penalty regularization.
+    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
@@ -50,7 +55,7 @@ impl<'a, T> RMSProp<'a, T> {
         }
     }
 
-    /// Transforms this **RMSProp** optimizer in the **centered RMSProp** version of the algorithm
+    /// Transforms this *RMSProp* optimizer in the *centered RMSProp* version of the algorithm
     /// where the gradient is normalized by an estimation of its variance.
     pub fn centered(self) -> RMSPropCentered<'a, T> {
         let params = {
@@ -71,9 +76,11 @@ impl<'a, T> RMSProp<'a, T> {
         }
     }
 
-    /// Transforms this **RMSProp** optimizer in the **momentum** version of the algorithm.
+    /// Transforms this *RMSProp* optimizer in the *momentum* version of the algorithm.
     ///
-    /// * `momentum` - the momentum factor.
+    /// # Arguments
+    ///
+    /// `momentum` - the momentum factor.
     pub fn with_momentum(self, momentum: f32) -> RMSPropWithMomentum<'a, T> {
         let params = {
             let mut vec = Vec::with_capacity(self.params.len());
@@ -94,7 +101,7 @@ impl<'a, T> RMSProp<'a, T> {
         }
     }
 
-    /// Transforms this **RMSProp** optimizer in the **centered RMSProp** version of the algorithm
+    /// Transforms this *RMSProp* optimizer in the *centered RMSProp* version of the algorithm
     /// with momentum.
     ///
     /// * `momentum` - the momentum factor.
@@ -119,9 +126,9 @@ impl<'a, T> RMSProp<'a, T> {
     }
 }
 
-/// A parameter used by the **RMSProp** optimizer.
+/// A parameter used by the *RMSProp* optimizer.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSPropParam<'a> {
+struct RMSPropParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -192,7 +199,7 @@ impl<'a, T: Penalty> Optimizer<RMSPropParam<'a>> for RMSProp<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropWithMomentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// **RMSProp** optimizer with momentum.
+/// The *RMSProp* optimizer with *momentum*.
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct RMSPropWithMomentum<'a, T> {
     params: Vec<RMSPropWithMomentumParam<'a>>,
@@ -203,9 +210,9 @@ pub struct RMSPropWithMomentum<'a, T> {
     momentum: f32,
 }
 
-// A parameter used by the **RMSProp** optimizer with momentum.
+/// A parameter used by the *RMSProp* optimizer with momentum.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSPropWithMomentumParam<'a> {
+struct RMSPropWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -214,13 +221,16 @@ pub struct RMSPropWithMomentumParam<'a> {
 }
 
 impl<'a, T> RMSPropWithMomentum<'a, T> {
-    /// Creates a **RMSProp** optimizer with **momentum**.
+    /// Creates a *RMSProp* optimizer with *momentum*.
+    ///
+    /// # Arguments
+    ///
     /// * `params` - `Vec` of parameters to optimize.
     /// * `lr` - learning rate.
-    /// * `alpha` - smoothing constant. A good default value is **0.99**
+    /// * `alpha` - smoothing constant. A good default value is *0.99*
     /// * `momentum` - momentum factor.
     /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(
         params: Vec<Param>,
         lr: f32,
@@ -247,7 +257,7 @@ impl<'a, T> RMSPropWithMomentum<'a, T> {
         }
     }
 
-    /// Transofrms this **RMSProp** optimizer in the **centered** variant with **momentum**.
+    /// Transofrms this *RMSProp* optimizer in the *centered* variant with *momentum*.
     pub fn centered(self) -> RMSPropCenteredWithMomentum<'a, T> {
         let params = {
             let mut vec = Vec::with_capacity(self.params.len());
@@ -355,7 +365,7 @@ impl<'a, T: Penalty> Optimizer<RMSPropWithMomentumParam<'a>> for RMSPropWithMome
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropCentered ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// The **RMSProp** optimizer in its **centered** variant.
+/// The *RMSProp* optimizer in its *centered* variant.
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct RMSPropCentered<'a, T> {
     params: Vec<RMSPropCenteredParam<'a>>,
@@ -366,12 +376,15 @@ pub struct RMSPropCentered<'a, T> {
 }
 
 impl<'a, T> RMSPropCentered<'a, T> {
-    /// Creates a **centered RMSProp** optimizer.
+    /// Creates a *centered RMSProp* optimizer.
+    ///
+    /// # Arguments
+    ///
     /// * `params` - `Vec` of parameters to optimize.
     /// * `lr` - learning rate.
-    /// * `alpha` - smoothing constant. A good default value is **0.99**
+    /// * `alpha` - smoothing constant. A good default value is *0.99*
     /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
@@ -390,9 +403,11 @@ impl<'a, T> RMSPropCentered<'a, T> {
         }
     }
 
-    /// Transforms this **centered RMSProp** optimizer in the centered with momentum variant.
+    /// Transforms this *centered RMSProp* optimizer in the centered with momentum variant.
     ///
-    /// * `momentum` - momentum factor.
+    /// # Arguments
+    ///
+    /// `momentum` - momentum factor.
     pub fn with_momentum(self, momentum: f32) -> RMSPropCenteredWithMomentum<'a, T> {
         let params = {
             let mut vec = Vec::with_capacity(self.params.len());
@@ -414,9 +429,9 @@ impl<'a, T> RMSPropCentered<'a, T> {
     }
 }
 
-/// A parameter used by the **centered RMSProp** optimizer.
+/// A parameter used by the *centered RMSProp* optimizer.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSPropCenteredParam<'a> {
+struct RMSPropCenteredParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -515,7 +530,7 @@ impl<'a, T: Penalty> Optimizer<RMSPropCenteredParam<'a>> for RMSPropCentered<'a,
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropCenteredWithMomentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// The **centered RMSProp** optimizer with **momentum**.
+/// The *centered RMSProp* optimizer with *momentum*.
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct RMSPropCenteredWithMomentum<'a, T> {
     params: Vec<RMSPropCenteredWithMomentumParam<'a>>,
@@ -527,13 +542,16 @@ pub struct RMSPropCenteredWithMomentum<'a, T> {
 }
 
 impl<'a, T> RMSPropCenteredWithMomentum<'a, T> {
-    /// Creates a **centered RMSProp** optimizer with **momentum**.
-    /// * `params` - `Vec` of parameters to optimize.
-    /// * `lr` - learning rate.
-    /// * `alpha` - smoothing constant. A good default value is **0.99**
-    /// * `momentum` - momentum factor.
-    /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
+    /// Creates a *centered RMSProp* optimizer with *momentum*.
+    ///
+    /// # Arguments
+    ///
+    /// `params` - `Vec` of parameters to optimize.
+    /// `lr` - learning rate.
+    /// `alpha` - smoothing constant. A good default value is *0.99*
+    /// `momentum` - momentum factor.
+    /// `penalty` - penalty regularization.
+    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(
         params: Vec<Param>,
         lr: f32,
@@ -561,9 +579,9 @@ impl<'a, T> RMSPropCenteredWithMomentum<'a, T> {
     }
 }
 
-/// A parameter used by the **centered RMSProp** optimizer with **momentum**.
+/// A parameter used by the *centered RMSProp* optimizer with *momentum*.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSPropCenteredWithMomentumParam<'a> {
+struct RMSPropCenteredWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
