@@ -65,7 +65,7 @@ pub fn ones<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
     Input::new(Array::from_elem(shape, 1.0))
 }
 
-/// Creates a variable with data filled with the value `el`.
+/// Creates a variable with data filled with a constant value.
 ///
 /// `el` must be `f32` and the shape of type [`ndarray::ShapeBuilder`].
 ///
@@ -101,7 +101,7 @@ pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
     Input::new(Array::random(shape, Uniform::new(0., 1.)))
 }
 
-/// Creates a variable with an identity matrix of size `n` (a square 2D matrix).
+/// Creates a variable with an identity matrix of size *n* (a square 2D matrix).
 ///
 /// # Panics
 ///
