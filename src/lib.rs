@@ -9,6 +9,8 @@
 //! * Reverse-mode automatic differentiation
 //! * Dynamic neural networks
 //!
+//! ## Variables
+//!
 //! The main building block of neuronika are *variables* and *differentiable variables*.
 //! This means that when you use this crate you are handling and manipulating instances of [`Var`]
 //! and [`VarDiff`].
@@ -19,6 +21,49 @@
 //!
 //! The provided API is linear in thought and minimal as it is carefully tailored around you, the
 //! user.
+//!
+//! ### Leaf Variables
+//!
+//! You can create leaf variables by using one of the many provided functions, such as [`zeros()`],
+//! [`ones()`], [`full()`] and [`rand()`]. Feel free to refer to [functions](#functions) for the
+//! complete list.
+//!
+//! Leaf variables are so called because they form the *leaves* of the computational graph, as are
+//! not the result of any computation.
+//!
+//! Every leaf variable is by default created as non-differentiable, to promote to a
+//! *differentiable* leaf, i. e. a variable for which you can compute the gradient, you can use
+//! [`requires_grad()`](Var::requires_grad()).
+//!
+//! Differentiable leaf variables are leaves that have been promoted. You will encounter them
+//! very often in your journey through neuronika as they are the the main components of the
+//! neural networks' building blocks. They hold a gradient, that you can access with
+//! [`grad()`](VarDiff::grad()).
+//!
+//! Variables, both differentiable and non-differentiable ones, can be understood as *tensors*, you
+//! can perform all the basic arithmetic operation on them, such as: `+`, `-`, `*` and `/`.
+//! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
+//!
+//! A computational graph is implicitly created as you write your program. You can differentiate it
+//! and populate the differentiable leaves' gradients by using [`backward()`](VarDiff::backward()).
+//!
+//! ### Differentiability Arithmetic
+//!
+//! As stated before, you can manipulate variables by performing operations of them; the results of
+//! those computations will also be variables, although not leaf ones.
+//!
+//! The result of an operation between two differentiable variables will also be a differentiable
+//! variable and the converse holds for non-differentiable variables. However, things behave
+//! slightly differently when an operation is performed between a non-differentiable variable and a
+//! differentiable one, as the resulting variable will be differentiable.
+//!
+//! You can think of differentiability as a *sticky* property.
+//!
+//! | **Operands** | Var     | VarDiff |
+//! |--------------|---------|---------|
+//! | **Var**      | Var     | VarDiff |
+//! | **VarDiff**  | VarDiff | VarDiff |
+
 pub mod data;
 pub mod nn;
 pub mod optim;
