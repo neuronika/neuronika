@@ -63,6 +63,13 @@
 //! |--------------|---------|---------|
 //! | **Var**      | Var     | VarDiff |
 //! | **VarDiff**  | VarDiff | VarDiff |
+//!
+//! ### Differentiable Ancestors
+//!
+//! The differentiable ancestors of a variable are the differentiable leaves of the graph involved
+//! in its computation. Obviously, only [`VarDiff`] can have a set of ancestors.
+//!
+//! You can access all the ancestors of a variable with [`parameters()`](VarDiff::parameters()).
 
 pub mod data;
 pub mod nn;
