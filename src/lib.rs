@@ -3,10 +3,10 @@
 //! Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
 //! use, fast experimentation and performance.
 //!
-//! ## Highlights:
+//! ## Highlights
 //!
-//! * Define by run computational graphs.
-//! * Reverse-mode automatic differentiation.
+//! * Define by run computational graphs
+//! * Reverse-mode automatic differentiation
 //! * Dynamic neural networks
 //!
 //! The main building block of neuronika are *variables* and *differentiable variables*.
@@ -17,7 +17,8 @@
 //! empowers you with the ability of imperatively building and differentiating such graphs with
 //! minimal amount of code and effort.
 //!
-//! The provided API is linear in thought and minimal as it is designed around you, the user.
+//! The provided API is linear in thought and minimal as it is carefully tailored around you, the
+//! user.
 pub mod data;
 pub mod nn;
 pub mod optim;

@@ -19,11 +19,11 @@
 </p>
 
 Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
-use, fast experimentation and performance.
+use, fast prototyping and performance.
 
 ## Dynamic neural networks and auto-differentiation
 
-At the core of Neuronika lies a mechanism called reverse-mode atomatic differentiation, that allows you
+At the core of Neuronika lies a mechanism called reverse-mode automatic differentiation, that allows you
 to define dynamically changing neural networks with very low effort and no overhead by using a lean, fully imperative and define by run API.
 
 ![](./misc/neuronika_ad.gif)
