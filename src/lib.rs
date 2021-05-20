@@ -25,27 +25,31 @@
 //! ### Leaf Variables
 //!
 //! You can create leaf variables by using one of the many provided functions, such as [`zeros()`],
-//! [`ones()`], [`full()`] and [`rand()`]. Feel free to refer to [functions](#functions) for the
-//! complete list.
+//! [`ones()`], [`full()`] and [`rand()`]. Feel free to refer to the [complete list](#functions).
 //!
 //! Leaf variables are so called because they form the *leaves* of the computational graph, as are
 //! not the result of any computation.
 //!
-//! Every leaf variable is by default created as non-differentiable, to promote to a
+//! Every leaf variable is by default created as non-differentiable, to promote it to a
 //! *differentiable* leaf, i. e. a variable for which you can compute the gradient, you can use
 //! [`requires_grad()`](Var::requires_grad()).
 //!
 //! Differentiable leaf variables are leaves that have been promoted. You will encounter them
 //! very often in your journey through neuronika as they are the the main components of the
-//! neural networks' building blocks. They hold a gradient, that you can access with
-//! [`grad()`](VarDiff::grad()).
+//! neural networks' building blocks. To learn more in detail about those check the
+//! [`nn`](module@nn) module.
+//!
+//! Differentiable leaves hold a gradient, that you can access with [`grad()`](VarDiff::grad()).
 //!
 //! Variables, both differentiable and non-differentiable ones, can be understood as *tensors*, you
 //! can perform all the basic arithmetic operation on them, such as: `+`, `-`, `*` and `/`.
 //! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
 //!
+//! ### Computational Graph
+//!
 //! A computational graph is implicitly created as you write your program. You can differentiate it
-//! and populate the differentiable leaves' gradients by using [`backward()`](VarDiff::backward()).
+//! with respect to some of the differentiable leaves, thus populating their gradients, by using
+//! [`backward()`](VarDiff::backward()).
 //!
 //! ### Differentiability Arithmetic
 //!
@@ -57,7 +61,8 @@
 //! slightly differently when an operation is performed between a non-differentiable variable and a
 //! differentiable one, as the resulting variable will be differentiable.
 //!
-//! You can think of differentiability as a *sticky* property.
+//! You can think of differentiability as a *sticky* property. The table that follows is a summary
+//! of how differentiability is broadcasted through variables.
 //!
 //! | **Operands** | Var     | VarDiff |
 //! |--------------|---------|---------|
@@ -69,7 +74,10 @@
 //! The differentiable ancestors of a variable are the differentiable leaves of the graph involved
 //! in its computation. Obviously, only [`VarDiff`] can have a set of ancestors.
 //!
-//! You can access all the ancestors of a variable with [`parameters()`](VarDiff::parameters()).
+//! You can gain access, via mutable views, to all the ancestors of a variable by iterating through
+//! the vector of [`Param`] returned by [`parameters()`](VarDiff::parameters()).
+//! To gain more insights about the role that such components fulfil in neuronika feel free to check
+//! the [`optim`] module.
 
 pub mod data;
 pub mod nn;
@@ -174,7 +182,7 @@ pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
     Input::new(Array::random(shape, Uniform::new(0., 1.)))
 }
 
-/// Creates a variable with an identity matrix of size *n* (a square 2D matrix).
+/// Creates a variable with an identity matrix of size *n*.
 ///
 /// # Panics
 ///
@@ -241,8 +249,7 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
     Array::geomspace(start, end, n).map(Input::new)
 }
 
-/// Creates a one-dimensional variable with elements from a *start* to an *end*
-/// spaced by a *step*.
+/// Creates a one-dimensional variable with elements from *start* to *end* spaced by *step*.
 ///
 /// The elements range from `start` to `end` (exclusive).
 ///
