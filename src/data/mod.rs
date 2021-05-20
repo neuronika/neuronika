@@ -2,61 +2,274 @@ use crate::variable::{Tensor, TensorView};
 use csv::{ReaderBuilder, StringRecord};
 use ndarray::{Axis, Dimension, IntoDimension, RemoveAxis};
 use serde::de::DeserializeOwned;
-use std::{error::Error, fs::File, io::Read};
+use std::{error::Error, fs::File, io::Read, result};
 
+/// Dataset's result type.
+pub type Result<T> = result::Result<T, Box<dyn Error>>;
+
+/// Shorthand for `Dimension::Larger`.
+pub type LargerDim<T> = <T as Dimension>::Larger;
+
+/// Computes the correct shape for the stacked records of a dataset.
+fn stacked_shape<D: Dimension>(rows: usize, shape: D) -> D::Larger {
+    let mut new_shape = D::Larger::zeros(shape.ndim() + 1);
+    new_shape[0] = rows;
+    new_shape.slice_mut()[1..].clone_from_slice(shape.slice());
+
+    new_shape
+}
+
+/// A collection of uniquely owned **unlabeled** records.
+///
+/// `Dataset` is the basic container type required to interact
+/// with any model created with `neuronika`. It can be created easily
+/// by the [`DatasetBuilder`] struct, for example loading the content of a
+/// `csv` file with the method [`.from_csv()`].
+///
+/// The `Dataset<D>` struct is generic upon [dimensionality] `D` and is organized
+/// as a tensor in which the first axis has the same length as the number of records,
+/// while the other `D - 1` represent the shape of each one.
+///
+/// [`.from_csv()`]: crate::data::DatasetBuilder::from_csv
+/// [dimensionality]: ndarray::Dimension
 pub struct Dataset<D> {
     records: Tensor<D>,
 }
 
-impl<D: Dimension> Dataset<D> {
+impl<D: RemoveAxis> Dataset<D> {
+    /// Creates a new `Dataset` from a [`Tensor`].
+    ///
+    /// ## Arguments
+    /// - `records`: Records to store into the dataset
     fn new(records: Tensor<D>) -> Self {
         Self { records }
     }
 
+    /// Provides non-mutable access to the stored records.
+    ///
+    /// ## Examples
+    /// ```rust
+    /// use neuronika::data::{Dataset, DatasetBuilder};
+    /// use ndarray::Array;
+    ///
+    /// let csv_content = "\
+    ///    0,1,2\n\
+    ///    3,4,5\n\
+    ///    6,7,8";
+    ///
+    /// let dataset = DatasetBuilder::new()
+    ///     .without_headers()
+    ///     .from_reader(csv_content.as_bytes(), 3)
+    ///     .unwrap();
+    /// assert_eq!(dataset.records(), Array::from(vec![[0., 1., 2.],
+    ///                                                [3., 4., 5.],
+    ///                                                [6., 7., 8.]]));
+    /// ```
     pub fn records(&self) -> &Tensor<D> {
         &self.records
     }
-}
 
-impl<D: RemoveAxis> Dataset<D> {
-    fn kfold(&self, k: usize) -> KFold<D> {
+    /// Provides a [`KFold`] iterator.
+    ///
+    /// The dataset is split **without shuffling** into `k` consecutive folds.
+    /// Each fold is used exactly once as a validation set, while the remaining `k - 1`
+    /// form the training set.
+    ///
+    /// ## Arguments
+    /// - `k`: Number of folds to perform
+    ///
+    /// ## Panics
+    /// This function panics if `k < 2`.
+    ///
+    /// ## Examples
+    /// ```rust
+    /// use neuronika::data::{Dataset, DatasetBuilder};
+    /// use ndarray::Array;
+    ///
+    /// let csv_content = "\
+    ///    0,1,2\n\
+    ///    3,4,5\n\
+    ///    6,7,8";
+    ///
+    /// let dataset = DatasetBuilder::new()
+    ///     .without_headers()
+    ///     .from_reader(csv_content.as_bytes(), 3)
+    ///     .unwrap();
+    ///
+    /// let mut kfold = dataset.kfold(2);
+    ///
+    /// let (training_set, test_set) = kfold.next().unwrap();
+    /// assert_eq!(training_set, Array::from(vec![[6., 7., 8.]]));
+    /// assert_eq!(test_set, Array::from(vec![[0., 1., 2.],
+    ///                                       [3., 4., 5.]]));
+    ///
+    /// let (training_set, test_set) = kfold.next().unwrap();
+    /// assert_eq!(training_set, Array::from(vec![[0., 1., 2.],
+    ///                                           [3., 4., 5.]]));
+    /// assert_eq!(test_set, Array::from(vec![[6., 7., 8.]]));
+    ///
+    /// assert_eq!(kfold.next(), None);
+    /// ```
+    pub fn kfold(&self, k: usize) -> KFold<D> {
         KFold::new(self.records.view(), k)
     }
 }
 
+/// [`Dataset`]'s builder.
+///
+/// The base configuration considers the first row of the source as an header
+/// and expects a `,` as field delimiter.
 pub struct DatasetBuilder {
-    // All configuration settings
+    r_builder: ReaderBuilder,
 }
 
 impl DatasetBuilder {
+    /// Creates a new builder for configuring a new [`Dataset`].
     pub fn new() -> Self {
-        Self {}
+        Self {
+            r_builder: ReaderBuilder::new(),
+        }
     }
 
+    /// Configures the indexes on the records in which the labels are located.
+    ///
+    /// ## Arguments
+    /// - `labels`: Indexes of the labels for each record
+    ///
+    /// ## Panics
+    /// This function panics if `labels.is_empty() == true` or if `labels` contains duplicates.
     pub fn with_labels(self, labels: &[usize]) -> LabeledDatasetBuilder {
-        LabeledDatasetBuilder::new(labels)
+        LabeledDatasetBuilder::new(self, labels)
     }
 
-    pub fn load_from_csv<S>(self, src: &str, shape: S) -> Result<Dataset<S::Dim>, Box<dyn Error>>
+    /// Configures the source from which to load the `Dataset` as without an header row.
+    pub fn without_headers(&mut self) -> &mut Self {
+        self.r_builder.has_headers(false);
+
+        self
+    }
+
+    /// Configures the delimiter of each record's field.
+    pub fn with_delimiter(&mut self, delimiter: u8) -> &mut Self {
+        self.r_builder.delimiter(delimiter);
+
+        self
+    }
+
+    /// Creates the configured `Dataset` loading its content from a `csv` file.
+    ///
+    /// ## Arguments
+    /// - `src`: String representing the path of the source file
+    /// - `shape`: Record's shape
+    ///
+    /// ## Errors
+    /// All the errors returned by [`File::open`] and [`csv::Error`].
+    ///
+    /// ## Panics
+    /// This function panics if `shape` would generate an empty record.
+    pub fn from_csv<S>(
+        &mut self,
+        src: &str,
+        shape: S,
+    ) -> Result<Dataset<<S::Dim as Dimension>::Larger>>
     where
         S: IntoDimension,
     {
-        self.load_from_reader(File::open(src)?, shape)
+        self.from_reader_fn(File::open(src)?, shape, |r| r)
     }
 
-    pub fn load_from_reader<R, S>(self, src: R, shape: S) -> Result<Dataset<S::Dim>, Box<dyn Error>>
+    /// Creates the configured `Dataset` loading its content from a reader.
+    ///
+    /// ## Arguments
+    /// - `src`: Reader from which to load the records
+    /// - `shape`: Record's shape
+    ///
+    /// ## Errors
+    /// In the event of a deserialization error, a [`csv::Error`] is returned.
+    ///
+    /// ## Panics
+    /// This function panics if `shape` would generate an empty record.
+    pub fn from_reader<R, S>(
+        &mut self,
+        src: R,
+        shape: S,
+    ) -> Result<Dataset<<S::Dim as Dimension>::Larger>>
     where
         R: Read,
         S: IntoDimension,
     {
-        let mut reader = ReaderBuilder::new().has_headers(false).from_reader(src);
-        let mut records = Vec::new();
-        for record in reader.deserialize() {
-            let record: Vec<f32> = record?;
-            records.extend(record);
+        self.from_reader_fn(src, shape, |r| r)
+    }
+
+    /// Creates a `Dataset` by applying a function to the result of the deserialization
+    /// of each line of a `csv` file
+    ///
+    /// ## Arguments
+    /// - `src`: String representing the path of the source file
+    /// - `shape`: Record's shape
+    /// - `f`: Closure to apply to each deserialized object
+    ///
+    /// ## Errors
+    /// All the errors returned by [`File::open`] and [`csv::Error`].
+    ///
+    /// ## Panics
+    /// This function panics if `shape` would generate an empty record.
+    pub fn from_csv_fn<S, T, F>(
+        &mut self,
+        src: &str,
+        shape: S,
+        f: F,
+    ) -> Result<Dataset<<S::Dim as Dimension>::Larger>>
+    where
+        S: IntoDimension,
+        T: DeserializeOwned,
+        F: Fn(T) -> Vec<f32>,
+    {
+        self.from_reader_fn(File::open(src)?, shape, f)
+    }
+
+    /// Creates a `Dataset` by applying a function to the result of the deserialization
+    /// of the content of a reader.
+    ///
+    /// ## Arguments
+    /// - `src`: Reader from which to load the records
+    /// - `shape`: Record's shape
+    /// - `f`: Closure to apply to each deserialized object
+    ///
+    /// ## Errors
+    /// All the errors returned by [`File::open`] and [`csv::Error`].
+    ///
+    /// ## Panics
+    /// This function panics if `shape` would generate an empty record.
+    pub fn from_reader_fn<R, S, T, F>(
+        &mut self,
+        src: R,
+        shape: S,
+        f: F,
+    ) -> Result<Dataset<<S::Dim as Dimension>::Larger>>
+    where
+        R: Read,
+        S: IntoDimension,
+        T: DeserializeOwned,
+        F: Fn(T) -> Vec<f32>,
+    {
+        let shape = shape.into_dimension();
+        if shape.size() == 0 {
+            panic!("cannot handle empty records")
         }
 
-        Ok(Dataset::new(Tensor::from_shape_vec(shape, records)?))
+        let mut records = Vec::new();
+        let mut rows = 0;
+        for record in self.r_builder.from_reader(src).deserialize() {
+            let record = f(record?);
+            records.extend(record);
+            rows += 1;
+        }
+
+        Ok(Dataset::new(Tensor::from_shape_vec(
+            stacked_shape(rows, shape),
+            records,
+        )?))
     }
 }
 
@@ -66,44 +279,116 @@ impl Default for DatasetBuilder {
     }
 }
 
+/// A collection of uniquely owned **labeled** records.
+///
+/// `LabeledDataset` can be created easily by the [`LabeledDatasetBuilder`] struct,
+/// for example loading the content of a `csv` file with the method [`.from_csv()`].
+///
+/// The `LabeledDataset<D1, D2>` struct is generic upon both the [dimensionality] of
+/// the records `D1` and labels `D2` and it's organized as a pair of tensors in which the first
+/// axis has the same length as the number of records, while the other represent the shape
+/// of each one.
+///
+/// [`.from_csv()`]: crate::data::LabeledDatasetBuilder::from_csv
+/// [dimensionality]: ndarray::Dimension
 pub struct LabeledDataset<D1, D2> {
-    inputs: Tensor<D1>,
+    records: Tensor<D1>,
     labels: Tensor<D2>,
 }
 
-impl<D1: Dimension, D2: Dimension> LabeledDataset<D1, D2> {
-    fn new(inputs: Tensor<D1>, labels: Tensor<D2>) -> Self {
-        Self { inputs, labels }
+impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
+    /// Creates a new `LabeledDataset` from a pair of [`Tensor`]s.
+    ///
+    /// ## Arguments
+    /// - `records`: Records to be stored
+    /// - `labels`: Records' labels to be stored
+    fn new(records: Tensor<D1>, labels: Tensor<D2>) -> Self {
+        Self { records, labels }
     }
 
-    pub fn inputs(&self) -> &Tensor<D1> {
-        &self.inputs
+    /// Provides non-mutable access to the stored records.
+    ///
+    /// ## Examples
+    /// ```rust
+    /// use neuronika::data::{Dataset, DatasetBuilder};
+    /// use ndarray::Array;
+    ///
+    /// let csv_content = "\
+    ///    0,1,2,0\n\
+    ///    3,4,5,1\n\
+    ///    6,7,8,0";
+    ///
+    /// let dataset = DatasetBuilder::new()
+    ///     .with_labels(&[3])
+    ///     .without_headers()
+    ///     .from_reader(csv_content.as_bytes(), 3, 1)
+    ///     .unwrap();
+    /// assert_eq!(dataset.records(), Array::from(vec![
+    ///     [0., 1., 2.],
+    ///     [3., 4., 5.],
+    ///     [6., 7., 8.]
+    /// ]));
+    /// ```
+    pub fn records(&self) -> &Tensor<D1> {
+        &self.records
     }
 
+    /// Provides non-mutable access to the stored labels.
+    ///
+    /// ## Examples
+    /// ```rust
+    /// use neuronika::data::{Dataset, DatasetBuilder};
+    /// use ndarray::Array;
+    ///
+    /// let csv_content = "\
+    ///    0,1,2,0\n\
+    ///    3,4,5,1\n\
+    ///    6,7,8,0";
+    ///
+    /// let dataset = DatasetBuilder::new()
+    ///     .with_labels(&[3])
+    ///     .without_headers()
+    ///     .from_reader(csv_content.as_bytes(), 3, 1)
+    ///     .unwrap();
+    /// assert_eq!(dataset.labels(), Array::from(vec![[0.], [1.], [0.]]));
+    /// ```
     pub fn labels(&self) -> &Tensor<D2> {
         &self.labels
     }
-}
 
-impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
+    /// Provides a [`LabeledKFold`] iterator.
+    ///
+    /// The dataset is split **without shuffling** into `k` consecutive folds.
+    /// Each fold is used exactly once as a validation set, while the remaining `k - 1`
+    /// form the training set.
+    ///
+    /// ## Arguments
+    /// - `k`: Number of fold to perform
+    ///
+    /// ## Panics
+    /// This function panics if `k < 2`.
     pub fn kfold(&self, k: usize) -> LabeledKFold<D1, D2> {
-        LabeledKFold::new(self.inputs.view(), self.labels.view(), k)
+        LabeledKFold::new(self.records.view(), self.labels.view(), k)
     }
 }
 
+/// [`LabeledDataset`]'s builder.
+///
+/// The base configuration considers the first row of the source as an header
+/// and expects a `,` as field delimiter.
 pub struct LabeledDatasetBuilder {
+    r_builder: ReaderBuilder,
     labels: Vec<usize>,
 }
 
 impl LabeledDatasetBuilder {
-    fn deserialize_record<T, U>(&self, record: StringRecord) -> Result<(T, U), Box<dyn Error>>
+    fn deserialize_record<T, U>(&self, record: StringRecord) -> Result<(T, U)>
     where
         T: DeserializeOwned,
         U: DeserializeOwned,
     {
         let mut input = StringRecord::new();
         let mut label = StringRecord::new();
-
         for (id, value) in record.iter().enumerate() {
             match self.labels.binary_search(&id) {
                 Ok(_) => label.push_field(value),
@@ -114,56 +399,166 @@ impl LabeledDatasetBuilder {
         Ok((input.deserialize(None)?, label.deserialize(None)?))
     }
 
-    fn new(labels: &[usize]) -> Self {
+    fn new(builder: DatasetBuilder, labels: &[usize]) -> Self {
+        if labels.is_empty() {
+            panic!("labels not provided");
+        }
+
         let mut labels = labels.to_vec();
         labels.sort_unstable();
+        if labels.windows(2).any(|w| w[0] == w[1]) {
+            panic!("duplicated labels");
+        }
 
-        assert_eq!(
-            labels.windows(2).all(|w| w[0] != w[1]),
-            true,
-            "duplicated labels"
-        );
-
-        Self { labels }
+        Self {
+            r_builder: builder.r_builder,
+            labels,
+        }
     }
 
-    pub fn load_from_csv<S1, S2>(
-        self,
+    /// Configures the source from which to load the `LabeledDataset` as without an header row.
+    pub fn without_headers(&mut self) -> &mut Self {
+        self.r_builder.has_headers(false);
+
+        self
+    }
+
+    /// Configures the delimiter of each record's field.
+    pub fn with_delimiter(&mut self, delimiter: u8) -> &mut Self {
+        self.r_builder.delimiter(delimiter);
+
+        self
+    }
+
+    /// Creates the configured `LabeledDataset` loading its content from a `csv` file.
+    ///
+    /// ## Arguments
+    /// - `src`: String representing the path of the source file
+    /// - `sh1`: Record's shape
+    /// - `sh2`: Label's shape
+    ///
+    /// ## Errors
+    /// All the errors returned by [`File::open`] and [`csv::Error`].
+    ///
+    /// ## Panics
+    /// This function panics if `sh1` or `sh2` would generate an empty tensor.
+    pub fn from_csv<S1, S2>(
+        &mut self,
         src: &str,
         sh1: S1,
         sh2: S2,
-    ) -> Result<LabeledDataset<S1::Dim, S2::Dim>, Box<dyn Error>>
+    ) -> Result<LabeledDataset<LargerDim<S1::Dim>, LargerDim<S2::Dim>>>
     where
         S1: IntoDimension,
         S2: IntoDimension,
     {
-        self.load_from_reader(File::open(src)?, sh1, sh2)
+        self.from_reader_fn(File::open(src)?, sh1, sh2, |r| r)
     }
 
-    pub fn load_from_reader<S1, S2, R>(
-        self,
+    /// Creates the configured `LabeledDataset` loading its content from a reader.
+    ///
+    /// ## Arguments
+    /// - `src`: Reader from which to load the data
+    /// - `sh1`: Record's shape
+    /// - `sh2`: Label's shape
+    ///
+    /// ## Errors
+    /// All the errors returned by [`File::open`] and [`csv::Error`].
+    ///
+    /// ## Panics
+    /// This function panics if `sh1` or `sh2` would generate an empty tensor.
+    pub fn from_reader<R, S1, S2>(
+        &mut self,
         src: R,
         sh1: S1,
         sh2: S2,
-    ) -> Result<LabeledDataset<S1::Dim, S2::Dim>, Box<dyn Error>>
+    ) -> Result<LabeledDataset<LargerDim<S1::Dim>, LargerDim<S2::Dim>>>
+    where
+        R: Read,
+        S1: IntoDimension,
+        S2: IntoDimension,
+    {
+        self.from_reader_fn(src, sh1, sh2, |r| r)
+    }
+
+    /// Creates the configured `LabeledDataset` loading its content from a `csv` file.
+    ///
+    /// ## Arguments
+    /// - `src`: String representing the path of the source file
+    /// - `sh1`: Record's shape
+    /// - `sh2`: Label's shape
+    /// - `f`: Closure to apply to each deserialized object
+    ///
+    /// ## Errors
+    /// All the errors returned by [`File::open`] and [`csv::Error`].
+    ///
+    /// ## Panics
+    /// This function panics if `sh1` or `sh2` would generate an empty tensor.
+    pub fn from_csv_fn<S1, S2, T, U, F>(
+        &mut self,
+        src: &str,
+        sh1: S1,
+        sh2: S2,
+        f: F,
+    ) -> Result<LabeledDataset<LargerDim<S1::Dim>, LargerDim<S2::Dim>>>
     where
         S1: IntoDimension,
         S2: IntoDimension,
-        R: Read,
+        T: DeserializeOwned,
+        U: DeserializeOwned,
+        F: Fn((T, U)) -> (Vec<f32>, Vec<f32>),
     {
-        let mut reader = ReaderBuilder::new().has_headers(false).from_reader(src);
+        self.from_reader_fn(File::open(src)?, sh1, sh2, f)
+    }
 
-        let mut inputs = Vec::new();
+    /// Creates a `Dataset` by applying a function to the result of the deserialization
+    /// of the content of a reader.
+    ///
+    /// ## Arguments
+    /// - `src`: Reader from which to load the data
+    /// - `sh1`: Record's shape
+    /// - `sh2`: Label's shape
+    /// - `f`: Closure to apply to each deserialized object
+    ///
+    /// ## Errors
+    /// All the errors returned by [`File::open`] and [`csv::Error`].
+    ///
+    /// ## Panics
+    /// This function panics if `sh1` or `sh2` would generate an empty tensor.
+    pub fn from_reader_fn<R, S1, S2, T, U, F>(
+        &mut self,
+        src: R,
+        sh1: S1,
+        sh2: S2,
+        f: F,
+    ) -> Result<LabeledDataset<LargerDim<S1::Dim>, LargerDim<S2::Dim>>>
+    where
+        R: Read,
+        S1: IntoDimension,
+        S2: IntoDimension,
+        T: DeserializeOwned,
+        U: DeserializeOwned,
+        F: Fn((T, U)) -> (Vec<f32>, Vec<f32>),
+    {
+        let sh1 = sh1.into_dimension();
+        let sh2 = sh2.into_dimension();
+        if sh1.size() == 0 || sh2.size() == 0 {
+            panic!("cannot handle empty records")
+        }
+
+        let mut records = Vec::new();
         let mut labels = Vec::new();
-        for record in reader.records() {
-            let (input, label): (Vec<f32>, Vec<f32>) = self.deserialize_record(record?)?;
-            inputs.extend(input);
+        let mut rows = 0;
+        for record in self.r_builder.from_reader(src).records() {
+            let (record, label) = f(self.deserialize_record(record?)?);
+            records.extend(record);
             labels.extend(label);
+            rows += 1;
         }
 
         Ok(LabeledDataset::new(
-            Tensor::from_shape_vec(sh1, inputs)?,
-            Tensor::from_shape_vec(sh2, labels)?,
+            Tensor::from_shape_vec(stacked_shape(rows, sh1), records)?,
+            Tensor::from_shape_vec(stacked_shape(rows, sh2), labels)?,
         ))
     }
 }
@@ -176,10 +571,12 @@ struct SetKFold<'a, D> {
 
 impl<'a, D: RemoveAxis> SetKFold<'a, D> {
     pub fn new(source: TensorView<'a, D>, k: usize) -> Self {
-        let axis_len = source.len_of(Axis(0));
-        if axis_len == 0 {
-            panic!("cannot handle 0 length axis");
+        if k < 2 {
+            panic!("meaningless fold number");
         }
+
+        let axis_len = source.len_of(Axis(0));
+        debug_assert_ne!(axis_len, 0, "no record provided");
 
         Self {
             source,
@@ -203,7 +600,7 @@ impl<'a, D: RemoveAxis> SetKFold<'a, D> {
 }
 
 pub struct LabeledKFold<'a, D1, D2> {
-    inputs: SetKFold<'a, D1>,
+    records: SetKFold<'a, D1>,
     labels: SetKFold<'a, D2>,
     iteration: usize,
     k: usize,
@@ -214,11 +611,11 @@ where
     D1: RemoveAxis,
     D2: RemoveAxis,
 {
-    pub fn new(inputs: TensorView<'a, D1>, labels: TensorView<'a, D2>, k: usize) -> Self {
-        assert_eq!(inputs.len_of(Axis(0)), labels.len_of(Axis(0)));
+    pub fn new(records: TensorView<'a, D1>, labels: TensorView<'a, D2>, k: usize) -> Self {
+        assert_eq!(records.len_of(Axis(0)), labels.len_of(Axis(0)));
 
         Self {
-            inputs: SetKFold::new(inputs, k),
+            records: SetKFold::new(records, k),
             labels: SetKFold::new(labels, k),
             iteration: 0,
             k,
@@ -238,7 +635,7 @@ where
             return None;
         }
 
-        let training_part = self.inputs.compute_fold(self.iteration);
+        let training_part = self.records.compute_fold(self.iteration);
         let test_part = self.labels.compute_fold(self.iteration);
         self.iteration += 1;
 
@@ -293,13 +690,14 @@ mod tests {
             0,1,2,3,4,5,6,7,8,9";
 
         #[test]
-        fn load_from_reader() {
+        fn from_reader() {
             let dataset = DatasetBuilder::new()
-                .load_from_reader(DATASET.as_bytes(), (5, 10))
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10)
                 .unwrap();
 
             assert_eq!(
-                dataset.records,
+                dataset.records(),
                 Tensor::from_shape_vec(
                     (5, 10),
                     vec![
@@ -315,7 +713,8 @@ mod tests {
         #[test]
         fn kfold() {
             let dataset = DatasetBuilder::new()
-                .load_from_reader(DATASET.as_bytes(), (5, 10))
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10)
                 .unwrap();
             let mut kfold = dataset.kfold(2);
 
@@ -383,14 +782,15 @@ mod tests {
             0,1,2,1,3,4,5,6,0,7,8,9";
 
         #[test]
-        fn load_from_reader() {
+        fn from_reader() {
             let dataset = DatasetBuilder::new()
                 .with_labels(&[3, 8])
-                .load_from_reader(DATASET.as_bytes(), (5, 10), (5, 2))
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2)
                 .unwrap();
 
             assert_eq!(
-                dataset.inputs(),
+                dataset.records(),
                 Tensor::from_shape_vec(
                     (5, 10),
                     vec![
@@ -413,7 +813,8 @@ mod tests {
         fn kfold() {
             let dataset = DatasetBuilder::new()
                 .with_labels(&[3, 8])
-                .load_from_reader(DATASET.as_bytes(), (5, 10), (5, 2))
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2)
                 .unwrap();
             let mut kfold = dataset.kfold(2);
 
