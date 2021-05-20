@@ -36,20 +36,20 @@
 //!
 //! Every leaf variable is by default created as non-differentiable, to promote it to a
 //! *differentiable* leaf, i. e. a variable for which you can compute the gradient, you can use
-//! [`requires_grad()`](Var::requires_grad()).
+//! [`.requires_grad()`](Var::requires_grad()).
 //!
 //! Differentiable leaf variables are leaves that have been promoted. You will encounter them
 //! very often in your journey through neuronika as they are the the main components of the
 //! neural networks' building blocks. To learn more in detail about those check the
 //! [`nn`](module@nn) module.
 //!
-//! Differentiable leaves hold a gradient, you can access it with [`grad()`](VarDiff::grad()).
+//! Differentiable leaves hold a gradient, you can access it with [`.grad()`](VarDiff::grad()).
 //!
 //! ### Computational Graph
 //!
 //! A computational graph is implicitly created as you write your program. You can differentiate it
 //! with respect to some of the differentiable leaves, thus populating their gradients, by using
-//! [`backward()`](VarDiff::backward()).
+//! [`.backward()`](VarDiff::backward()).
 //!
 //! ### Differentiability Arithmetic
 //!
@@ -75,7 +75,7 @@
 //! in its computation. Obviously, only [`VarDiff`] can have a set of ancestors.
 //!
 //! You can gain access, via mutable views, to all the ancestors of a variable by iterating through
-//! the vector of [`Param`] returned by [`parameters()`](VarDiff::parameters()).
+//! the vector of [`Param`] returned by [`.parameters()`](VarDiff::parameters()).
 //! To gain more insights about the role that such components fulfil in neuronika feel free to check
 //! the [`optim`] module.
 

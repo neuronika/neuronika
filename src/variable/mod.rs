@@ -350,10 +350,10 @@ impl<T: Data + 'static> Clone for Var<T> {
 }
 
 impl<D: Dimension> Var<Input<D>> {
-    /// Promotes `self` to a differentiable variable. A subsequent call to [`backward()`]
+    /// Promotes `self` to a differentiable variable. A subsequent call to [`.backward()`]
     /// will compute its gradient.
     ///
-    /// [`backward()`]: VarDiff::backward()
+    /// [`.backward()`]: VarDiff::backward()
     ///
     /// # Examples
     ///
@@ -446,9 +446,9 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in training mode.
     ///    
-    /// See also [`dropout()`].
+    /// See also [`.dropout()`].
     ///
-    ///  [`dropout()`]: Var::dropout()    
+    ///  [`.dropout()`]: Var::dropout()    
     pub fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -460,9 +460,9 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in evaluation mode.
     ///    
-    /// See also [`dropout()`].
+    /// See also [`.dropout()`].
     ///
-    ///  [`dropout()`]: Var::dropout()   
+    ///  [`.dropout()`]: Var::dropout()   
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -622,9 +622,9 @@ impl<T: Data + 'static> Var<T> {
     /// unstable. This function uses an alternative formulation to compute the output and
     /// gradient correctly.
     ///
-    /// See also [`softmax()`].
+    /// See also [`.softmax()`].
     ///
-    /// [`softmax()`]: Var::softmax()
+    /// [`.softmax()`]: Var::softmax()
     pub fn log_softmax(self, axis: usize) -> Var<LogSoftmax<T>> {
         Var::from(LogSoftmax::new(self.node, axis), self.past)
     }
@@ -718,9 +718,9 @@ impl<T: Data + Forward + ChangeBehaviour> Var<T> {
 ///
 /// Differentiable variables can be created in the **two** following ways described hereafter:
 ///
-/// 1. By calling [`requires_grad()`] on a non-differentiable leaf.
+/// 1. By calling [`.requires_grad()`] on a non-differentiable leaf.
 ///
-/// [`requires_grad()`]: Var::requires_grad()
+/// [`.requires_grad()`]: Var::requires_grad()
 ///
 /// 2. By performing any binary operation between a [`Var`] and a `VarDiff`. Differentiability
 /// is thus a *contagious* property, that is, if during a computation a `VarDiff` is used, the
@@ -837,9 +837,9 @@ where
     /// [chain rule](https://en.wikipedia.org/wiki/Chain_rule).
     ///
     /// The leaves whose gradients are populated by this method are also those referred by the
-    /// vector of [`Param`] returned by [`parameters()`].
+    /// vector of [`Param`] returned by [`.parameters()`].
     ///
-    ///  [`parameters()`]: VarDiff::parameters()
+    ///  [`.parameters()`]: VarDiff::parameters()
     pub fn backward(&mut self, seed: f32) {
         debug_assert_eq!(self.past.is_empty(), false);
 
@@ -882,9 +882,9 @@ where
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// and differentiable variables in training mode.
     ///    
-    /// See also [`dropout()`].
+    /// See also [`.dropout()`].
     ///
-    ///  [`dropout()`]: VarDiff::dropout()
+    ///  [`.dropout()`]: VarDiff::dropout()
     pub fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -896,9 +896,9 @@ where
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// and differentiable variables in evaluation mode.
     ///    
-    /// See also [`dropout()`].
+    /// See also [`.dropout()`].
     ///
-    ///  [`dropout()`]: VarDiff::dropout()
+    ///  [`.dropout()`]: VarDiff::dropout()
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -1095,9 +1095,9 @@ where
     /// unstable. This function uses an alternative formulation to compute the output and
     /// gradient correctly.
     ///
-    /// See also [`softmax()`].
+    /// See also [`.softmax()`].
     ///
-    /// [`softmax()`]: VarDiff::softmax()
+    /// [`.softmax()`]: VarDiff::softmax()
     pub fn log_softmax(
         self,
         axis: usize,
