@@ -1,3 +1,4 @@
+//! Data loading and manipulation utilities.
 use crate::variable::{Tensor, TensorView};
 use csv::{ReaderBuilder, StringRecord};
 use ndarray::{Axis, Dimension, IntoDimension, RemoveAxis};
@@ -39,15 +40,17 @@ pub struct Dataset<D> {
 impl<D: RemoveAxis> Dataset<D> {
     /// Creates a new `Dataset` from a [`Tensor`].
     ///
-    /// ## Arguments
-    /// - `records`: Records to store into the dataset
+    /// # Arguments
+    ///
+    /// `records` - records to store into the dataset
     fn new(records: Tensor<D>) -> Self {
         Self { records }
     }
 
     /// Provides non-mutable access to the stored records.
     ///
-    /// ## Examples
+    /// # Examples
+    ///
     /// ```rust
     /// use neuronika::data::{Dataset, DatasetBuilder};
     /// use ndarray::Array;
@@ -75,13 +78,16 @@ impl<D: RemoveAxis> Dataset<D> {
     /// Each fold is used exactly once as a validation set, while the remaining `k - 1`
     /// form the training set.
     ///
-    /// ## Arguments
-    /// - `k`: Number of folds to perform
+    /// # Arguments
     ///
-    /// ## Panics
-    /// This function panics if `k < 2`.
+    /// `k` - Number of folds to perform.
     ///
-    /// ## Examples
+    /// # Panics
+    ///
+    /// If `k < 2`.
+    ///
+    /// # Examples
+    ///
     /// ```rust
     /// use neuronika::data::{Dataset, DatasetBuilder};
     /// use ndarray::Array;
@@ -133,10 +139,11 @@ impl DatasetBuilder {
 
     /// Configures the indexes on the records in which the labels are located.
     ///
-    /// ## Arguments
-    /// - `labels`: Indexes of the labels for each record
+    /// # Arguments
     ///
-    /// ## Panics
+    /// `labels` - indexes of the labels for each record.
+    ///
+    /// # Panics
     /// This function panics if `labels.is_empty() == true` or if `labels` contains duplicates.
     pub fn with_labels(self, labels: &[usize]) -> LabeledDatasetBuilder {
         LabeledDatasetBuilder::new(self, labels)
@@ -158,15 +165,18 @@ impl DatasetBuilder {
 
     /// Creates the configured `Dataset` loading its content from a `csv` file.
     ///
-    /// ## Arguments
-    /// - `src`: String representing the path of the source file
-    /// - `shape`: Record's shape
+    /// # Arguments
     ///
-    /// ## Errors
+    /// * `src` - the path of the source file.
+    /// * `shape` - the record's shape.
+    ///
+    /// # Errors
+    ///
     /// All the errors returned by [`File::open`] and [`csv::Error`].
     ///
-    /// ## Panics
-    /// This function panics if `shape` would generate an empty record.
+    /// # Panics
+    ///
+    /// If `shape` would generate an empty record.
     pub fn from_csv<S>(
         &mut self,
         src: &str,
@@ -180,15 +190,17 @@ impl DatasetBuilder {
 
     /// Creates the configured `Dataset` loading its content from a reader.
     ///
-    /// ## Arguments
-    /// - `src`: Reader from which to load the records
-    /// - `shape`: Record's shape
+    /// # Arguments
+    /// * `src` - reader from which to load the records.
+    /// * `shape` - record's shape.
     ///
-    /// ## Errors
+    /// # Errors
+    ///
     /// In the event of a deserialization error, a [`csv::Error`] is returned.
     ///
-    /// ## Panics
-    /// This function panics if `shape` would generate an empty record.
+    /// # Panics
+    ///
+    /// If `shape` would generate an empty record.
     pub fn from_reader<R, S>(
         &mut self,
         src: R,
@@ -204,16 +216,19 @@ impl DatasetBuilder {
     /// Creates a `Dataset` by applying a function to the result of the deserialization
     /// of each line of a `csv` file
     ///
-    /// ## Arguments
-    /// - `src`: String representing the path of the source file
-    /// - `shape`: Record's shape
-    /// - `f`: Closure to apply to each deserialized object
+    /// # Arguments
     ///
-    /// ## Errors
+    /// - `src` - the path of the source file.
+    /// - `shape` - record's shape.
+    /// - `f` - closure to apply to each deserialized object.
+    ///
+    /// # Errors
+    ///
     /// All the errors returned by [`File::open`] and [`csv::Error`].
     ///
-    /// ## Panics
-    /// This function panics if `shape` would generate an empty record.
+    /// # Panics
+    ///
+    /// If `shape` would generate an empty record.
     pub fn from_csv_fn<S, T, F>(
         &mut self,
         src: &str,
@@ -231,16 +246,19 @@ impl DatasetBuilder {
     /// Creates a `Dataset` by applying a function to the result of the deserialization
     /// of the content of a reader.
     ///
-    /// ## Arguments
-    /// - `src`: Reader from which to load the records
-    /// - `shape`: Record's shape
-    /// - `f`: Closure to apply to each deserialized object
+    /// # Arguments
     ///
-    /// ## Errors
+    /// * `src` - Reader from which to load the records
+    /// * `shape` - Record's shape
+    /// * `f` - Closure to apply to each deserialized object
+    ///
+    /// # Errors
+    ///
     /// All the errors returned by [`File::open`] and [`csv::Error`].
     ///
-    /// ## Panics
-    /// This function panics if `shape` would generate an empty record.
+    /// # Panics
+    ///
+    /// If `shape` would generate an empty record.
     pub fn from_reader_fn<R, S, T, F>(
         &mut self,
         src: R,
@@ -299,16 +317,18 @@ pub struct LabeledDataset<D1, D2> {
 impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
     /// Creates a new `LabeledDataset` from a pair of [`Tensor`]s.
     ///
-    /// ## Arguments
-    /// - `records`: Records to be stored
-    /// - `labels`: Records' labels to be stored
+    /// # Arguments
+    ///
+    /// * `records` - records to be stored.
+    /// * `labels` - records' labels to be stored.
     fn new(records: Tensor<D1>, labels: Tensor<D2>) -> Self {
         Self { records, labels }
     }
 
     /// Provides non-mutable access to the stored records.
     ///
-    /// ## Examples
+    /// # Examples
+    ///
     /// ```rust
     /// use neuronika::data::{Dataset, DatasetBuilder};
     /// use ndarray::Array;
@@ -335,7 +355,8 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
 
     /// Provides non-mutable access to the stored labels.
     ///
-    /// ## Examples
+    /// # Examples
+    ///
     /// ```rust
     /// use neuronika::data::{Dataset, DatasetBuilder};
     /// use ndarray::Array;
@@ -362,11 +383,13 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
     /// Each fold is used exactly once as a validation set, while the remaining `k - 1`
     /// form the training set.
     ///
-    /// ## Arguments
-    /// - `k`: Number of fold to perform
+    /// # Arguments
     ///
-    /// ## Panics
-    /// This function panics if `k < 2`.
+    /// `k` - number of fold to perform.
+    ///
+    /// # Panics
+    ///
+    /// If `k < 2`.
     pub fn kfold(&self, k: usize) -> LabeledKFold<D1, D2> {
         LabeledKFold::new(self.records.view(), self.labels.view(), k)
     }
@@ -432,16 +455,19 @@ impl LabeledDatasetBuilder {
 
     /// Creates the configured `LabeledDataset` loading its content from a `csv` file.
     ///
-    /// ## Arguments
-    /// - `src`: String representing the path of the source file
-    /// - `sh1`: Record's shape
-    /// - `sh2`: Label's shape
+    /// # Arguments
     ///
-    /// ## Errors
+    /// * `src` - the path of the source file.
+    /// * `sh1` - record's shape.
+    /// * `sh2` - label's shape.
+    ///
+    /// # Errors
+    ///
     /// All the errors returned by [`File::open`] and [`csv::Error`].
     ///
-    /// ## Panics
-    /// This function panics if `sh1` or `sh2` would generate an empty tensor.
+    /// # Panics
+    ///
+    /// If `sh1` or `sh2` would generate an empty tensor.
     pub fn from_csv<S1, S2>(
         &mut self,
         src: &str,
@@ -457,15 +483,18 @@ impl LabeledDatasetBuilder {
 
     /// Creates the configured `LabeledDataset` loading its content from a reader.
     ///
-    /// ## Arguments
-    /// - `src`: Reader from which to load the data
-    /// - `sh1`: Record's shape
-    /// - `sh2`: Label's shape
+    /// # Arguments
     ///
-    /// ## Errors
+    /// * `src` - reader from which to load the data.
+    /// * `sh1` - record's shape.
+    /// * `sh2` - label's shape.
+    ///
+    /// # Errors
+    ///
     /// All the errors returned by [`File::open`] and [`csv::Error`].
     ///
-    /// ## Panics
+    /// # Panics
+    ///
     /// This function panics if `sh1` or `sh2` would generate an empty tensor.
     pub fn from_reader<R, S1, S2>(
         &mut self,
@@ -483,17 +512,20 @@ impl LabeledDatasetBuilder {
 
     /// Creates the configured `LabeledDataset` loading its content from a `csv` file.
     ///
-    /// ## Arguments
-    /// - `src`: String representing the path of the source file
-    /// - `sh1`: Record's shape
-    /// - `sh2`: Label's shape
-    /// - `f`: Closure to apply to each deserialized object
+    /// # Arguments
     ///
-    /// ## Errors
+    /// * `src` - the path of the source file.
+    /// * `sh1` - record's shape.
+    /// * `sh2` - label's shape.
+    /// * `f` - closure to apply to each deserialized object.
+    ///
+    /// # Errors
+    ///
     /// All the errors returned by [`File::open`] and [`csv::Error`].
     ///
-    /// ## Panics
-    /// This function panics if `sh1` or `sh2` would generate an empty tensor.
+    /// # Panics
+    ///
+    /// If `sh1` or `sh2` would generate an empty tensor.
     pub fn from_csv_fn<S1, S2, T, U, F>(
         &mut self,
         src: &str,
@@ -514,16 +546,19 @@ impl LabeledDatasetBuilder {
     /// Creates a `Dataset` by applying a function to the result of the deserialization
     /// of the content of a reader.
     ///
-    /// ## Arguments
-    /// - `src`: Reader from which to load the data
-    /// - `sh1`: Record's shape
-    /// - `sh2`: Label's shape
-    /// - `f`: Closure to apply to each deserialized object
+    /// # Arguments
     ///
-    /// ## Errors
+    /// * `src` - reader from which to load the data.
+    /// * `sh1` - record's shape.
+    /// * `sh2` - label's shape.
+    /// * `f` - closure to apply to each deserialized object.
+    ///
+    /// # Errors
+    ///
     /// All the errors returned by [`File::open`] and [`csv::Error`].
     ///
-    /// ## Panics
+    /// # Panics
+    ///
     /// This function panics if `sh1` or `sh2` would generate an empty tensor.
     pub fn from_reader_fn<R, S1, S2, T, U, F>(
         &mut self,
