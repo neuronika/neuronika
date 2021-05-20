@@ -59,22 +59,22 @@ pub mod init {
         (fan_in, fan_out)
     }
 
-    /// Fills the differentiable variable with a constant value.
+    /// Fills the differentiable leaf variable with a constant value.
     pub fn constant<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, value: f32) {
         param.data_mut().map_inplace(|el| *el = value);
     }
 
-    /// Fills the differentiable variable with zeros.
+    /// Fills the differentiable leaf variable with zeros.
     pub fn zeros<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 0.);
     }
 
-    /// Fills the differentiable variable with ones.
+    /// Fills the differentiable leaf variable with ones.
     pub fn ones<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 1.0);
     }
 
-    /// Fills the matrix differentiable variable with the identity matrix.
+    /// Fills the matrix differentiable leaf variable with the identity matrix.
     ///
     /// Preserves the identity of the inputs in Linear layers, where as
     /// many inputs are preserved as possible.
@@ -88,7 +88,7 @@ pub mod init {
         }
     }
 
-    /// Fills the *{3, 4, 5}-dimensional* differentiable variable with the Dirac delta function.
+    /// Fills the *{3, 4, 5}-dimensional* differentiable leaf variable with the Dirac delta function.
     ///
     /// Preserves the identity of the inputs in convolutional layers, where as many input channels
     /// are preserved as possible. In case of `groups > 1`, each group of channels preserves
@@ -125,7 +125,7 @@ pub mod init {
         }
     }
 
-    /// Fills the differentiable variable with elements drawn from the uniform distribution
+    /// Fills the differentiable leaf variable with elements drawn from the uniform distribution
     /// *U(low, high)*.
     pub fn uniform<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
@@ -139,7 +139,7 @@ pub mod init {
             .map_inplace(|el| *el = unif_dstr.sample(&mut t_rng));
     }
 
-    /// Fills the differentiable variable with elements drawn from the normal distribution
+    /// Fills the differentiable leaf variable with elements drawn from the normal distribution
     /// *N(mean, std^2)*.
     pub fn normal<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
@@ -153,7 +153,7 @@ pub mod init {
             .map_inplace(|el| *el = norm_dstr.sample(&mut t_rng));
     }
 
-    /// Fills the differentiable variable with values according to the method described in
+    /// Fills the differentiable leaf variable with values according to the method described in
     /// [Understanding the difficulty of training deep feedforward
     /// neural networks](http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf) - Glorot, X. &
     /// Bengio, Y. (2010), using a uniform distribution.
@@ -171,7 +171,7 @@ pub mod init {
             .map_inplace(|el| *el = unif_distr.sample(&mut t_rng));
     }
 
-    /// Fills the differentiable variable with values according to the method described in
+    /// Fills the differentiable leaf variable with values according to the method described in
     /// [Understanding the difficulty of training deep feedforward
     /// neural networks](http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf) - Glorot, X. &
     /// Bengio, Y. (2010), using a normal distribution.

@@ -10,7 +10,10 @@ pub use sgd::{SGDWithMomentum, SGD};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// Optimizer trait, defines the optimizer's logic.
 pub trait Optimizer<T: From<Param>> {
+    /// Performs a single optimization step.
     fn step(&mut self);
+
+    /// Zeroes the gradients of all the optimizable parameters.
     fn zero_grad(&mut self);
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -18,6 +21,7 @@ pub trait Optimizer<T: From<Param>> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// Penalty trait, defines the penalty regularisation's logic.
 pub trait Penalty: Send + Sync {
+    /// Applies the penatly to an element of the gradient.
     fn penalise(&self, w: &f32) -> f32;
 }
 

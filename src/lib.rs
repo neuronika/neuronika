@@ -8,7 +8,7 @@ use ndarray_rand::RandomExt;
 use variable::node::{Input, InputBackward};
 pub use variable::{Param, Var, VarDiff};
 
-/// Creates a variable from a **[ndarray]** array.
+/// Creates a variable from a **[ndarray]** array that owns its data.
 ///
 /// # Examples
 ///
@@ -120,8 +120,9 @@ pub fn eye(n: usize) -> Var<Input<Ix2>> {
     Input::new(Array2::eye(n))
 }
 
-/// Creates a one-dimensional variable with `n` evenly spaced elements from `start` to `end`
-/// (exclusive).
+/// Creates a one-dimensional variable with *n* evenly spaced elements.
+///
+/// The elements range from `start` to `end` (exclusive).
 ///
 /// # Panics
 ///
@@ -140,8 +141,9 @@ pub fn linspace(start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::linspace(start, end, n))
 }
 
-/// Creates a one-dimensional variable with `n` logarithmically spaced elements, with the starting
-/// value being `base.powf(start)` and the final one being `base.powf(end)`.
+/// Creates a one-dimensional variable with *n* logarithmically spaced elements.
+///
+/// The starting value is `base.powf(start)` and the final one is `base.powf(end)`.
 ///
 /// If `base` is negative, all values will be negative.
 ///
@@ -152,8 +154,9 @@ pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::logspace(base, start, end, n))
 }
 
-/// Creates a one-dimensional variable with `n` geometrically spaced elements from `start` to `end`
-/// (inclusive).
+/// Creates a one-dimensional variable with *n* geometrically spaced elements.
+///
+/// The elements range from `start` to `end` (inclusive).
 ///
 /// Returns `None` if `start` and `end` have different signs or if either one is zero. Conceptually,
 /// this means that in order to obtain a `Some` result, `end / start` must be positive.
@@ -165,8 +168,10 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
     Array::geomspace(start, end, n).map(Input::new)
 }
 
-/// Creates a one-dimensional variable with elements from `start` to `end` (exclusive),
-/// incrementing by `step`.
+/// Creates a one-dimensional variable with elements from a *start* to an *end*
+/// spaced by a *step*.
+///
+/// The elements range from `start` to `end` (exclusive).
 ///
 /// # Panics
 ///
