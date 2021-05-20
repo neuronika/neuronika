@@ -737,7 +737,6 @@ fn parameters_test() {
 
 #[test]
 fn stack() {
-    use neuronika::Stack;
     let x = neuronika::full(2, 1.).requires_grad();
     let y = neuronika::full(2, 1.).requires_grad();
 
@@ -755,7 +754,6 @@ fn stack() {
 
 #[test]
 fn concatenate() {
-    use neuronika::Cat;
     let x = neuronika::full(2, 1.).requires_grad();
     let y = neuronika::full(2, 1.);
 

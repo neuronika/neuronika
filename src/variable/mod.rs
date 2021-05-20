@@ -206,10 +206,6 @@ pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter 
 pub trait MatMatMul<Rhs> {
     type Output;
 
-    /// Matrix-matrix multiplication.
-    ///
-    /// Performs a matrix multiplication between the matrix variables `self` and `other`. If `self`
-    /// is *(n, m)* and `other` is *(m, o)* the output will be *(n, o)*.
     fn mm_mul(self, other: Rhs) -> Self::Output;
 }
 
@@ -219,14 +215,6 @@ pub trait MatMatMul<Rhs> {
 pub trait MatMatMulT<Rhs> {
     type Output;
 
-    /// Matrix-matrix multiplication with transposition.
-    ///
-    /// Performs a matrix multiplication between the matrix variables `self` and `other`.
-    /// This is a **fused operation** as `other` is implicitly transposed. Fusing the two operations
-    /// it's marginally faster than computing the matrix multiplication and the transposition
-    /// separately.
-    ///
-    /// If `self` is  *(n, m)* and `other` is *(o, m)* the output will be *(n, o)*.
     fn mm_mul_t(self, other: Rhs) -> Self::Output;
 }
 
@@ -236,12 +224,6 @@ pub trait MatMatMulT<Rhs> {
 pub trait MatVecMul<Rhs> {
     type Output;
 
-    /// Matrix-vector multiplication.
-    ///
-    /// Performs a matrix-vector multiplication between the matrix variable `self` and the vector
-    /// variable `other`.
-    ///
-    /// If `self` is *(n, m)* and `other` is *m* the output will be *n*.
     fn mv_mul(self, other: Rhs) -> Self::Output;
 }
 
@@ -251,12 +233,6 @@ pub trait MatVecMul<Rhs> {
 pub trait VecMatMul<Rhs> {
     type Output;
 
-    /// Vector-matrix multiplication.
-    ///
-    /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
-    /// variable `other`.
-    ///
-    /// If `self` is **n** and `other` is *(n, m)* the output will be *m*.
     fn vm_mul(self, other: Rhs) -> Self::Output;
 }
 
@@ -266,9 +242,6 @@ pub trait VecMatMul<Rhs> {
 pub trait VecVecMul<Rhs> {
     type Output;
 
-    /// Vector-vector product, a.k.a. *scalar product* or *inner product*.
-    ///
-    /// Performs the scalar product between the two vector variables `self` and `other`.
     fn vv_mul(self, other: Rhs) -> Self::Output;
 }
 
@@ -280,9 +253,6 @@ pub trait VecVecMul<Rhs> {
 pub trait Cat<Rhs> {
     type Output;
 
-    /// Concatenates the variables `self` and `other` along `axis`.
-    ///
-    /// All variables must have the same shape, except in the concatenating dimension.
     fn cat(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
@@ -290,9 +260,6 @@ pub trait Cat<Rhs> {
 pub trait Stack<Rhs> {
     type Output;
 
-    /// Stacks the variables `self` and `other` along a new dimension specified by `axis`.
-    ///
-    /// All variables must have the same shape.
     fn stack(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
@@ -515,6 +482,64 @@ impl<T: Data + Forward + ChangeBehaviour + 'static> Var<T> {
     }
 }
 
+impl<T: Data<Dim = Ix1> + 'static> Var<T> {
+    /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
+    /// variable `rhs`.
+    ///
+    /// If `self` is *n* and `rhs` is *(n, m)* the output will be *m*.
+    pub fn vm_mul<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
+    where
+        Self: VecMatMul<Rhs>,
+    {
+        VecMatMul::vm_mul(self, rhs)
+    }
+
+    /// Vector-vector product, a.k.a. *scalar product* or *inner product*.
+    ///
+    /// Performs the scalar product between the two vector variables `self` and `rhs`.
+    pub fn vv_mul<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
+    where
+        Self: VecVecMul<Rhs>,
+    {
+        VecVecMul::vv_mul(self, rhs)
+    }
+}
+
+impl<T: Data<Dim = Ix2> + 'static> Var<T> {
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
+    /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
+    pub fn mm_mul<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
+    where
+        Self: MatMatMul<Rhs>,
+    {
+        MatMatMul::mm_mul(self, rhs)
+    }
+
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`.
+    /// This is a **fused operation** as `rhs` is implicitly transposed. Fusing the two operations
+    /// it's marginally faster than computing the matrix multiplication and the transposition
+    /// separately.
+    ///
+    /// If `self` is  *(n, m)* and `rhs` is *(o, m)* the output will be *(n, o)*.
+    pub fn mm_mul_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
+    where
+        Self: MatMatMulT<Rhs>,
+    {
+        MatMatMulT::mm_mul_t(self, rhs)
+    }
+
+    /// Performs a matrix-vector multiplication between the matrix variable `self` and the vector
+    /// variable `rhs`.
+    ///
+    /// If `self` is *(n, m)* and `rhs` is *m* the output will be *n*.
+    pub fn mv_mul<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
+    where
+        Self: MatVecMul<Rhs>,
+    {
+        MatVecMul::mv_mul(self, rhs)
+    }
+}
+
 impl<T: Data + 'static> Var<T> {
     pub(crate) fn new(node: T) -> Self {
         Self {
@@ -556,6 +581,8 @@ impl<T: Data + 'static> Var<T> {
     }
 
     /// Applies the *softplus* element-wise and returns a variable with the result.
+    ///
+    /// *Softplus(x) = log(1 + exp(x))*
     pub fn softplus(self) -> Var<SoftPlus<T>> {
         Var::from(SoftPlus::new(self.node), self.past)
     }
@@ -581,11 +608,23 @@ impl<T: Data + 'static> Var<T> {
     }
 
     /// Applies the *softmax* to `self` and returns a variable with the result.
+    ///
+    /// The *softmax* is applied to all slices along `axis`, and will re-scale them so
+    ///  that the elements lie in the range *[0, 1]* and sum to 1.0.
     pub fn softmax(self, axis: usize) -> Var<Softmax<T>> {
         Var::from(Softmax::new(self.node, axis), self.past)
     }
 
     /// Applies the *log-softmax* to `self` and returns a variable with the result.
+    ///
+    /// Applies a softmax followed by a logarithm. While mathematically equivalent to
+    /// *log(softmax(x))*, doing these two operations separately is slower, and numerically
+    /// unstable. This function uses an alternative formulation to compute the output and
+    /// gradient correctly.
+    ///
+    /// See also [`softmax()`].
+    ///
+    /// [`softmax()`]: Var::softmax()
     pub fn log_softmax(self, axis: usize) -> Var<LogSoftmax<T>> {
         Var::from(LogSoftmax::new(self.node, axis), self.past)
     }
@@ -638,6 +677,26 @@ where
     /// `axis`.
     pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
         Var::from(Unsqueeze::new(self.node, axis), self.past)
+    }
+
+    /// Concatenates the variables `self` and `rhs` along `axis`.
+    ///
+    /// All variables must have the same shape, except in the concatenating dimension.
+    pub fn cat<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Cat<Rhs>>::Output
+    where
+        Self: Cat<Rhs>,
+    {
+        Cat::cat(self, rhs, axis)
+    }
+
+    /// Stacks the variables `self` and `rhs` along a new dimension specified by `axis`.
+    ///
+    /// All variables must have the same shape.
+    pub fn stack<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Stack<Rhs>>::Output
+    where
+        Self: Stack<Rhs>,
+    {
+        Stack::stack(self, rhs, axis)
     }
 }
 
@@ -851,6 +910,72 @@ where
 
 impl<T, U> VarDiff<T, U>
 where
+    T: Data<Dim = Ix1> + 'static,
+    U: Gradient<Dim = Ix1> + Overwrite + 'static,
+{
+    /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
+    /// variable `rhs`.
+    ///
+    /// If `self` is *n* and `rhs` is *(n, m)* the output will be *m*.
+    pub fn vm_mul<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
+    where
+        Self: VecMatMul<Rhs>,
+    {
+        VecMatMul::vm_mul(self, rhs)
+    }
+
+    /// Vector-vector product, a.k.a. *scalar product* or *inner product*.
+    ///
+    /// Performs the scalar product between the two vector variables `self` and `rhs`.
+    pub fn vv_mul<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
+    where
+        Self: VecVecMul<Rhs>,
+    {
+        VecVecMul::vv_mul(self, rhs)
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data<Dim = Ix2> + 'static,
+    U: Gradient<Dim = Ix2> + Overwrite + 'static,
+{
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
+    /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
+    pub fn mm_mul<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
+    where
+        Self: MatMatMul<Rhs>,
+    {
+        MatMatMul::mm_mul(self, rhs)
+    }
+
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`.
+    /// This is a **fused operation** as `rhs` is implicitly transposed. Fusing the two operations
+    /// it's marginally faster than computing the matrix multiplication and the transposition
+    /// separately.
+    ///
+    /// If `self` is  *(n, m)* and `rhs` is *(o, m)* the output will be *(n, o)*.
+    pub fn mm_mul_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
+    where
+        Self: MatMatMulT<Rhs>,
+    {
+        MatMatMulT::mm_mul_t(self, rhs)
+    }
+
+    /// Performs a matrix-vector multiplication between the matrix variable `self` and the vector
+    /// variable `rhs`.
+    ///
+    /// If `self` is *(n, m)* and `rhs` is *m* the output will be *n*.
+    pub fn mv_mul<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
+    where
+        Self: MatVecMul<Rhs>,
+    {
+        MatVecMul::mv_mul(self, rhs)
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
     T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
 {
@@ -917,12 +1042,14 @@ where
     }
 
     /// Applies the *softplus* element-wise and returns a differentiable variable with the result.
+    ///
+    /// *Softplus(x) = log(1 + exp(x))*
     pub fn softplus(self) -> VarDiff<SoftPlus<T>, SoftPlusBackward<U, T>> {
         let node = SoftPlusBackward::new(self.node, self.var.node.clone());
         VarDiff::from(node, self.past, self.var.softplus())
     }
 
-    /// Applies the *sigmoid* element-wise and returns a differentiiable variable with the result.
+    /// Applies the *sigmoid* element-wise and returns a differentiable variable with the result.
     pub fn sigmoid(self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, Sigmoid<T>>> {
         let var = self.var.sigmoid();
         let node = SigmoidBackward::new(self.node, var.node.clone());
@@ -952,6 +1079,9 @@ where
     }
 
     /// Applies the *softmax* to `self` and returns a differentiable variable with the result.
+    ///
+    /// The *softmax* is applied to all slices along `axis`, and will re-scale them so
+    ///  that the elements lie in the range *[0, 1]* and sum to 1.0.
     pub fn softmax(self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, Softmax<T>>> {
         let var = self.var.softmax(axis);
         let node = SoftmaxBackward::new(self.node, var.node.clone(), axis);
@@ -959,6 +1089,15 @@ where
     }
 
     /// Applies the *log-softmax* to `self` and returns a differentiable variable with the result.
+    ///
+    /// Applies a softmax followed by a logarithm. While mathematically equivalent to
+    /// *log(softmax(x))*, doing these two operations separately is slower, and numerically
+    /// unstable. This function uses an alternative formulation to compute the output and
+    /// gradient correctly.
+    ///
+    /// See also [`softmax()`].
+    ///
+    /// [`softmax()`]: VarDiff::softmax()
     pub fn log_softmax(
         self,
         axis: usize,
@@ -1051,6 +1190,26 @@ where
             self.past,
             self.var.unsqueeze(axis),
         )
+    }
+
+    /// Concatenates the variables `self` and `rhs` along `axis`.
+    ///
+    /// All variables must have the same shape, except in the concatenating dimension.
+    pub fn cat<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Cat<Rhs>>::Output
+    where
+        Self: Cat<Rhs>,
+    {
+        Cat::cat(self, rhs, axis)
+    }
+
+    /// Stacks the variables `self` and `rhs` along a new dimension specified by `axis`.
+    ///
+    /// All variables must have the same shape.
+    pub fn stack<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Stack<Rhs>>::Output
+    where
+        Self: Stack<Rhs>,
+    {
+        Stack::stack(self, rhs, axis)
     }
 }
 

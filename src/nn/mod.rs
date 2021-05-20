@@ -30,8 +30,10 @@ pub mod init {
         }
     }
 
-    /// For MLPs `fan_in` and `fan_out` are respectively the number of inputs and outputs to an
-    /// hidden unit of the layer. For CNNs however, the number of input feature maps and the size
+    /// Returns the *fan_in* and the *fan_out*
+    ///
+    /// For *MLPs* *fan_in* and *fan_out* are respectively the number of inputs and outputs to an
+    /// hidden unit of the layer. For *CNNs* however, the number of input feature maps and the size
     /// of the receptive field must be taken into account .
     pub fn calculate_fan_in_fan_out<D: Dimension>(
         param: &VarDiff<Input<D>, InputBackward<D>>,
@@ -57,22 +59,23 @@ pub mod init {
         (fan_in, fan_out)
     }
 
-    /// Fills the input with `value`.
+    /// Fills the differentiable variable with a constant value.
     pub fn constant<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, value: f32) {
         param.data_mut().map_inplace(|el| *el = value);
     }
 
-    /// Fills the input with `0.0`.
+    /// Fills the differentiable variable with zeros.
     pub fn zeros<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 0.);
     }
 
-    /// Fills the input with `1.0`.
+    /// Fills the differentiable variable with ones.
     pub fn ones<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 1.0);
     }
 
-    /// Fills the 2-dimensional input with the identity matrix.
+    /// Fills the matrix differentiable variable with the identity matrix.
+    ///
     /// Preserves the identity of the inputs in Linear layers, where as
     /// many inputs are preserved as possible.
     pub fn eye(param: &mut VarDiff<Input<Ix2>, InputBackward<Ix2>>) {
@@ -85,9 +88,10 @@ pub mod init {
         }
     }
 
-    /// Fills the *{3, 4, 5}-dimensional* parameter with the Dirac delta function. Preserves the
-    /// identity of the inputs in convolutional layers, where as many input channels
-    /// are preserved as possible. In case of `groups` > 1, each group of channels preserves
+    /// Fills the *{3, 4, 5}-dimensional* differentiable variable with the Dirac delta function.
+    ///
+    /// Preserves the identity of the inputs in convolutional layers, where as many input channels
+    /// are preserved as possible. In case of `groups > 1`, each group of channels preserves
     /// identity.
     pub fn dirac<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, groups: usize) {
         let mut data = param.data_mut();
@@ -121,8 +125,8 @@ pub mod init {
         }
     }
 
-    /// Fills the input with elements drawn from
-    /// the uniform distribution U(low, high).
+    /// Fills the differentiable variable with elements drawn from the uniform distribution
+    /// *U(low, high)*.
     pub fn uniform<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         low: f32,
@@ -135,8 +139,8 @@ pub mod init {
             .map_inplace(|el| *el = unif_dstr.sample(&mut t_rng));
     }
 
-    /// Fills the input with elements drawn from
-    /// the normal distribution N(mean, std^2).
+    /// Fills the differentiable variable with elements drawn from the normal distribution
+    /// *N(mean, std^2)*.
     pub fn normal<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         mean: f32,
@@ -149,10 +153,10 @@ pub mod init {
             .map_inplace(|el| *el = norm_dstr.sample(&mut t_rng));
     }
 
-    /// Fills the input with values according to the method
-    /// described in Understanding the difficulty of training deep feedforward
-    /// neural networks - Glorot, X. & Bengio, Y. (2010), using a uniform
-    /// distribution.
+    /// Fills the differentiable variable with values according to the method described in
+    /// [Understanding the difficulty of training deep feedforward
+    /// neural networks](http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf) - Glorot, X. &
+    /// Bengio, Y. (2010), using a uniform distribution.
     pub fn xavier_uniform<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         gain: f32,
@@ -167,12 +171,12 @@ pub mod init {
             .map_inplace(|el| *el = unif_distr.sample(&mut t_rng));
     }
 
-    /// Fills the input with values according to the method
-    /// described in Understanding the difficulty of training deep feedforward
-    /// neural networks - Glorot, X. & Bengio, Y. (2010), using a normal
-    /// distribution.
+    /// Fills the differentiable variable with values according to the method described in
+    /// [Understanding the difficulty of training deep feedforward
+    /// neural networks](http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf) - Glorot, X. &
+    /// Bengio, Y. (2010), using a normal distribution.
     ///
-    /// Also known as Glorot initialization.
+    /// Also known as **Glorot initialization**.
     pub fn xavier_normal<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, gain: f32) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
@@ -435,6 +439,8 @@ impl GRUCell {
 }
 
 /// Applies a **temporal convolution** over an input signal composed of several input planes.
+///
+/// See also [`GroupedConv1d`].
 pub struct Conv1d<Pad: PaddingMode> {
     padding: usize,
     padding_mode: Pad,
@@ -655,6 +661,8 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
 }
 
 /// Applies a **spatial convolution** over an input signal composed of several input planes.
+///
+/// See also [`GroupedConv2d`].
 pub struct Conv2d<Pad: PaddingMode> {
     padding: (usize, usize),
     padding_mode: Pad,
@@ -894,6 +902,8 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
 }
 
 /// Applies a **volumetric convolution** over an input signal composed of several input planes.
+///
+/// See also [`GroupedConv3d`].
 pub struct Conv3d<Pad: PaddingMode> {
     padding: (usize, usize, usize),
     padding_mode: Pad,

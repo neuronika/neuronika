@@ -968,7 +968,7 @@ where
     }
 }
 
-/// Computes the **binary cross entropy** between the target y and input x.
+/// Computes the **binary cross entropy with logits** between the target y and input x.
 ///
 /// ```text
 ///        1   n
