@@ -1,3 +1,4 @@
+//! Basic building blocks for neural networks.
 use convolution::{Convolve, ConvolveWithGroups, PaddingMode};
 
 use super::{Input, InputBackward};
@@ -14,6 +15,7 @@ use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub mod init {
+    //! Neural layers' initialisation functions.
     use super::super::{variable::VarDiff, Input, InputBackward};
     use ndarray::{Axis, Dimension, Ix2};
     use rand::thread_rng;

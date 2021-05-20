@@ -30,15 +30,23 @@ pub trait PaddingMode: Send + Sync + Clone {
 }
 
 /// Zero padding.
+///
+/// See also [`constant_pad`] for more informations.
 #[derive(Clone)]
 pub struct Zero;
 /// Constant padding.
+///
+/// See also [`constant_pad`] for more informations.
 #[derive(Clone)]
 pub struct Constant(f32);
 /// Reflective padding.
+///
+/// See also [`reflection_pad`] for more informations.
 #[derive(Clone)]
 pub struct Reflective;
 /// Replicative padding.
+///
+/// See also [`replication_pad`] for more informations.
 #[derive(Clone)]
 pub struct Replicative;
 

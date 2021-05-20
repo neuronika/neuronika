@@ -1,3 +1,4 @@
+//! Implementations of various optimization algorithms.
 use crate::variable::Param;
 pub use adagrad::Adagrad;
 pub use adam::Adam;
