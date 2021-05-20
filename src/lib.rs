@@ -1,3 +1,23 @@
+//! The `neuronika` crate provides autodifferentiation and dynamic neural networks.
+//!
+//! Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
+//! use, fast experimentation and performance.
+//!
+//! ## Highlights:
+//!
+//! * Define by run computational graphs.
+//! * Reverse-mode automatic differentiation.
+//! * Dynamic neural networks
+//!
+//! The main building block of neuronika are *variables* and *differentiable variables*.
+//! This means that when you use this crate you are handling and manipulating instances of [`Var`]
+//! and [`VarDiff`].
+//!
+//! Variables are lean and powerful abstractions over the computational graph's nodes. Neuronika
+//! empowers you with the ability of imperatively building and differentiating such graphs with
+//! minimal amount of code and effort.
+//!
+//! The provided API is linear in thought and minimal as it is designed around you, the user.
 pub mod data;
 pub mod nn;
 pub mod optim;
