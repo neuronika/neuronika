@@ -53,7 +53,7 @@
 //!
 //! ### Differentiability Arithmetic
 //!
-//! As stated before, you can manipulate variables by performing operations of them; the results of
+//! As stated before, you can manipulate variables by performing operations on them; the results of
 //! those computations will also be variables, although not leaf ones.
 //!
 //! The result of an operation between two differentiable variables will also be a differentiable
