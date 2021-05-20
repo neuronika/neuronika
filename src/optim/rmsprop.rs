@@ -32,15 +32,15 @@ impl<'a, T> RMSProp<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - vector of [`Param`] to optimize.
+    /// * `params` - vector of [`Param`] to optimize.
     ///
-    /// `lr` - learning rate.
+    /// * `lr` - learning rate.
     ///
-    /// `alpha` - smoothing constant. A good default value is *0.99*.
+    /// * `alpha` - smoothing constant. A good default value is *0.99*.
     ///
-    /// `penalty` - penalty regularization.
+    /// * `penalty` - penalty regularization.
     ///
-    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
@@ -231,17 +231,17 @@ impl<'a, T> RMSPropWithMomentum<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - vector of [`Param`] to optimize.
+    /// * `params` - vector of [`Param`] to optimize.
     ///
-    /// `lr` - learning rate.
+    /// * `lr` - learning rate.
     ///
-    /// `alpha` - smoothing constant. A good default value is *0.99*.
+    /// * `alpha` - smoothing constant. A good default value is *0.99*.
     ///
-    /// `momentum` - momentum factor.
+    /// * `momentum` - momentum factor.
     ///
-    /// `penalty` - penalty regularization.
+    /// * `penalty` - penalty regularization.
     ///
-    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(
         params: Vec<Param>,
         lr: f32,
@@ -391,15 +391,15 @@ impl<'a, T> RMSPropCentered<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - vector of [`Param`] to optimize.
+    /// * `params` - vector of [`Param`] to optimize.
     ///
-    /// `lr` - learning rate.
+    /// * `lr` - learning rate.
     ///
-    /// `alpha` - smoothing constant. A good default value is *0.99*.
+    /// * `alpha` - smoothing constant. A good default value is *0.99*.
     ///
-    /// `penalty` - penalty regularization.
+    /// * `penalty` - penalty regularization.
     ///
-    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
@@ -561,17 +561,17 @@ impl<'a, T> RMSPropCenteredWithMomentum<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - vector of [`Param`] to optimize.
+    /// * `params` - vector of [`Param`] to optimize.
     ///
-    /// `lr` - learning rate.
+    /// * `lr` - learning rate.
     ///
-    /// `alpha` - smoothing constant. A good default value is *0.99*.
+    /// * `alpha` - smoothing constant. A good default value is *0.99*.
     ///
-    /// `momentum` - momentum factor.
+    /// * `momentum` - momentum factor.
     ///
-    /// `penalty` - penalty regularization.
+    /// * `penalty` - penalty regularization.
     ///
-    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(
         params: Vec<Param>,
         lr: f32,

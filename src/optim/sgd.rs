@@ -53,11 +53,11 @@ impl<'a, T: Penalty> SGD<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - vector of [`Param`] to optimize.
+    /// * `params` - vector of [`Param`] to optimize.
     ///
-    /// `lr` - learning rate.
+    /// * `lr` - learning rate.
     ///
-    /// `penalty` - penalty regularization.
+    /// * `penalty` - penalty regularization.
     pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(parameters.len());
@@ -80,11 +80,11 @@ impl<'a, T: Penalty> SGD<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `momentum` - the momentum factor.
+    /// * `momentum` - the momentum factor.
     ///
-    /// `dampening` - the dampening factor for momentum.
+    /// * `dampening` - the dampening factor for momentum.
     ///
-    /// `nesterov` - enables *Nesterov* momentum.
+    /// * `nesterov` - enables *Nesterov* momentum.
     pub fn with_momentum(
         self,
         momentum: f32,
@@ -193,17 +193,17 @@ impl<'a, T: Penalty> SGDWithMomentum<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - vector of [`Param`] to optimize.
+    /// * `params` - vector of [`Param`] to optimize.
     ///
-    /// `lr` - learning rate.
+    /// * `lr` - learning rate.
     ///
-    /// `penalty` - penalty regularization.
+    /// * `penalty` - penalty regularization.
     ///
-    /// `momentum` - the momentum factor.
+    /// * `momentum` - the momentum factor.
     ///
-    /// `dampening` - the dampening factor for momentum.
+    /// * `dampening` - the dampening factor for momentum.
     ///
-    /// `nesterov` - enables *Nesterov* momentum.
+    /// * `nesterov` - enables *Nesterov* momentum.
     ///
     /// Nesterov momentum is based on the formula from
     /// [On the importance of initialization and momentum in deep learning](http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf).

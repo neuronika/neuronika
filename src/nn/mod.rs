@@ -208,9 +208,9 @@ impl Linear {
     ///
     /// # Arguments
     ///
-    /// `in_features` – size of each input sample.
+    /// * `in_features` – size of each input sample.
     ///
-    /// `out_features` – size of each output sample.
+    /// * `out_features` – size of each output sample.
     ///
     /// The learnable weight of the layer is of shape `(out_features, in_features)`. The learnable
     /// bias of the layer is of shape `out_features`.
@@ -261,9 +261,9 @@ impl LSTMCell {
     ///
     /// # Arguments
     ///
-    /// `input_size` - number of expected features in the input.
+    /// * `input_size` - number of expected features in the input.
     ///
-    /// `hidden_size` - number of features in the hidden state.
+    /// * `hidden_size` - number of features in the hidden state.
     ///
     /// All the weight and biases are initialised from *U(-k, k)* where
     /// `k = (1. / hidden_size as f32).sqrt()`.
@@ -299,11 +299,11 @@ impl LSTMCell {
     ///
     /// # Arguments
     ///
-    /// `state` - a tuple of tensors, both of shape *(batch, hidden_size)*, containing the
+    /// * `state` - a tuple of tensors, both of shape *(batch, hidden_size)*, containing the
     /// initial hidden state for each element in the batch and the initial cell's state for
     /// each element in the batch.
     ///
-    /// `input` - a tensor containing the input features of shape *(batch, input_size)*.
+    /// * `input` - a tensor containing the input features of shape *(batch, input_size)*.
     ///
     /// The **output** is a tuple of tensors made of the next hidden state for each element in
     /// the batch, of shape *(batch, hidden_size)* and the next cell's state for each element in
@@ -363,9 +363,9 @@ impl GRUCell {
     ///
     /// # Arguments
     ///
-    /// `input_size` - number of expected features in the input.
+    /// * `input_size` - number of expected features in the input.
     ///
-    /// `hidden_size` - number of features in the hidden state.
+    /// * `hidden_size` - number of features in the hidden state.
     ///
     /// All the weight and biases are initialised from *U(-k, k)* where
     /// `k = (1. /hidden_size as f32).sqrt()`.
@@ -399,10 +399,10 @@ impl GRUCell {
 
     /// Computes a single **GRU step**.
     ///
-    /// `hidden` - a tensor of shape *(batch, hidden_size)*, containing the initial hidden state
+    /// * `hidden` - a tensor of shape *(batch, hidden_size)*, containing the initial hidden state
     /// for each element in the batch.
     ///
-    /// `input` - a tensor containing the input features of shape *(batch, input_size)*.
+    /// * `input` - a tensor containing the input features of shape *(batch, input_size)*.
     ///
     /// The **output** is  a tensor made of the next hidden state for each element in
     /// the batch, of shape *(batch, hidden_size)*.
@@ -457,20 +457,20 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     ///
     /// # Arguments
     ///
-    /// `in_channels` - number of planes in the input signal.
+    /// * `in_channels` - number of planes in the input signal.
     ///
-    /// `out_channels` - number of planes in the output signal.
+    /// * `out_channels` - number of planes in the output signal.
     ///
-    /// `kernel_size` - size of the kernel, a number for this one-dimensional case.
+    /// * `kernel_size` - size of the kernel, a number for this one-dimensional case.
     ///
-    /// `padding` - padding to be applied to the input, a number for this one-dimensional case.
+    /// * `padding` - padding to be applied to the input, a number for this one-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// * `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
     /// [`Replicative`].
     ///
-    /// `stride` - stride of the convolution, a number for this one-dimensional case.
+    /// * `stride` - stride of the convolution, a number for this one-dimensional case.
     ///
-    /// `dilation` - controls the spacing between the kernel points, a number for this
+    /// * `dilation` - controls the spacing between the kernel points, a number for this
     /// one-dimensional case.
     ///
     /// The weight and the bias of the layer are initialised from *U(-k, k)* where
@@ -559,23 +559,23 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     ///
     /// # Arguments
     ///
-    /// `in_channels` - number of planes in the input signal.
+    /// * `in_channels` - number of planes in the input signal.
     ///
-    /// `out_channels` - number of planes in the output signal.
+    /// * `out_channels` - number of planes in the output signal.
     ///
-    /// `kernel_size` - size of the kernel, a number for this one-dimensional case.
+    /// * `kernel_size` - size of the kernel, a number for this one-dimensional case.
     ///
-    /// `padding` - padding to be applied to the input, a number for this one-dimensional case.
+    /// * `padding` - padding to be applied to the input, a number for this one-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// * `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
     /// [`Replicative`].
     ///
-    /// `stride` - stride of the convolution, a number for this one-dimensional case.
+    /// * `stride` - stride of the convolution, a number for this one-dimensional case.
     ///
-    /// `dilation` - controls the spacing between the kernel points, a number for this
+    /// * `dilation` - controls the spacing between the kernel points, a number for this
     /// one-dimensional case.
     ///
-    /// `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
     /// `out_channels` must both be **divisible by groups**.
     ///
     /// For example:
@@ -679,20 +679,20 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     ///
     /// # Arguments
     ///
-    /// `in_channels` - number of planes in the input signal.
+    /// * `in_channels` - number of planes in the input signal.
     ///
-    /// `out_channels` - number of planes in the output signal.
+    /// * `out_channels` - number of planes in the output signal.
     ///
-    /// `kernel_size` - size of the kernel, a 2-tuple for this two-dimensional case.
+    /// * `kernel_size` - size of the kernel, a 2-tuple for this two-dimensional case.
     ///
-    /// `padding` - padding to be applied to the input, a 2-tuple for this two-dimensional case.
+    /// * `padding` - padding to be applied to the input, a 2-tuple for this two-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// * `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
     /// [`Replicative`].
     ///
-    /// `stride` - stride of the convolution, a 2-tuple for this two-dimensional case.
+    /// * `stride` - stride of the convolution, a 2-tuple for this two-dimensional case.
     ///
-    /// `dilation` - controls the spacing between the kernel points, a 2-tuple for this
+    /// * `dilation` - controls the spacing between the kernel points, a 2-tuple for this
     /// two-dimensional case.
     ///
     /// The weight and the bias are initialised from *U(-k, k)* where
@@ -792,23 +792,23 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     ///
     /// # Arguments
     ///
-    /// `in_channels` - number of planes in the input signal.
+    /// * `in_channels` - number of planes in the input signal.
     ///
-    /// `out_channels` - number of planes in the output signal.
+    /// * `out_channels` - number of planes in the output signal.
     ///
-    /// `kernel_size` - size of the kernel, a 2-tuple  for this two-dimensional case.
+    /// * `kernel_size` - size of the kernel, a 2-tuple  for this two-dimensional case.
     ///
-    /// `padding` - padding to be applied to the input, a 2-tuple  for this two-dimensional case.
+    /// * `padding` - padding to be applied to the input, a 2-tuple  for this two-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// * `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
     /// [`Replicative`].
     ///
-    /// `stride` - stride of the convolution, a 2-tuple  for this two-dimensional case.
+    /// * `stride` - stride of the convolution, a 2-tuple  for this two-dimensional case.
     ///
-    /// `dilation` - controls the spacing between the kernel points, a 2-tuple  for this
+    /// * `dilation` - controls the spacing between the kernel points, a 2-tuple  for this
     /// two-dimensional case.
     ///
-    /// `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
     /// `out_channels` must both be divisible by groups.
     ///
     /// For example:
@@ -920,20 +920,20 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     ///
     /// # Arguments
     ///
-    /// `in_channels` - number of planes in the input signal.
+    /// * `in_channels` - number of planes in the input signal.
     ///
-    /// `out_channels` - number of planes in the output signal.
+    /// * `out_channels` - number of planes in the output signal.
     ///
     /// `kernel_size` - size of the kernel, a 3-tuple for this three-dimensional case.
     ///
-    /// `padding` - padding to be applied to the input, a 3-tuple for this three-dimensional case.
+    /// * `padding` - padding to be applied to the input, a 3-tuple for this three-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// * `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
     /// [`Replicative`].
     ///
-    /// `stride` - stride of the convolution, a 3-tuple for this three-dimensional case.
+    /// * `stride` - stride of the convolution, a 3-tuple for this three-dimensional case.
     ///
-    /// `dilation` - controls the spacing between the kernel points, a 3-tuple for this
+    /// * `dilation` - controls the spacing between the kernel points, a 3-tuple for this
     /// three-dimensional case.
     ///
     /// The weight and the bias of the layer are initialised from *U(-k, k)* where
@@ -1037,23 +1037,23 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     ///
     /// # Arguments
     ///
-    /// `in_channels` - number of planes in the input signal.
+    /// * `in_channels` - number of planes in the input signal.
     ///
-    /// `out_channels` - number of planes in the output signal.
+    /// * `out_channels` - number of planes in the output signal.
     ///
-    /// `kernel_size` - size of the kernel, a 3-tuple  for this three-dimensional case.
+    /// * `kernel_size` - size of the kernel, a 3-tuple  for this three-dimensional case.
     ///
-    /// `padding` - padding to be applied to the input, a 3-tuple  for this three-dimensional case.
+    /// * `padding` - padding to be applied to the input, a 3-tuple  for this three-dimensional case.
     ///
-    /// `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
+    /// * `padding_mode` - padding mode, it can be: [`Zero`], [`Constant`], [`Reflective`] or
     /// [`Replicative`].
     ///
-    /// `stride` - stride of the convolution, a 3-tuple  for this three-dimensional case.
+    /// * `stride` - stride of the convolution, a 3-tuple  for this three-dimensional case.
     ///
-    /// `dilation` - controls the spacing between the kernel points, a 3-tuple  for this
+    /// * `dilation` - controls the spacing between the kernel points, a 3-tuple  for this
     /// three-dimensional case.
     ///
-    /// `groups` -  controls the connections between inputs and outputs. `in_channels` and
+    /// * `groups` -  controls the connections between inputs and outputs. `in_channels` and
     /// `out_channels` must both be divisible by groups.
     ///
     /// For example:
@@ -1104,7 +1104,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
 
     /// Computes a 3-dimensional grouped convolution *(cross correlation)*.
     ///
-    /// * `input` - the signal to convolve.
+    /// `input` - the signal to convolve.
     ///
     /// The **input** must be of shape *(N, Cin, D, H, W)*
     /// * **N** is the batch size

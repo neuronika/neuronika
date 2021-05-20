@@ -23,16 +23,16 @@ impl<'a, T> Adam<'a, T> {
     ///
     /// # Arguments
     ///
-    /// `params` - vector of [`Param`] to optimize.
+    /// * `params` - vector of [`Param`] to optimize.
     ///
-    /// `lr` - learning rate.
+    /// * `lr` - learning rate.
     ///
-    /// `betas` - a 2-tuple of coefficients used for computing running averages of the gradient
+    /// * `betas` - a 2-tuple of coefficients used for computing running averages of the gradient
     /// and its square. Good default is: *(0.9, 0.999)*.
     ///
-    /// `penalty` - penalty regularization.
+    /// * `penalty` - penalty regularization.
     ///
-    /// `eps` - small constant for numerical stability. A good default value is *1e-8*.
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
         let params = {
             let mut vec = Vec::with_capacity(params.len());
