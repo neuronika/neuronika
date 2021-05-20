@@ -11,13 +11,17 @@
 //!
 //! ## Variables
 //!
-//! The main building block of neuronika are *variables* and *differentiable variables*.
+//! The main building blocks of neuronika are *variables* and *differentiable variables*.
 //! This means that when you use this crate you are handling and manipulating instances of [`Var`]
 //! and [`VarDiff`].
 //!
 //! Variables are lean and powerful abstractions over the computational graph's nodes. Neuronika
 //! empowers you with the ability of imperatively building and differentiating such graphs with
 //! minimal amount of code and effort.
+//!
+//! Both differentiable and non-differentiable variables can be understood as *tensors*, you
+//! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
+//! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
 //!
 //! The provided API is linear in thought and minimal as it is carefully tailored around you, the
 //! user.
@@ -39,11 +43,7 @@
 //! neural networks' building blocks. To learn more in detail about those check the
 //! [`nn`](module@nn) module.
 //!
-//! Differentiable leaves hold a gradient, that you can access with [`grad()`](VarDiff::grad()).
-//!
-//! Variables, both differentiable and non-differentiable ones, can be understood as *tensors*, you
-//! can perform all the basic arithmetic operation on them, such as: `+`, `-`, `*` and `/`.
-//! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
+//! Differentiable leaves hold a gradient, you can access it with [`grad()`](VarDiff::grad()).
 //!
 //! ### Computational Graph
 //!
