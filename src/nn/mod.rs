@@ -60,7 +60,22 @@ pub mod init {
     use rand::thread_rng;
     use rand_distr::{Distribution, Normal, Uniform};
 
-    /// Returns the recommended gain value for the given nonlinearity function.
+    /// Returns the recommended gain value for the given non-linearity function.
+    ///
+    /// Supported non-linearities are:
+    /// * linear
+    /// * sigmoid
+    /// * tanh
+    /// * relu
+    /// * leaky_relu
+    ///
+    /// # Arguments
+    ///
+    /// `non_linearity` - a non-linearity function's name.
+    ///
+    /// # Panics
+    ///
+    /// If `non_linearity` is not among those listed above.
     pub fn calculate_gain(non_linearity: &str) -> f32 {
         match non_linearity {
             "linear" | "sigmoid" => 1.0,
@@ -76,6 +91,11 @@ pub mod init {
     /// For *MLPs* *fan_in* and *fan_out* are respectively the number of inputs and outputs to an
     /// hidden unit of the layer. For *CNNs* however, the number of input feature maps and the size
     /// of the receptive field must be taken into account .
+    ///
+    /// # Arguments
+    ///
+    /// `param` - differentiable variable for which the *fan in* and the *fan out* must be
+    /// calculated.
     pub fn calculate_fan_in_fan_out<D: Dimension>(
         param: &VarDiff<Input<D>, InputBackward<D>>,
     ) -> (f32, f32) {
@@ -101,16 +121,30 @@ pub mod init {
     }
 
     /// Fills the differentiable leaf variable with a constant value.
+    ///
+    /// # Arguments
+    ///
+    /// * `param` - differentiable variable to initialise.
+    ///
+    /// * `value` - value to fill the variable with.
     pub fn constant<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, value: f32) {
         param.data_mut().map_inplace(|el| *el = value);
     }
 
     /// Fills the differentiable leaf variable with zeros.
+    ///
+    /// # Arguments
+    ///
+    /// `param` - differentiable variable to initialise.
     pub fn zeros<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 0.);
     }
 
     /// Fills the differentiable leaf variable with ones.
+    ///
+    /// # Arguments
+    ///
+    /// `param` - differentiable variable to initialise.
     pub fn ones<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
         param.data_mut().map_inplace(|el| *el = 1.0);
     }
@@ -119,6 +153,10 @@ pub mod init {
     ///
     /// Preserves the identity of the inputs in Linear layers, where as
     /// many inputs are preserved as possible.
+    ///
+    /// # Arguments
+    ///
+    /// `param` - differentiable variable to initialise.
     pub fn eye(param: &mut VarDiff<Input<Ix2>, InputBackward<Ix2>>) {
         for ((x, y), el) in param.data_mut().indexed_iter_mut() {
             if x == y {
@@ -129,11 +167,23 @@ pub mod init {
         }
     }
 
-    /// Fills the *{3, 4, 5}-dimensional* differentiable leaf variable with the Dirac delta function.
+    /// Fills the {3, 4, 5}-dimensional differentiable leaf variable with the Dirac delta function.
     ///
     /// Preserves the identity of the inputs in convolutional layers, where as many input channels
     /// are preserved as possible. In case of `groups > 1`, each group of channels preserves
     /// identity.
+    ///
+    /// # Arguments
+    ///
+    /// * `param` - differentiable variable to initialise.
+    ///
+    /// * `groups` - number of groups.
+    ///
+    /// # Panics
+    ///
+    /// If the differentiable variable is not {3, 4, 5}-dimensional and the number of output
+    /// channels is not divisible by `groups`. The number of output channels is equal to the length
+    /// of the first axis of `param`'s data.
     pub fn dirac<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, groups: usize) {
         let mut data = param.data_mut();
         let shape = data.shape().to_vec();
@@ -168,6 +218,18 @@ pub mod init {
 
     /// Fills the differentiable leaf variable with elements drawn from the uniform distribution
     /// *U(low, high)*.
+    ///
+    /// # Arguments
+    ///
+    /// * `param` - differentiable variable to initialise.
+    ///
+    /// * `low` - lower bound of the uniform distribution.
+    ///
+    /// * `high` - upper bound of the uniform distribution.
+    ///
+    /// # Panics
+    ///
+    /// If `low` >= `high`.
     pub fn uniform<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         low: f32,
@@ -182,6 +244,14 @@ pub mod init {
 
     /// Fills the differentiable leaf variable with elements drawn from the normal distribution
     /// *N(mean, std^2)*.
+    ///
+    /// # Arguments
+    ///
+    /// * `param` - differentiable variable to initialise.
+    ///
+    /// * `mean` - mean of the normal distribution.
+    ///
+    /// * `std` - standard deviation of the normal distribution.
     pub fn normal<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         mean: f32,
@@ -198,6 +268,12 @@ pub mod init {
     /// [Understanding the difficulty of training deep feedforward
     /// neural networks](http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf) - Glorot, X. &
     /// Bengio, Y. (2010), using a uniform distribution.
+    ///
+    /// # Arguments
+    ///
+    /// * `param` - differentiable variable to initialise.
+    ///
+    /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
     pub fn xavier_uniform<D: Dimension>(
         param: &mut VarDiff<Input<D>, InputBackward<D>>,
         gain: f32,
@@ -218,6 +294,12 @@ pub mod init {
     /// Bengio, Y. (2010), using a normal distribution.
     ///
     /// Also known as **Glorot initialization**.
+    ///
+    /// # Arguments
+    ///
+    /// * `param` - differentiable variable to initialise.
+    ///
+    /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
     pub fn xavier_normal<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, gain: f32) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
