@@ -5,6 +5,8 @@
 //!
 //! The purpose of a loss function is to compute the quantity that a model should seek to minimize
 //! during training.
+//!
+//! All losses are provided via function handles.
 use super::{
     variable::{expect_tensor, expect_tensor_mut, node::Overwrite, OPERATIONS_COUNTER},
     Backward, Data, Forward, Gradient, Tensor, Var, VarDiff,

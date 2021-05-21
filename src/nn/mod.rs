@@ -1045,7 +1045,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     ///
     /// * `out_channels` - number of planes in the output signal.
     ///
-    /// `kernel_size` - size of the kernel, a 3-tuple for this three-dimensional case.
+    /// * `kernel_size` - size of the kernel, a 3-tuple for this three-dimensional case.
     ///
     /// * `padding` - padding to be applied to the input, a 3-tuple for this three-dimensional case.
     ///
