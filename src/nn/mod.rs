@@ -1,4 +1,43 @@
 //! Basic building blocks for neural networks.
+//!
+//! Neuronika provides some pre-assembled components, you can either use them individually or
+//! combine them into a bigger architecture.
+//!
+//! You can also customise the initialisation of the parameters of such components, and that of any
+//! other differentiable variable, by picking the function that best fits your needs from the
+//! [`nn::init`](module@init) module.
+//!
+//! Refer to the [`nn::loss`](module@loss) module for loss functions.
+//!
+//! # Linear Layers
+//!
+//! * [`nn::Linear`](struct@Linear) - Applies a linear transformation to the incoming data.
+//!
+//! # Recurrent Layers
+//!
+//! * [`nn::GRUCell`](struct@GRUCell) - A gated recurrent unit cell.
+//!
+//! * [`nn::LSTMCell`](struct@LSTMCell) - A long short term memory cell.
+//!
+//! # Convolution Layers
+//!
+//! * [`nn::Conv1d`](struct@Conv1d) - Applies a temporal convolution over an input signal composed
+//! of several input planes.
+//!
+//! * [`nn::GroupedConv1d`](struct@GroupedConv1d) - Applies a grouped temporal convolution over an
+//! input signal composed of several input planes.
+//!
+//! * [`nn::Conv2d`](struct@Conv2d) - Applies a spatial convolution over an input signal composed
+//! of several input planes.
+//!
+//! * [`nn::GroupedConv2d`](struct@GroupedConv2d) - Applies a grouped spatial convolution over an
+//! input signal composed of several input planes.
+//!
+//! * [`nn::Conv3d`](struct@Conv3d) - Applies a volumetric convolution over an input signal composed
+//! of several input planes.
+//!
+//! * [`nn::GroupedConv3d`](struct@GroupedConv3d) - Applies a grouped volumetric convolution over an
+//! input signal composed of several input planes.
 use convolution::{Convolve, ConvolveWithGroups, PaddingMode};
 
 use super::{Input, InputBackward};
