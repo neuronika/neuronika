@@ -161,9 +161,9 @@ impl DiffVarHistory {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// A builder of mutable views over a differentiable variable's data and gradient.
 ///
-/// See also [`parameters()`] for more informations.
+/// See also [`.parameters()`] for more informations.
 ///
-/// [`parameters()`]: VarDiff::parameters()
+/// [`.parameters()`]: VarDiff::parameters()
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Param {
     data: *mut f32,
