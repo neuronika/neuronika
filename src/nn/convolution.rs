@@ -2325,7 +2325,7 @@ pub trait ReplPad: Dimension {
 ///
 /// * `input` - the array to be padded.
 ///
-/// * `padding` - a slice specifying the amount of padding for each dimension.
+/// * `padding` - the amount of padding for each dimension.
 ///
 /// * `value` - the value for the padding.
 ///
@@ -2406,7 +2406,7 @@ fn constant_pad_inplace<S, T, D>(
 ///
 /// * `input` - the array to be padded.
 ///
-/// * `padding` - a slice specifying the amount of padding for each dimension.
+/// * `padding` - the amount of padding for each dimension.
 ///
 /// # Examples
 ///
@@ -2445,7 +2445,7 @@ where
 ///
 /// * `input` - the array to be padded.
 ///
-/// * `padding` - a slice specifying the amount of padding for each dimension.
+/// * `padding` - the amount of padding for each dimension.
 ///
 /// # Examples
 ///
