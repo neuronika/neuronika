@@ -71,7 +71,7 @@ pub mod init {
         }
     }
 
-    /// Returns the *fan_in* and the *fan_out*
+    /// Returns the *fan_in* and the *fan_out*.
     ///
     /// For *MLPs* *fan_in* and *fan_out* are respectively the number of inputs and outputs to an
     /// hidden unit of the layer. For *CNNs* however, the number of input feature maps and the size
