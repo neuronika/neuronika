@@ -56,21 +56,13 @@ impl Penalty for L2 {
 
 impl Penalty for L1 {
     fn penalise(&self, w: &f32) -> f32 {
-        if *w != 0. {
-            self.lambda * w.signum()
-        } else {
-            0.
-        }
+        self.lambda * w.signum()
     }
 }
 
 impl Penalty for ElasticNet {
     fn penalise(&self, w: &f32) -> f32 {
-        if *w != 0. {
-            self.lambda_l1 * w.signum() + 2. * self.lambda_l2 * w
-        } else {
-            0.
-        }
+        self.lambda_l1 * w.signum() + 2. * self.lambda_l2 * w
     }
 }
 
