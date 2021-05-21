@@ -1,7 +1,7 @@
 use ndarray::{
     iter::{AxisChunksIter, AxisChunksIterMut},
-    Array, ArrayBase, ArrayView, ArrayViewMut, Axis, Data, DataMut, Dimension, Ix1, Ix2, Ix3,
-    IxDyn, RawData, RemoveAxis, ShapeBuilder, Slice, ViewRepr, Zip,
+    Array, ArrayBase, ArrayView, ArrayViewMut, Axis, Data, DataMut, Dimension, IntoDimension, Ix1,
+    Ix2, Ix3, IxDyn, RawData, RemoveAxis, ShapeBuilder, Slice, ViewRepr, Zip,
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use std::{
@@ -2323,11 +2323,11 @@ pub trait ReplPad: Dimension {
 ///
 /// # Arguments
 ///
-/// `input` - the array to be padded.
+/// * `input` - the array to be padded.
 ///
-/// `padding` - a slice specifying for each dimension the amount of padding for each dimension.
+/// * `padding` - a slice specifying the amount of padding for each dimension.
 ///
-/// `value` - the value for the padding.
+/// * `value` - the value for the padding.
 ///
 /// # Examples
 ///
@@ -2339,7 +2339,7 @@ pub trait ReplPad: Dimension {
 ///    [4., 5., 6.],
 ///    [7., 8., 9.]
 /// ];
-/// let padded = nn::constant_pad(&arr, &[1, 1], 0.);
+/// let padded = nn::constant_pad(&arr, (1, 1), 0.);
 /// let result = ndarray::array![
 ///    [0., 0., 0., 0., 0.],
 ///    [0., 1., 2., 3., 0.],
@@ -2350,22 +2350,24 @@ pub trait ReplPad: Dimension {
 ///
 /// assert_eq!(padded, result);
 /// ```
-pub fn constant_pad<S, D>(input: &ArrayBase<S, D>, padding: &[usize], val: f32) -> Array<f32, D>
+pub fn constant_pad<S, D, E>(input: &ArrayBase<S, D>, padding: E, val: f32) -> Array<f32, D>
 where
     D: Dimension,
     S: DataMut<Elem = f32>,
+    E: IntoDimension<Dim = D>,
 {
+    let padding_into_dim = padding.into_dimension();
     let padded_shape = {
         let mut padded_shape = input.raw_dim();
         padded_shape
             .slice_mut()
             .iter_mut()
-            .zip(padding.iter())
+            .zip(padding_into_dim.slice().iter())
             .for_each(|(ax_len, pad)| *ax_len += pad * 2);
         padded_shape
     };
     let mut padded = Array::zeros(padded_shape);
-    constant_pad_inplace(&mut padded, &input, padding, val);
+    constant_pad_inplace(&mut padded, &input, padding_into_dim.slice(), val);
     padded
 }
 
@@ -2402,9 +2404,9 @@ fn constant_pad_inplace<S, T, D>(
 ///
 /// # Arguments
 ///
-/// `input` - the array to be padded.
+/// * `input` - the array to be padded.
 ///
-/// `padding` - a slice specifying for each dimension the amount of padding.
+/// * `padding` - a slice specifying the amount of padding for each dimension.
 ///
 /// # Examples
 ///
@@ -2416,7 +2418,7 @@ fn constant_pad_inplace<S, T, D>(
 ///    [4., 5., 6.],
 ///    [7., 8., 9.]
 /// ];
-/// let padded = nn::reflection_pad(&arr, &[1, 1]);
+/// let padded = nn::reflection_pad(&arr, (1, 1));
 /// let result = ndarray::array![
 ///    [5., 4., 5., 6., 5.],
 ///    [2., 1., 2., 3., 2.],
@@ -2427,11 +2429,12 @@ fn constant_pad_inplace<S, T, D>(
 ///
 /// assert_eq!(padded, result);
 /// ```
-pub fn reflection_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
+pub fn reflection_pad<D, E>(input: &Array<f32, D>, padding: E) -> Array<f32, D>
 where
     D: ReflPad,
+    E: IntoDimension<Dim = D>,
 {
-    D::reflection_pad(&input, padding)
+    D::reflection_pad(&input, padding.into_dimension().slice())
 }
 
 /// Pads the input array using the **replication** of the input boundary.
@@ -2440,9 +2443,9 @@ where
 ///
 /// # Arguments
 ///
-/// `input` - the array to be padded.
+/// * `input` - the array to be padded.
 ///
-/// `padding` - a slice specifying for each dimension the amount of padding.
+/// * `padding` - a slice specifying the amount of padding for each dimension.
 ///
 /// # Examples
 ///
@@ -2454,7 +2457,7 @@ where
 ///    [4., 5., 6.],
 ///    [7., 8., 9.]
 /// ];
-/// let padded = nn::replication_pad(&arr, &[1, 1]);
+/// let padded = nn::replication_pad(&arr, (1, 1));
 /// let result = ndarray::array![
 ///    [1., 1., 2., 3., 3.],
 ///    [1., 1., 2., 3., 3.],
@@ -2465,11 +2468,12 @@ where
 ///
 /// assert_eq!(padded, result);
 /// ```
-pub fn replication_pad<D>(input: &Array<f32, D>, padding: &[usize]) -> Array<f32, D>
+pub fn replication_pad<D, E>(input: &Array<f32, D>, padding: E) -> Array<f32, D>
 where
     D: ReplPad,
+    E: IntoDimension<Dim = D>,
 {
-    D::replication_pad(&input, padding)
+    D::replication_pad(&input, padding.into_dimension().slice())
 }
 
 impl ReflPad for Ix1 {
@@ -2922,7 +2926,7 @@ mod tests {
         let arr = ndarray::Array::range(0., 25., 1.)
             .into_shape((5, 5))
             .unwrap();
-        let padded = super::constant_pad(&arr, &[1, 2], 8.);
+        let padded = super::constant_pad(&arr, [1, 2], 8.);
         assert_eq!(
             padded,
             ndarray::array![
@@ -2940,7 +2944,7 @@ mod tests {
     #[test]
     fn replication_pad_1d() {
         let arr = ndarray::Array::range(0., 5., 1.);
-        let padded = super::replication_pad(&arr, &[2]);
+        let padded = super::replication_pad(&arr, [2]);
         assert_eq!(padded, ndarray::array![0., 0., 0., 1., 2., 3., 4., 4., 4.],);
     }
 
@@ -2949,7 +2953,7 @@ mod tests {
         let arr = ndarray::Array::range(0., 25., 1.)
             .into_shape((5, 5))
             .unwrap();
-        let padded = super::replication_pad(&arr, &[1, 2]);
+        let padded = super::replication_pad(&arr, [1, 2]);
         assert_eq!(
             padded,
             ndarray::array![
@@ -2969,7 +2973,7 @@ mod tests {
         let arr = ndarray::Array::range(0., 125., 1.)
             .into_shape((5, 5, 5))
             .unwrap();
-        let padded = super::replication_pad(&arr, &[1, 2, 3]);
+        let padded = super::replication_pad(&arr, [1, 2, 3]);
         assert_eq!(
             padded,
             ndarray::array![
@@ -3057,7 +3061,7 @@ mod tests {
     #[test]
     fn reflection_pad_1d() {
         let arr = ndarray::Array::range(0., 5., 1.);
-        let padded = super::reflection_pad(&arr, &[2]);
+        let padded = super::reflection_pad(&arr, [2]);
         assert_eq!(padded, ndarray::array![2., 1., 0., 1., 2., 3., 4., 3., 2.],);
     }
 
@@ -3066,7 +3070,7 @@ mod tests {
         let arr = ndarray::Array::range(0., 25., 1.)
             .into_shape((5, 5))
             .unwrap();
-        let padded = super::reflection_pad(&arr, &[1, 2]);
+        let padded = super::reflection_pad(&arr, [1, 2]);
         assert_eq!(
             padded,
             ndarray::array![
@@ -3086,7 +3090,7 @@ mod tests {
         let arr = ndarray::Array::range(0., 125., 1.)
             .into_shape((5, 5, 5))
             .unwrap();
-        let padded = super::reflection_pad(&arr, &[1, 2, 3]);
+        let padded = super::reflection_pad(&arr, [1, 2, 3]);
         assert_eq!(
             padded,
             ndarray::array![
