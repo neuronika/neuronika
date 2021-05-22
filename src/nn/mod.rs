@@ -9,25 +9,6 @@
 //!
 //! Refer to the [`nn::loss`](module@loss) module for loss functions.
 //!
-//! # Assembling a model
-//!
-//! The suggested way of bulding a model using neuronika's building blocks is to define a struct
-//! encapsulating the components.
-//!
-//! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
-//! layers. In neuronika it would look like this:
-//!
-//! ```
-//! use neuronika;
-//! use neuronika::nn;
-//!
-//! struct Mlp {
-//!     lin1: nn::Linear,
-//!     lin2: nn::Linear,
-//!     lin3: nn::Linear,     
-//! }
-//! ```
-//!
 //! # Linear Layers
 //!
 //! * [`nn::Linear`](struct@Linear) - Applies a linear transformation to the incoming data.
