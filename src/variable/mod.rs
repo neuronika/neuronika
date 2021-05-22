@@ -549,6 +549,9 @@ impl<T: Data + 'static> Var<T> {
     }
 
     /// Returns an immutable reference to the data inside `self`.
+    ///
+    /// At the variable's creation the data is filled with zeros. You can populate it with a
+    /// call to [`.forward()`](Var::forward()).
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.node.data()
     }
