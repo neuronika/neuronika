@@ -21,77 +21,342 @@ use crate::variable::{
 
 /// Padding modes logic.
 pub trait PaddingMode: Send + Sync + Clone {
-    fn pad<D: ReflPad + ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+    fn pad_inplace<D: ReflPad + ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
         array: &mut ArrayBase<S, D>,
         original: &ArrayBase<T, D>,
         padding: &[usize],
     );
+
+    fn pad<D: ReflPad + ReplPad, E: IntoDimension<Dim = D>>(
+        &self,
+        input: &Array<f32, D>,
+        padding: E,
+    ) -> Array<f32, D>;
 }
 
 /// Zero padding.
 ///
-/// See also [`constant_pad`] for more informations.
+/// See [`.pad()`](Self::pad()) for more informations.
 #[derive(Clone)]
 pub struct Zero;
 /// Constant padding.
 ///
-/// See also [`constant_pad`] for more informations.
+/// See [`.pad()`](Self::pad()) for more informations.
 #[derive(Clone)]
-pub struct Constant(f32);
+pub struct Constant {
+    pub value: f32,
+}
+
+impl Constant {
+    pub fn new(value: f32) -> Self {
+        Self { value }
+    }
+}
 /// Reflective padding.
 ///
-/// See also [`reflection_pad`] for more informations.
+/// See [`.pad()`](Self::pad()) for more informations.
 #[derive(Clone)]
 pub struct Reflective;
 /// Replicative padding.
 ///
-/// See also [`replication_pad`] for more informations.
+/// See [`.pad()`](Self::pad()) for more informations.
 #[derive(Clone)]
 pub struct Replicative;
 
 impl PaddingMode for Zero {
-    fn pad<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+    /// Pads the input array in place with zeros.
+    ///
+    /// See [`.pad()`](Self::pad()) for more informations.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - array to be padded.
+    ///
+    /// * `original` - the original unpadded array.
+    ///
+    /// * `padding` - slice specifying the amount of padding for each dimension.
+    ///
+    /// # Panics
+    ///
+    /// If `padding` length doesn't match `input`'s dimensions.
+    fn pad_inplace<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
-        array: &mut ArrayBase<S, D>,
+        input: &mut ArrayBase<S, D>,
         original: &ArrayBase<T, D>,
         padding: &[usize],
     ) {
-        constant_pad_inplace(array, original, padding, 0.);
+        assert_eq!(
+            padding.len(),
+            input.ndim(),
+            "error: padding length {} doesn't match array dimensions {}",
+            padding.len(),
+            input.ndim()
+        );
+        constant_pad_inplace(input, original, padding, 0.);
+    }
+
+    /// Pads the input array with zeros.
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - the array to be padded.
+    ///
+    /// * `padding` - the amount of padding for each dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use neuronika::nn::{PaddingMode, Zero};
+    ///
+    /// let padding = Zero;
+    /// let arr = ndarray::array![
+    ///    [1., 2., 3.],
+    ///    [4., 5., 6.],
+    ///    [7., 8., 9.]
+    /// ];
+    /// let padded = padding.pad(&arr, (1, 1));
+    /// let result = ndarray::array![
+    ///    [0., 0., 0., 0., 0.],
+    ///    [0., 1., 2., 3., 0.],
+    ///    [0., 4., 5., 6., 0.],
+    ///    [0., 7., 8., 9., 0.],
+    ///    [0., 0., 0., 0., 0.]
+    /// ];
+    ///
+    /// assert_eq!(padded, result);
+    /// ```
+    fn pad<D: Dimension, E: IntoDimension<Dim = D>>(
+        &self,
+        input: &Array<f32, D>,
+        padding: E,
+    ) -> Array<f32, D> {
+        constant_pad(input, padding, 0.)
     }
 }
 
 impl PaddingMode for Constant {
-    fn pad<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+    /// Pads the input array in place using a constant value.
+    ///
+    /// See [`.pad()`](Self::pad()) for more informations.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - array to be padded.
+    ///
+    /// * `original` - the original unpadded array.
+    ///
+    /// * `padding` - slice specifying the amount of padding for each dimension.
+    ///
+    /// # Panics
+    ///
+    /// If `padding` length doesn't match `input`'s dimensions.
+    fn pad_inplace<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
-        array: &mut ArrayBase<S, D>,
+        input: &mut ArrayBase<S, D>,
         original: &ArrayBase<T, D>,
         padding: &[usize],
     ) {
-        let value = self.0;
-        constant_pad_inplace(array, original, padding, value);
+        assert_eq!(
+            padding.len(),
+            input.ndim(),
+            "error: padding length {} doesn't match array dimensions {}",
+            padding.len(),
+            input.ndim()
+        );
+        let value = self.value;
+        constant_pad_inplace(input, original, padding, value);
+    }
+
+    /// Pads the input array with a constant value.
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - the array to be padded.
+    ///
+    /// * `padding` - the amount of padding for each dimension.
+    ///
+    /// * `value` - the value for the padding.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use neuronika::nn::{PaddingMode, Constant};
+    ///
+    /// let padding = Constant::new(8.);
+    /// let arr = ndarray::array![
+    ///    [1., 2., 3.],
+    ///    [4., 5., 6.],
+    ///    [7., 8., 9.]
+    /// ];
+    /// let padded = padding.pad(&arr, (1, 1));
+    /// let result = ndarray::array![
+    ///    [8., 8., 8., 8., 8.],
+    ///    [8., 1., 2., 3., 8.],
+    ///    [8., 4., 5., 6., 8.],
+    ///    [8., 7., 8., 9., 8.],
+    ///    [8., 8., 8., 8., 8.]
+    /// ];
+    ///
+    /// assert_eq!(padded, result);
+    /// ```
+    fn pad<D: Dimension, E: IntoDimension<Dim = D>>(
+        &self,
+        input: &Array<f32, D>,
+        padding: E,
+    ) -> Array<f32, D> {
+        let value = self.value;
+        constant_pad(input, padding, value)
     }
 }
 
 impl PaddingMode for Reflective {
-    fn pad<D: ReflPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+    /// Pads the input array in place using the reflection of its boundary.
+    ///
+    /// See [`.pad()`](Self::pad()) for more informations.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - array to be padded.
+    ///
+    /// * `original` - the original unpadded array.
+    ///
+    /// * `padding` - slice specifying the amount of padding for each dimension.
+    ///
+    /// # Panics
+    ///
+    /// If `padding` length doesn't match `input`'s dimensions.
+    fn pad_inplace<D: ReflPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
-        array: &mut ArrayBase<S, D>,
+        input: &mut ArrayBase<S, D>,
         original: &ArrayBase<T, D>,
         padding: &[usize],
     ) {
-        D::reflection_pad_inplace(array, original, padding);
+        assert_eq!(
+            padding.len(),
+            input.ndim(),
+            "error: padding length {} doesn't match array dimensions {}",
+            padding.len(),
+            input.ndim()
+        );
+        D::reflection_pad_inplace(input, original, padding);
+    }
+
+    /// Pads the input array using the **reflection** of the input boundary.
+    ///
+    /// Only **1**, **2** and **3** dimensional arrays support reflective padding.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - the array to be padded.
+    ///
+    /// * `padding` - the amount of padding for each dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use neuronika::nn::{PaddingMode, Reflective};
+    ///
+    /// let padding = Reflective;
+    /// let arr = ndarray::array![
+    ///    [1., 2., 3.],
+    ///    [4., 5., 6.],
+    ///    [7., 8., 9.]
+    /// ];
+    ///
+    /// let padded = padding.pad(&arr, (1, 1));
+    /// let result = ndarray::array![
+    ///    [5., 4., 5., 6., 5.],
+    ///    [2., 1., 2., 3., 2.],
+    ///    [5., 4., 5., 6., 5.],
+    ///    [8., 7., 8., 9., 8.],
+    ///    [5., 4., 5., 6., 5.]
+    /// ];
+    ///
+    /// assert_eq!(padded, result);
+    /// ```
+    fn pad<D: ReflPad, E: IntoDimension<Dim = D>>(
+        &self,
+        input: &Array<f32, D>,
+        padding: E,
+    ) -> Array<f32, D> {
+        D::reflection_pad(input, padding.into_dimension().slice())
     }
 }
 
 impl PaddingMode for Replicative {
-    fn pad<D: ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+    /// Pads the input array in place using the replication of its boundary.
+    ///
+    /// See [`.pad()`](Self::pad()) for more informations.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - array to be padded.
+    ///
+    /// * `original` - the original unpadded array.
+    ///
+    /// * `padding` - slice specifying the amount of padding for each dimension.
+    ///
+    /// # Panics
+    ///
+    /// If `padding` length doesn't match `input`'s dimensions.
+    fn pad_inplace<D: ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
-        array: &mut ArrayBase<S, D>,
+        input: &mut ArrayBase<S, D>,
         original: &ArrayBase<T, D>,
         padding: &[usize],
     ) {
-        D::replication_pad_inplace(array, original, padding);
+        assert_eq!(
+            padding.len(),
+            input.ndim(),
+            "error: padding length {} doesn't match array dimensions {}",
+            padding.len(),
+            input.ndim()
+        );
+        D::replication_pad_inplace(input, original, padding);
+    }
+
+    /// Pads the input array using the **replication** of its boundary.
+    ///
+    /// Only **1**, **2** and **3** dimensional arrays support replicative padding.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - the array to be padded.
+    ///
+    /// * `padding` - the amount of padding for each dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use neuronika::nn::{Replicative, PaddingMode};
+    ///
+    /// let padding = Replicative;
+    /// let arr = ndarray::array![
+    ///    [1., 2., 3.],
+    ///    [4., 5., 6.],
+    ///    [7., 8., 9.]
+    /// ];
+    ///
+    /// let padded = padding.pad(&arr, (1, 1));
+    /// let result = ndarray::array![
+    ///    [1., 1., 2., 3., 3.],
+    ///    [1., 1., 2., 3., 3.],
+    ///    [4., 4., 5., 6., 6.],
+    ///    [7., 7., 8., 9., 9.],
+    ///    [7., 7., 8., 9., 9.]
+    /// ];
+    ///
+    /// assert_eq!(padded, result);
+    /// ```
+    fn pad<D: ReplPad, E: IntoDimension<Dim = D>>(
+        &self,
+        input: &Array<f32, D>,
+        padding: E,
+    ) -> Array<f32, D> {
+        D::replication_pad(input, padding.into_dimension().slice())
     }
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1685,7 +1950,7 @@ where
         .into_par_iter()
         .zip(original_view.outer_iter())
         .for_each(|(mut pad_sample, original_sample)| {
-            padding_mode.pad(&mut pad_sample, &original_sample, padding)
+            padding_mode.pad_inplace(&mut pad_sample, &original_sample, padding)
         });
     padded
 }
@@ -2337,38 +2602,7 @@ pub trait ReplPad: Dimension {
         padding: &[usize],
     );
 }
-/// Pads the input array with a constant value.
-///
-///
-/// # Arguments
-///
-/// * `input` - the array to be padded.
-///
-/// * `padding` - the amount of padding for each dimension.
-///
-/// * `value` - the value for the padding.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika::nn;
-///
-/// let arr = ndarray::array![
-///    [1., 2., 3.],
-///    [4., 5., 6.],
-///    [7., 8., 9.]
-/// ];
-/// let padded = nn::constant_pad(&arr, (1, 1), 0.);
-/// let result = ndarray::array![
-///    [0., 0., 0., 0., 0.],
-///    [0., 1., 2., 3., 0.],
-///    [0., 4., 5., 6., 0.],
-///    [0., 7., 8., 9., 0.],
-///    [0., 0., 0., 0., 0.]
-/// ];
-///
-/// assert_eq!(padded, result);
-/// ```
+
 pub fn constant_pad<S, D, E>(input: &ArrayBase<S, D>, padding: E, val: f32) -> Array<f32, D>
 where
     D: Dimension,
@@ -2415,84 +2649,6 @@ fn constant_pad_inplace<S, T, D>(
         Slice::from(range)
     });
     orig_portion.assign(original);
-}
-
-/// Pads the input array using the **reflection** of the input boundary.
-///
-/// Only **1**, **2** and **3** dimensional arrays support reflective padding.
-///
-/// # Arguments
-///
-/// * `input` - the array to be padded.
-///
-/// * `padding` - the amount of padding for each dimension.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika::nn;
-///
-/// let arr = ndarray::array![
-///    [1., 2., 3.],
-///    [4., 5., 6.],
-///    [7., 8., 9.]
-/// ];
-/// let padded = nn::reflection_pad(&arr, (1, 1));
-/// let result = ndarray::array![
-///    [5., 4., 5., 6., 5.],
-///    [2., 1., 2., 3., 2.],
-///    [5., 4., 5., 6., 5.],
-///    [8., 7., 8., 9., 8.],
-///    [5., 4., 5., 6., 5.]
-/// ];
-///
-/// assert_eq!(padded, result);
-/// ```
-pub fn reflection_pad<D, E>(input: &Array<f32, D>, padding: E) -> Array<f32, D>
-where
-    D: ReflPad,
-    E: IntoDimension<Dim = D>,
-{
-    D::reflection_pad(&input, padding.into_dimension().slice())
-}
-
-/// Pads the input array using the **replication** of the input boundary.
-///
-/// Only **1**, **2** and **3** dimensional arrays support replicative padding.
-///
-/// # Arguments
-///
-/// * `input` - the array to be padded.
-///
-/// * `padding` - the amount of padding for each dimension.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika::nn;
-///
-/// let arr = ndarray::array![
-///    [1., 2., 3.],
-///    [4., 5., 6.],
-///    [7., 8., 9.]
-/// ];
-/// let padded = nn::replication_pad(&arr, (1, 1));
-/// let result = ndarray::array![
-///    [1., 1., 2., 3., 3.],
-///    [1., 1., 2., 3., 3.],
-///    [4., 4., 5., 6., 6.],
-///    [7., 7., 8., 9., 9.],
-///    [7., 7., 8., 9., 9.]
-/// ];
-///
-/// assert_eq!(padded, result);
-/// ```
-pub fn replication_pad<D, E>(input: &Array<f32, D>, padding: E) -> Array<f32, D>
-where
-    D: ReplPad,
-    E: IntoDimension<Dim = D>,
-{
-    D::replication_pad(&input, padding.into_dimension().slice())
 }
 
 impl ReflPad for Ix1 {
@@ -2962,17 +3118,23 @@ mod tests {
 
     #[test]
     fn replication_pad_1d() {
+        use super::PaddingMode;
+
+        let padding = super::Replicative;
         let arr = ndarray::Array::range(0., 5., 1.);
-        let padded = super::replication_pad(&arr, [2]);
+        let padded = padding.pad(&arr, [2]);
         assert_eq!(padded, ndarray::array![0., 0., 0., 1., 2., 3., 4., 4., 4.],);
     }
 
     #[test]
     fn replication_pad_2d() {
+        use super::PaddingMode;
+
+        let padding = super::Replicative;
         let arr = ndarray::Array::range(0., 25., 1.)
             .into_shape((5, 5))
             .unwrap();
-        let padded = super::replication_pad(&arr, [1, 2]);
+        let padded = padding.pad(&arr, [1, 2]);
         assert_eq!(
             padded,
             ndarray::array![
@@ -2989,10 +3151,13 @@ mod tests {
 
     #[test]
     fn replication_pad_3d() {
+        use super::PaddingMode;
+
+        let padding = super::Replicative;
         let arr = ndarray::Array::range(0., 125., 1.)
             .into_shape((5, 5, 5))
             .unwrap();
-        let padded = super::replication_pad(&arr, [1, 2, 3]);
+        let padded = padding.pad(&arr, [1, 2, 3]);
         assert_eq!(
             padded,
             ndarray::array![
@@ -3079,17 +3244,23 @@ mod tests {
 
     #[test]
     fn reflection_pad_1d() {
+        use super::PaddingMode;
+
+        let padding = super::Reflective;
         let arr = ndarray::Array::range(0., 5., 1.);
-        let padded = super::reflection_pad(&arr, [2]);
+        let padded = padding.pad(&arr, [2]);
         assert_eq!(padded, ndarray::array![2., 1., 0., 1., 2., 3., 4., 3., 2.],);
     }
 
     #[test]
     fn reflection_pad_2d() {
+        use super::PaddingMode;
+
+        let padding = super::Reflective;
         let arr = ndarray::Array::range(0., 25., 1.)
             .into_shape((5, 5))
             .unwrap();
-        let padded = super::reflection_pad(&arr, [1, 2]);
+        let padded = padding.pad(&arr, [1, 2]);
         assert_eq!(
             padded,
             ndarray::array![
@@ -3106,10 +3277,13 @@ mod tests {
 
     #[test]
     fn reflection_pad_3d() {
+        use super::PaddingMode;
+
+        let padding = super::Reflective;
         let arr = ndarray::Array::range(0., 125., 1.)
             .into_shape((5, 5, 5))
             .unwrap();
-        let padded = super::reflection_pad(&arr, [1, 2, 3]);
+        let padded = padding.pad(&arr, [1, 2, 3]);
         assert_eq!(
             padded,
             ndarray::array![

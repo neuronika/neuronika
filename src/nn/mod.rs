@@ -18,13 +18,14 @@
 //! implementation. Such method must specify how the components interact.
 //!
 //! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
-//! layers, in neuronika it would look like this:
+//! layers for a multivariate regression task, in neuronika it would look like this:
 //!
 //! ```
 //! use ndarray::Ix2;
 //! use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
 //! use neuronika::nn::{self, Learnable};
 //!
+//! // MLP definition.
 //! struct Mlp {
 //!     lin1: nn::Linear,
 //!     lin2: nn::Linear,
@@ -32,14 +33,16 @@
 //! }
 //!
 //! impl Mlp {
+//!     // Basic constructor.
 //!     fn new() -> Self {
 //!         Self {
 //!             lin1: nn::Linear::new(25, 30),
 //!             lin2: nn::Linear::new(30, 35),
-//!             lin3: nn::Linear::new(35, 1),
+//!             lin3: nn::Linear::new(35, 5),
 //!         }
 //!     }
-//!
+//!     
+//!     // MLP behaviour. Notice the presence of the ReLU non-linearity.
 //!     fn forward<I, T, U>(
 //!         &self,
 //!         input: I,
@@ -96,10 +99,7 @@ use crate::variable::{
     node::{Backward, Data, Forward, Gradient, Overwrite},
     MatMatMulT, Tensor, Var, VarDiff,
 };
-pub use convolution::{
-    constant_pad, reflection_pad, replication_pad, Constant, PaddingMode, Reflective, Replicative,
-    Zero,
-};
+pub use convolution::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use convolution::{Convolve, ConvolveWithGroups};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
