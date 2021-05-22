@@ -9,6 +9,25 @@
 //!
 //! Refer to the [`nn::loss`](module@loss) module for loss functions.
 //!
+//! # Assembling a model
+//!
+//! The suggested way of bulding a model using neuronika's building blocks is to define a struct
+//! encapsulating the components.
+//!
+//! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
+//! layers. In neuronika it would look like this:
+//!
+//! ```
+//! use neuronika;
+//! use neuronika::nn;
+//!
+//! struct Mlp {
+//!     lin1: nn::Linear,
+//!     lin2: nn::Linear,
+//!     lin3: nn::Linear,     
+//! }
+//! ```
+//!
 //! # Linear Layers
 //!
 //! * [`nn::Linear`](struct@Linear) - Applies a linear transformation to the incoming data.
@@ -357,7 +376,7 @@ impl Linear {
     pub fn forward<W, T, U>(
         &self,
         input: W,
-    ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
     where
         W: MatMatMulT<VarDiff<Input<Ix2>, InputBackward<Ix2>>>,
         W::Output: Into<VarDiff<T, U>>,
@@ -434,8 +453,8 @@ impl LSTMCell {
         state: (VarDiff<Cf, Cb>, VarDiff<Hf, Hb>),
         input: I,
     ) -> (
-        VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>,
-        VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>,
+        VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>,
+        VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>,
     )
     where
         Cf: Data<Dim = Ix2>,
@@ -531,7 +550,7 @@ impl GRUCell {
         &self,
         hidden: VarDiff<Hf, Hb>,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2> + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
     where
         Hf: Data<Dim = Ix2>,
         Hb: Gradient<Dim = Ix2> + Overwrite,
@@ -643,7 +662,7 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Backward + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Overwrite + Backward>
     where
         I: Convolve<I, VarDiff<Input<Ix3>, InputBackward<Ix3>>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
@@ -762,7 +781,7 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Backward + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Overwrite + Backward>
     where
         I: ConvolveWithGroups<I, VarDiff<Input<Ix3>, InputBackward<Ix3>>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
@@ -873,7 +892,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Backward + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Overwrite + Backward>
     where
         I: Convolve<I, VarDiff<Input<Ix4>, InputBackward<Ix4>>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
@@ -999,7 +1018,7 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Backward + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Overwrite + Backward>
     where
         I: ConvolveWithGroups<I, VarDiff<Input<Ix4>, InputBackward<Ix4>>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
@@ -1117,7 +1136,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Backward + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Overwrite + Backward>
     where
         I: Convolve<I, VarDiff<Input<Ix5>, InputBackward<Ix5>>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
@@ -1245,7 +1264,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Backward + Overwrite>
+    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Overwrite + Backward>
     where
         I: ConvolveWithGroups<I, VarDiff<Input<Ix5>, InputBackward<Ix5>>, Pad>,
         I::Output: Into<VarDiff<T, U>>,

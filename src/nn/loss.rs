@@ -1241,7 +1241,7 @@ where
 /// ```
 ///
 /// The input x given is expected to contain log-probabilities for each class,
-/// this is typically achieved by using `log_softmax`. input has to be a of size either
+/// this is typically achieved by using [`.log_softmax()`]. input has to be a of size either
 /// (minibatch, C) or (minibatch, C, d1, d2, ..., dk) with k >= 1 for the K-dimensional
 /// case. The target that this loss expects should be a class index in the range [0, C) where
 /// C = number of classes.
@@ -1252,6 +1252,8 @@ where
 ///
 /// In the K-dimensional case this loss expects a target of shape
 /// (minibatch, d1, d2, ..., dk).
+///
+/// [`.log_softmax()`]: VarDiff::log_softmax()
 pub fn nll_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,

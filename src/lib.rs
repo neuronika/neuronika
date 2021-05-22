@@ -108,13 +108,13 @@
 //!
 //! let w = neuronika::rand((3, 3)).requires_grad(); // -----------------+
 //! let b = neuronika::rand(3).requires_grad();      //                  |
-//! let x = neuronika::rand((10, 3));                //                  |-- Leaves created
+//! let x = neuronika::rand((10, 3));                //                  |-- Leaves are created
 //!                                                  //                  |
 //! {                                                // ---+             |
 //!     let mut h = x.mm_mul(w.t()) + b;             //    | w's and b's |
 //!     h.forward();                                 //    | grads are   |
 //!     h.backward(1.0);                             //    | accumulated |
-//! }                                                // ---+             |-- Graph freed and
+//! }                                                // ---+             |-- Graph is freed and
 //!                                                  // -----------------+   only leaves remain
 //!```
 pub mod data;
