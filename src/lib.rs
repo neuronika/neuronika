@@ -106,9 +106,9 @@
 //!```
 //! use neuronika;
 //!
-//! let w = neuronika::rand((3, 3)).requires_grad(); //------------------+    
+//! let w = neuronika::rand((3, 3)).requires_grad(); // -----------------+
 //! let b = neuronika::rand(3).requires_grad();      //                  |
-//! let x = neuronika::rand((10, 3));                //                  |-- Leaves created   
+//! let x = neuronika::rand((10, 3));                //                  |-- Leaves created
 //!                                                  //                  |
 //! {                                                // ---+             |
 //!     let mut h = x.mm_mul(w.t()) + b;             //    | w's and b's |
@@ -206,7 +206,7 @@ pub fn full<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh, elem: f32) -> Va
 
 /// Creates a variable with values sampled from a uniform distribution on the interval *[0,1)*.
 ///
-/// The shape is of type `[ndarray::ShapeBuilder]`.
+/// The shape is of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
@@ -245,7 +245,9 @@ pub fn eye(n: usize) -> Var<Input<Ix2>> {
 ///
 /// # Panics
 ///
-/// If the length is greater than `isize::MAX`.
+/// If the length is greater than [`isize::MAX`].
+///
+/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
 ///
 /// # Examples
 ///
@@ -268,7 +270,9 @@ pub fn linspace(start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
 ///
 /// # Panics
 ///
-/// If `n` is greater than `isize::MAX` or if converting `n - 1` to type `f32` fails.
+/// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
+///
+/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
 pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::logspace(base, start, end, n))
 }
@@ -282,7 +286,9 @@ pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
 ///
 /// # Panics
 ///
-/// If `n` is greater than `isize::MAX` or if converting `n - 1` to type `f32` fails.
+/// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
+///
+/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
 pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
     Array::geomspace(start, end, n).map(Input::new)
 }
@@ -293,7 +299,10 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
 ///
 /// # Panics
 ///
-/// If the length is greater than `isize::MAX`.
+/// If the length is greater than
+/// [`isize::MAX`].
+///
+/// [`isize::Max`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
 ///
 /// # Examples
 ///
