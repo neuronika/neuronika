@@ -106,9 +106,9 @@
 //!```
 //! use neuronika;
 //!
-//! let w = neuronika::rand((3,3)).requires_grad(); //------------------+--    
-//! let b = neuronika::rand(3).requires_grad();     //                  | | Leaves created   
-//! let x = neuronika::rand((10,3));                //                  +--
+//! let w = neuronika::rand((3,3)).requires_grad(); //------------------+    
+//! let b = neuronika::rand(3).requires_grad();     //                  |
+//! let x = neuronika::rand((10,3));                //                  |-- Leaves created   
 //!                                                 //                  |
 //! {                                               // ---+             |
 //!     let mut h = x.mm_mul(w.t()) + b;            //    | w's and b's |
