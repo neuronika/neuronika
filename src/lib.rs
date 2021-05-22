@@ -98,7 +98,7 @@
 //!
 //! ## Freeing and keeping the graph
 //!
-//! By default computational graphs will persist in the program's memory. If you want to be more
+//! By default, computational graphs will persist in the program's memory. If you want to be more
 //! conservative about this aspect you can place any arbitrary subset the computations in an inner
 //! scope. This allows for the corresponding portion of the graph to be freed when the end of the
 //! scope is reached by your program.

@@ -180,9 +180,9 @@ impl Param {
     /// differentiable variable that it refers to. The lifetime `'a` is for the
     /// scope of the borrow.
     ///
-    /// The views are [`ArrayViewMutD`].
+    /// The views are [`ndarray::ArrayViewMutD`].
     ///
-    /// [`ArrayViewMutD`]: ndarray::ArrayViewMutD
+    /// [`ndarray::ArrayViewMutD`]: ndarray::ArrayViewMutD
     pub fn get<'a>(self) -> (ArrayViewMutD<'a, f32>, ArrayViewMutD<'a, f32>) {
         unsafe {
             (
