@@ -3,13 +3,13 @@
 //! Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
 //! use, fast experimentation and performance.
 //!
-//! ## Highlights
+//! # Highlights
 //!
 //! * Define by run computational graphs
 //! * Reverse-mode automatic differentiation
 //! * Dynamic neural networks
 //!
-//! ## Variables
+//! # Variables
 //!
 //! The main building blocks of neuronika are *variables* and *differentiable variables*.
 //! This means that when you use this crate you are handling and manipulating instances of [`Var`]
@@ -26,7 +26,7 @@
 //! The provided API is linear in thought and minimal as it is carefully tailored around you, the
 //! user.
 //!
-//! ### Leaf Variables
+//! ## Leaf Variables
 //!
 //! You can create leaf variables by using one of the many provided functions, such as [`zeros()`],
 //! [`ones()`], [`full()`] and [`rand()`]. Feel free to refer to the [complete list](#functions).
@@ -45,13 +45,7 @@
 //!
 //! Differentiable leaves hold a gradient, you can access it with [`.grad()`](VarDiff::grad()).
 //!
-//! ### Computational Graph
-//!
-//! A computational graph is implicitly created as you write your program. You can differentiate it
-//! with respect to some of the differentiable leaves, thus populating their gradients, by using
-//! [`.backward()`](VarDiff::backward()).
-//!
-//! ### Differentiability Arithmetic
+//! ## Differentiability Arithmetic
 //!
 //! As stated before, you can manipulate variables by performing operations on them; the results of
 //! those computations will also be variables, although not leaf ones.
@@ -64,12 +58,13 @@
 //! You can think of differentiability as a *sticky* property. The table that follows is a summary
 //! of how differentiability is broadcasted through variables.
 //!
-//! | **Operands** | Var     | VarDiff |
-//! |--------------|---------|---------|
-//! | **Var**      | Var     | VarDiff |
-//! | **VarDiff**  | VarDiff | VarDiff |
+//!  **Operands** | Var     | VarDiff
+//! --------------|---------|---------
+//!  **Var**      | Var     | VarDiff
+//!  **VarDiff**  | VarDiff | VarDiff
 //!
-//! ### Differentiable Ancestors
+//!
+//! ## Differentiable Ancestors
 //!
 //! The differentiable ancestors of a variable are the differentiable leaves of the graph involved
 //! in its computation. Obviously, only [`VarDiff`] can have a set of ancestors.
@@ -78,7 +73,50 @@
 //! the vector of [`Param`] returned by [`.parameters()`](VarDiff::parameters()).
 //! To gain more insights about the role that such components fulfil in neuronika feel free to check
 //! the [`optim`] module.
-
+//!
+//! # Computational Graph
+//!
+//! A computational graph is implicitly created as you write your program. You can differentiate it
+//! with respect to some of the differentiable leaves, thus populating their gradients, by using
+//! [`.backward()`](VarDiff::backward()).
+//!
+//! It is important to note that the computational grap is *lazily* evalutated, this means that
+//! neuronika decouples the construction of the graph from the actual computation of the nodes'
+//! values. You must use `.forward()` in order to obtain the actual result of the computation.
+//!
+//!```
+//! use neuronika;
+//!
+//! let x = neuronika::rand(5);                //----+
+//! let q = neuronika::rand((5,5));            //    | Those lines just build
+//!                                            //    | the graph.
+//! let mut y = x.clone().vm_mul(q).vv_mul(x); //----+
+//!                                            //
+//! y.forward();                               // After .forward() is called y
+//!                                            // contains the result.
+//!```
+//!
+//! ## Freeing and keeping the graph
+//!
+//! By default computational graphs will persist in the program's memory. If you want to be more
+//! conservative about this aspect you can place any arbitrary subset the computations in an inner
+//! scope. This allows for the corresponding portion of the graph to be freed when the end of the
+//! scope is reached by your program.
+//!
+//!```
+//! use neuronika;
+//!
+//! let w = neuronika::rand((3,3)).requires_grad(); //------------------+--    
+//! let b = neuronika::rand(3).requires_grad();     //                  | | Leaves created   
+//! let x = neuronika::rand((10,3));                //                  +--
+//!                                                 //                  |
+//! {                                               // ---+             |
+//!     let mut h = x.mm_mul(w.t()) + b;            //    | w's and b's |
+//!     h.forward();                                //    | grads are   |
+//!     h.backward(1.0);                            //    | accumulated |
+//! }                                               // ---+             |-- Graph freed and
+//!                                                 // -----------------+   only leaves remain
+//!```
 pub mod data;
 pub mod nn;
 pub mod optim;
