@@ -8,12 +8,14 @@ pub mod forward;
 pub use backward::*;
 pub use forward::*;
 
+/// Data representation.
 pub trait Data {
     type Dim: Dimension;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>>;
 }
 
+/// Forward-propagation behaviour.
 pub trait Forward {
     fn forward(&self);
 
@@ -22,6 +24,7 @@ pub trait Forward {
     fn reset_computation(&self);
 }
 
+/// Gradient representation.
 pub trait Gradient {
     type Dim: Dimension;
 
@@ -30,12 +33,14 @@ pub trait Gradient {
     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>>;
 }
 
+/// Gradient accumulation's modes.
 pub trait Overwrite {
     fn can_overwrite(&self) -> bool;
 
     fn set_overwrite(&self, state: bool);
 }
 
+/// Back-propagation behaviour.
 pub trait Backward: Overwrite {
     fn backward(&self);
 
@@ -44,13 +49,14 @@ pub trait Backward: Overwrite {
     fn with_grad(&self);
 }
 
-pub trait Differentiable {
+pub(crate) trait Differentiable {
     type Output: Gradient + Overwrite;
 
     fn differentiable(&self) -> Self::Output;
 }
 
-pub trait ChangeBehaviour {
+/// Eval mode behaviour.
+pub trait Eval {
     fn train(&self);
 
     fn eval(&self);

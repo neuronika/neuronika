@@ -3,7 +3,7 @@ use super::{
         broadcasted_zeros, expect_tensor, expect_tensor_mut, BroadTensor, Broadcasted, DynTensor,
         Tensor,
     },
-    Backward, ChangeBehaviour, Data, Differentiable, DotDim, Dropout, Gradient, Input, Overwrite,
+    Backward, Data, Differentiable, DotDim, Dropout, Eval, Gradient, Input, Overwrite,
 };
 use ndarray::{
     concatenate,
@@ -129,6 +129,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ InputBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// The backward component of a differentiable leaf of the computational graph.
 pub struct InputBackward<D: Dimension> {
     gradient: RefCell<Option<Tensor<D>>>,
     overwrite: Cell<bool>,
@@ -4340,7 +4341,7 @@ where
     }
 }
 
-impl<T, U> ChangeBehaviour for DropoutBackward<T, U>
+impl<T, U> Eval for DropoutBackward<T, U>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,

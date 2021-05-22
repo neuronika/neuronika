@@ -19,7 +19,7 @@ use crate::variable::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Padding Modes ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-/// This trait defines the behaviour of the **padding modes**. All padding modes must implement it.
+/// Padding modes logic.
 pub trait PaddingMode: Send + Sync + Clone {
     fn pad<D: ReflPad + ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
@@ -97,6 +97,7 @@ impl PaddingMode for Replicative {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// Convolution.
 pub trait Convolve<Inp, Ker, Pad: PaddingMode> {
     type Output;
 
@@ -234,6 +235,7 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with Groups Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// Grouped convolution.
 pub trait ConvolveWithGroups<Inp, Ker, Pad: PaddingMode> {
     type Output;
 
@@ -1604,13 +1606,29 @@ fn padded_shape<D: Dimension>(input_shape: &[usize], padding: &[usize]) -> D {
     padded_input_shape
 }
 
-/// Pads `array` accordingly to `padding` and `padding_mode`. Returns the padded array.
+/// Pads the input array accordingly to padding and the supplied padding mode.
+///
+/// This function expects arrays of the following shapes:
+///
+/// * *(N, C, L)*, where L is the length of the sequences.
+///
+/// * *(N, C, H, W)*, where H and W are respectively the height and width of the images.
+///
+/// * *(N, C, D, H, W)*, where H, W, and D are respectively the depth, height and width of the
+/// volumes.
+///
+/// In all three cases N is the batch size and C is the number of channels.
+///
+/// See also [`constant_pad`], [`reflection_pad`] and [`replication_pad`].
 ///
 /// # Arguments
 ///
-/// * `array` - the array to be padded
-/// * `padding` - the padding around to be applied to input
-/// * `padding_mode` - the type of padding
+/// * `array` - array to be padded.
+///
+/// * `padding` - padding around to be applied to input.
+///
+/// * `padding_mode` - padding type. Can be either [`Zero`], [`Constant`], [`Reflective`] or
+/// [`Replicative`].
 fn pad<D: Dimension, T: PaddingMode>(
     array: &Array<f32, D>,
     padding: &[usize],
@@ -2292,7 +2310,7 @@ fn convolution_with_groups_unary_backward<D: Dimension>(
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Paddings ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-/// A [`ndarray::Dimension`] that supports **reflective padding**.
+/// A [`ndarray::Dimension`] that supports reflective padding.
 pub trait ReflPad: Dimension {
     fn reflection_pad<S: DataMut<Elem = f32>>(
         input: &ArrayBase<S, Self>,
@@ -2306,7 +2324,7 @@ pub trait ReflPad: Dimension {
     );
 }
 
-/// A [`ndarray::Dimension`] that supports **replicative padding**.
+/// A [`ndarray::Dimension`] that supports replicative padding.
 pub trait ReplPad: Dimension {
     fn replication_pad<S: DataMut<Elem = f32>>(
         input: &ArrayBase<S, Self>,
@@ -2320,6 +2338,7 @@ pub trait ReplPad: Dimension {
     );
 }
 /// Pads the input array with a constant value.
+///
 ///
 /// # Arguments
 ///

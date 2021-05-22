@@ -124,8 +124,12 @@ mod variable;
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
+pub use nn::convolution::{Convolve, ConvolveWithGroups};
 use variable::node::{Input, InputBackward};
-pub use variable::{Param, Var, VarDiff};
+pub use variable::{
+    node::{Backward, Data, Eval, Forward, Gradient, Overwrite},
+    Cat, MatMatMul, MatMatMulT, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
+};
 
 /// Creates a variable from a **[ndarray]** array that owns its data.
 ///

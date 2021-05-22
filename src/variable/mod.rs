@@ -5,21 +5,20 @@ use ndarray::{
     RawArrayViewMut, RemoveAxis,
 };
 use node::{
-    Addition, AdditionBackward, AdditionBackwardUnary, Backward, ChangeBehaviour, Chunk,
-    ChunkBackward, Concatenate, ConcatenateBackward, ConcatenateBackwardLeft,
-    ConcatenateBackwardRight, Data, Differentiable, Division, DivisionBackward,
-    DivisionBackwardLeft, DivisionBackwardRight, Dropout, DropoutBackward, Exp, ExpBackward,
-    Forward, Gradient, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn,
-    LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
-    MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackward,
-    MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
-    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
-    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
-    NegationBackward, Overwrite, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid,
-    SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF,
-    StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction, SubtractionBackward,
-    SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
-    Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
+    Addition, AdditionBackward, AdditionBackwardUnary, Backward, Chunk, ChunkBackward, Concatenate,
+    ConcatenateBackward, ConcatenateBackwardLeft, ConcatenateBackwardRight, Data, Differentiable,
+    Division, DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout,
+    DropoutBackward, Eval, Exp, ExpBackward, Forward, Gradient, LeakyReLU, LeakyReLUBackward,
+    LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward,
+    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixMatrixMulT,
+    MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight,
+    MatrixVectorMul, MatrixVectorMulBackward, MatrixVectorMulBackwardLeft,
+    MatrixVectorMulBackwardRight, Multiplication, MultiplicationBackward,
+    MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Power, PowerBackward, ReLU,
+    ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
+    Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction,
+    SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH,
+    TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
     VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
     VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
@@ -60,7 +59,7 @@ impl OperationsCounter {
 pub(crate) struct VarHistory {
     path: BTreeMap<usize, Rc<dyn Forward>>,
     buffer: Vec<Rc<dyn Forward>>,
-    changeables: HashSet<*const dyn ChangeBehaviour>,
+    changeables: HashSet<*const dyn Eval>,
 }
 
 impl VarHistory {
@@ -81,7 +80,7 @@ impl VarHistory {
         self.buffer.truncate(0);
     }
 
-    pub fn append_changeable(&mut self, next: *const dyn ChangeBehaviour) {
+    pub fn append_changeable(&mut self, next: *const dyn Eval) {
         self.changeables.insert(next);
     }
 
@@ -109,7 +108,7 @@ pub(crate) struct DiffVarHistory {
     path: BTreeMap<usize, Rc<dyn Backward>>,
     buffer: Vec<Rc<dyn Backward>>,
     parameters: HashSet<Param>,
-    changeables: HashSet<*const dyn ChangeBehaviour>,
+    changeables: HashSet<*const dyn Eval>,
 }
 
 impl DiffVarHistory {
@@ -133,7 +132,7 @@ impl DiffVarHistory {
         self.buffer.truncate(0);
     }
 
-    pub fn append_changeable(&mut self, next: *const dyn ChangeBehaviour) {
+    pub fn append_changeable(&mut self, next: *const dyn Eval) {
         self.changeables.insert(next);
     }
 
@@ -211,7 +210,7 @@ pub trait MatMatMul<Rhs> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-/// Matrix-matrix multiplication with transpoed right hand side operand.
+/// Matrix-matrix multiplication with transposed right hand side operand.
 pub trait MatMatMulT<Rhs> {
     type Output;
 
@@ -472,11 +471,11 @@ impl<T: Data + Forward + 'static> Var<T> {
     }
 }
 
-impl<T: Data + Forward + ChangeBehaviour + 'static> Var<T> {
+impl<T: Data + Forward + Eval + 'static> Var<T> {
     pub(crate) fn from_changable(node: T, mut past: VarHistory) -> Self {
         let node = Rc::new(node);
         past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-        past.append_changeable(node.as_ref() as *const dyn ChangeBehaviour);
+        past.append_changeable(node.as_ref() as *const dyn Eval);
 
         Var { node, past }
     }
@@ -703,7 +702,7 @@ where
     }
 }
 
-impl<T: Data + Forward + ChangeBehaviour> Var<T> {
+impl<T: Data + Forward + Eval> Var<T> {
     /// Sets `self` in training mode.
     pub fn set_train(&self) {
         self.node.train();
@@ -791,13 +790,13 @@ where
 
 impl<T, U> VarDiff<T, U>
 where
-    T: Data + Forward + ChangeBehaviour + 'static,
-    U: Gradient + Overwrite + Backward + ChangeBehaviour + 'static,
+    T: Data + Forward + Eval + 'static,
+    U: Gradient + Overwrite + Backward + Eval + 'static,
 {
     pub(crate) fn from_changable(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
         let node = Rc::new(node);
         past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-        past.append_changeable(node.as_ref() as *const dyn ChangeBehaviour);
+        past.append_changeable(node.as_ref() as *const dyn Eval);
 
         VarDiff { var, node, past }
     }
@@ -1169,8 +1168,8 @@ where
 
 impl<T, U> VarDiff<T, U>
 where
-    T: Data + Forward + ChangeBehaviour + 'static,
-    U: Gradient + Overwrite + Backward + ChangeBehaviour + 'static,
+    T: Data + Forward + Eval + 'static,
+    U: Gradient + Overwrite + Backward + Eval + 'static,
 {
     /// Sets `self` in training mode.
     pub fn set_train(&self) {

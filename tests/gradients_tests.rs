@@ -763,3 +763,13 @@ fn concatenate() {
     res.forward();
     assert_eq!(*res.data(), ndarray::array![1., 1., 1., 1.]);
 }
+
+#[test]
+fn culo() {
+    use neuronika::nn;
+    use neuronika::nn::init::{calculate_gain, xavier_normal};
+
+    let mut lin = nn::Linear::new(10, 10);
+
+    xavier_normal(&mut lin.weight, calculate_gain("relu"));
+}

@@ -1,6 +1,6 @@
 use super::{
     super::{broadcasted_zeros, BroadTensor, Broadcasted, Tensor, Var},
-    ChangeBehaviour, Data, DotDim, Forward,
+    Data, DotDim, Eval, Forward,
 };
 use ndarray::{
     concatenate,
@@ -16,6 +16,7 @@ use std::{
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// The forward component of a leaf of the computational graph.
 pub struct Input<D: Dimension> {
     data: RefCell<Tensor<D>>,
     computed: Cell<bool>,
@@ -1771,7 +1772,7 @@ impl<T: Data> Data for Dropout<T> {
     }
 }
 
-impl<T: Data> ChangeBehaviour for Dropout<T> {
+impl<T: Data> Eval for Dropout<T> {
     fn train(&self) {
         self.train.set(true);
     }

@@ -9,6 +9,58 @@
 //!
 //! Refer to the [`nn::loss`](module@loss) module for loss functions.
 //!
+//! # Assembling a neural network
+//!
+//! The suggested way of bulding a model using neuronika's building blocks is to define a struct
+//! encapsulating the components.
+//!
+//! The behaviour of the model can be defined by including an appropriate method in its struct
+//! implementation. Such method must specify how the components interact.
+//!
+//! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
+//! layers, in neuronika it would look like this:
+//!
+//! ```
+//! use ndarray::Ix2;
+//! use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+//! use neuronika::nn::{self, Learnable};
+//!
+//! struct Mlp {
+//!     lin1: nn::Linear,
+//!     lin2: nn::Linear,
+//!     lin3: nn::Linear,     
+//! }
+//!
+//! impl Mlp {
+//!     fn new() -> Self {
+//!         Self {
+//!             lin1: nn::Linear::new(25, 30),
+//!             lin2: nn::Linear::new(30, 35),
+//!             lin3: nn::Linear::new(35, 1),
+//!         }
+//!     }
+//!
+//!     fn forward<I, T, U>(
+//!         &self,
+//!         input: I,
+//!     ) -> VarDiff<
+//!             impl Data<Dim = Ix2> + Forward,
+//!             impl Gradient<Dim = Ix2> + Overwrite + Backward
+//!         >
+//!     where
+//!         I: MatMatMulT<Learnable<Ix2>>,
+//!         I::Output: Into<VarDiff<T, U>>,
+//!         T: Data<Dim = Ix2> + Forward,
+//!         U: Gradient<Dim = Ix2> + Backward + Overwrite,
+//!     {
+//!         let out1 = self.lin1.forward(input).relu();
+//!         let out2 = self.lin2.forward(out1).relu();
+//!         let out3 = self.lin3.forward(out2);
+//!         out3
+//!     }
+//! }
+//! ```
+//!
 //! # Linear Layers
 //!
 //! * [`nn::Linear`](struct@Linear) - Applies a linear transformation to the incoming data.
@@ -38,8 +90,6 @@
 //!
 //! * [`nn::GroupedConv3d`](struct@GroupedConv3d) - Applies a grouped volumetric convolution over an
 //! input signal composed of several input planes.
-use convolution::{Convolve, ConvolveWithGroups, PaddingMode};
-
 use super::{Input, InputBackward};
 use crate::variable::{
     self,
@@ -47,15 +97,33 @@ use crate::variable::{
     MatMatMulT, Tensor, Var, VarDiff,
 };
 pub use convolution::{
-    constant_pad, reflection_pad, replication_pad, Constant, Reflective, Replicative, Zero,
+    constant_pad, reflection_pad, replication_pad, Constant, PaddingMode, Reflective, Replicative,
+    Zero,
 };
+use convolution::{Convolve, ConvolveWithGroups};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub mod init {
     //! Layers' parameters initialisation functions.
-    use super::super::{variable::VarDiff, Input, InputBackward};
+    //!
+    //! These initializers define a way to set the initial random weights of neuronika's layers.
+    //!
+    //! # Using an initialiser
+    //!
+    //! You can freely access any learnable component of any layer, as their visibility is public,
+    //! and pass them, via a mutable reference, to the initialisation function of your choice.
+    //!
+    //! ```
+    //! use neuronika::nn;
+    //! use neuronika::nn::init::{calculate_gain, xavier_normal};
+    //!
+    //! let mut lin = nn::Linear::new(10, 10);
+    //!
+    //! xavier_normal(&mut lin.weight, calculate_gain("relu"));
+    //! ```
+    use super::Learnable;
     use ndarray::{Axis, Dimension, Ix2};
     use rand::thread_rng;
     use rand_distr::{Distribution, Normal, Uniform};
@@ -96,9 +164,7 @@ pub mod init {
     ///
     /// `param` - differentiable variable for which the *fan in* and the *fan out* must be
     /// calculated.
-    pub fn calculate_fan_in_fan_out<D: Dimension>(
-        param: &VarDiff<Input<D>, InputBackward<D>>,
-    ) -> (f32, f32) {
+    pub fn calculate_fan_in_fan_out<D: Dimension>(param: &Learnable<D>) -> (f32, f32) {
         let data = param.data();
         let shape = data.shape();
 
@@ -127,7 +193,7 @@ pub mod init {
     /// * `param` - differentiable variable to initialise.
     ///
     /// * `value` - value to fill the variable with.
-    pub fn constant<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, value: f32) {
+    pub fn constant<D: Dimension>(param: &mut Learnable<D>, value: f32) {
         param.data_mut().map_inplace(|el| *el = value);
     }
 
@@ -136,7 +202,7 @@ pub mod init {
     /// # Arguments
     ///
     /// `param` - differentiable variable to initialise.
-    pub fn zeros<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
+    pub fn zeros<D: Dimension>(param: &mut Learnable<D>) {
         param.data_mut().map_inplace(|el| *el = 0.);
     }
 
@@ -145,7 +211,7 @@ pub mod init {
     /// # Arguments
     ///
     /// `param` - differentiable variable to initialise.
-    pub fn ones<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>) {
+    pub fn ones<D: Dimension>(param: &mut Learnable<D>) {
         param.data_mut().map_inplace(|el| *el = 1.0);
     }
 
@@ -157,7 +223,7 @@ pub mod init {
     /// # Arguments
     ///
     /// `param` - differentiable variable to initialise.
-    pub fn eye(param: &mut VarDiff<Input<Ix2>, InputBackward<Ix2>>) {
+    pub fn eye(param: &mut Learnable<Ix2>) {
         for ((x, y), el) in param.data_mut().indexed_iter_mut() {
             if x == y {
                 *el = 1.
@@ -184,7 +250,7 @@ pub mod init {
     /// If the differentiable variable is not {3, 4, 5}-dimensional and the number of output
     /// channels is not divisible by `groups`. The number of output channels is equal to the length
     /// of the first axis of `param`'s data.
-    pub fn dirac<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, groups: usize) {
+    pub fn dirac<D: Dimension>(param: &mut Learnable<D>, groups: usize) {
         let mut data = param.data_mut();
         let shape = data.shape().to_vec();
         let no_dim = shape.len();
@@ -230,11 +296,7 @@ pub mod init {
     /// # Panics
     ///
     /// If `low` >= `high`.
-    pub fn uniform<D: Dimension>(
-        param: &mut VarDiff<Input<D>, InputBackward<D>>,
-        low: f32,
-        high: f32,
-    ) {
+    pub fn uniform<D: Dimension>(param: &mut Learnable<D>, low: f32, high: f32) {
         let unif_dstr = Uniform::new(low, high);
         let mut t_rng = thread_rng();
         param
@@ -252,11 +314,7 @@ pub mod init {
     /// * `mean` - mean of the normal distribution.
     ///
     /// * `std` - standard deviation of the normal distribution.
-    pub fn normal<D: Dimension>(
-        param: &mut VarDiff<Input<D>, InputBackward<D>>,
-        mean: f32,
-        std: f32,
-    ) {
+    pub fn normal<D: Dimension>(param: &mut Learnable<D>, mean: f32, std: f32) {
         let norm_dstr = Normal::new(mean, std).unwrap();
         let mut t_rng = thread_rng();
         param
@@ -274,10 +332,7 @@ pub mod init {
     /// * `param` - differentiable variable to initialise.
     ///
     /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
-    pub fn xavier_uniform<D: Dimension>(
-        param: &mut VarDiff<Input<D>, InputBackward<D>>,
-        gain: f32,
-    ) {
+    pub fn xavier_uniform<D: Dimension>(param: &mut Learnable<D>, gain: f32) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let a = 3.0_f32.sqrt() * std;
@@ -300,7 +355,7 @@ pub mod init {
     /// * `param` - differentiable variable to initialise.
     ///
     /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
-    pub fn xavier_normal<D: Dimension>(param: &mut VarDiff<Input<D>, InputBackward<D>>, gain: f32) {
+    pub fn xavier_normal<D: Dimension>(param: &mut Learnable<D>, gain: f32) {
         let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
         let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
         let norm_distr = Normal::new(0., std).unwrap();
@@ -311,8 +366,11 @@ pub mod init {
     }
 }
 
-mod convolution;
+pub(super) mod convolution;
 pub mod loss;
+
+/// A generic parameter of a neural component.
+pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 
 /// Applies a **linear transformation** to the incoming data.
 ///
@@ -320,8 +378,8 @@ pub mod loss;
 /// ʏ = xAᵀ + b
 /// ```
 pub struct Linear {
-    pub weight: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
-    pub bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub weight: Learnable<Ix2>,
+    pub bias: Learnable<Ix1>,
 }
 
 impl Linear {
@@ -359,7 +417,7 @@ impl Linear {
         input: W,
     ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
     where
-        W: MatMatMulT<VarDiff<Input<Ix2>, InputBackward<Ix2>>>,
+        W: MatMatMulT<Learnable<Ix2>>,
         W::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
@@ -371,10 +429,10 @@ impl Linear {
 /// A **long short-term memory (LSTM)** cell.
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct LSTMCell {
-    pub weight_ih: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
-    pub weight_hh: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
-    pub bias_ih: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
-    pub bias_hh: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub weight_ih: Learnable<Ix2>,
+    pub weight_hh: Learnable<Ix2>,
+    pub bias_ih: Learnable<Ix1>,
+    pub bias_hh: Learnable<Ix1>,
 }
 
 impl LSTMCell {
@@ -442,7 +500,7 @@ impl LSTMCell {
         Cb: Gradient<Dim = Ix2> + Overwrite,
         Hf: Data<Dim = Ix2>,
         Hb: Gradient<Dim = Ix2> + Overwrite,
-        I: MatMatMulT<VarDiff<Input<Ix2>, InputBackward<Ix2>>>,
+        I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
@@ -473,10 +531,10 @@ impl LSTMCell {
 /// A **gated recurrent unit (GRU)** cell.
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct GRUCell {
-    pub weight_ih: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
-    pub weight_hh: VarDiff<Input<Ix2>, InputBackward<Ix2>>,
-    pub bias_ih: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
-    pub bias_hh: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub weight_ih: Learnable<Ix2>,
+    pub weight_hh: Learnable<Ix2>,
+    pub bias_ih: Learnable<Ix1>,
+    pub bias_hh: Learnable<Ix1>,
 }
 
 impl GRUCell {
@@ -535,7 +593,7 @@ impl GRUCell {
     where
         Hf: Data<Dim = Ix2>,
         Hb: Gradient<Dim = Ix2> + Overwrite,
-        I: MatMatMulT<VarDiff<Input<Ix2>, InputBackward<Ix2>>>,
+        I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
@@ -565,12 +623,12 @@ impl GRUCell {
 ///
 /// See also [`GroupedConv1d`].
 pub struct Conv1d<Pad: PaddingMode> {
-    padding: usize,
-    padding_mode: Pad,
-    stride: usize,
-    dilation: usize,
-    weight: VarDiff<Input<Ix3>, InputBackward<Ix3>>,
-    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub padding: usize,
+    pub padding_mode: Pad,
+    pub stride: usize,
+    pub dilation: usize,
+    pub weight: Learnable<Ix3>,
+    pub bias: Learnable<Ix1>,
 }
 
 impl<Pad: PaddingMode> Conv1d<Pad> {
@@ -645,7 +703,7 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
         input: I,
     ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Overwrite + Backward>
     where
-        I: Convolve<I, VarDiff<Input<Ix3>, InputBackward<Ix3>>, Pad>,
+        I: Convolve<I, Learnable<Ix3>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix3>,
         U: Gradient<Dim = Ix3> + Overwrite,
@@ -666,13 +724,13 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
 /// Applies a **grouped temporal convolution** over an input signal composed of several input
 /// planes.
 pub struct GroupedConv1d<Pad: PaddingMode> {
-    padding: usize,
-    padding_mode: Pad,
-    stride: usize,
-    dilation: usize,
-    groups: usize,
-    weight: VarDiff<Input<Ix3>, InputBackward<Ix3>>,
-    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub padding: usize,
+    pub padding_mode: Pad,
+    pub stride: usize,
+    pub dilation: usize,
+    pub groups: usize,
+    pub weight: Learnable<Ix3>,
+    pub bias: Learnable<Ix1>,
 }
 
 impl<Pad: PaddingMode> GroupedConv1d<Pad> {
@@ -764,7 +822,7 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
         input: I,
     ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Overwrite + Backward>
     where
-        I: ConvolveWithGroups<I, VarDiff<Input<Ix3>, InputBackward<Ix3>>, Pad>,
+        I: ConvolveWithGroups<I, Learnable<Ix3>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix3>,
         U: Gradient<Dim = Ix3> + Overwrite,
@@ -787,12 +845,12 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
 ///
 /// See also [`GroupedConv2d`].
 pub struct Conv2d<Pad: PaddingMode> {
-    padding: (usize, usize),
-    padding_mode: Pad,
-    stride: (usize, usize),
-    dilation: (usize, usize),
-    weight: VarDiff<Input<Ix4>, InputBackward<Ix4>>,
-    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub padding: (usize, usize),
+    pub padding_mode: Pad,
+    pub stride: (usize, usize),
+    pub dilation: (usize, usize),
+    pub weight: Learnable<Ix4>,
+    pub bias: Learnable<Ix1>,
 }
 
 impl<Pad: PaddingMode> Conv2d<Pad> {
@@ -875,7 +933,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
         input: I,
     ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Overwrite + Backward>
     where
-        I: Convolve<I, VarDiff<Input<Ix4>, InputBackward<Ix4>>, Pad>,
+        I: Convolve<I, Learnable<Ix4>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix4>,
         U: Gradient<Dim = Ix4> + Overwrite,
@@ -899,13 +957,13 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
 
 /// Applies a **spatial grouped convolution** over an input signal composed of several input planes.
 pub struct GroupedConv2d<Pad: PaddingMode> {
-    padding: (usize, usize),
-    padding_mode: Pad,
-    stride: (usize, usize),
-    dilation: (usize, usize),
-    groups: usize,
-    weight: VarDiff<Input<Ix4>, InputBackward<Ix4>>,
-    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub padding: (usize, usize),
+    pub padding_mode: Pad,
+    pub stride: (usize, usize),
+    pub dilation: (usize, usize),
+    pub groups: usize,
+    pub weight: Learnable<Ix4>,
+    pub bias: Learnable<Ix1>,
 }
 
 impl<Pad: PaddingMode> GroupedConv2d<Pad> {
@@ -1001,7 +1059,7 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
         input: I,
     ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Overwrite + Backward>
     where
-        I: ConvolveWithGroups<I, VarDiff<Input<Ix4>, InputBackward<Ix4>>, Pad>,
+        I: ConvolveWithGroups<I, Learnable<Ix4>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix4>,
         U: Gradient<Dim = Ix4> + Overwrite,
@@ -1028,12 +1086,12 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
 ///
 /// See also [`GroupedConv3d`].
 pub struct Conv3d<Pad: PaddingMode> {
-    padding: (usize, usize, usize),
-    padding_mode: Pad,
-    stride: (usize, usize, usize),
-    dilation: (usize, usize, usize),
-    weight: VarDiff<Input<Ix5>, InputBackward<Ix5>>,
-    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub padding: (usize, usize, usize),
+    pub padding_mode: Pad,
+    pub stride: (usize, usize, usize),
+    pub dilation: (usize, usize, usize),
+    pub weight: Learnable<Ix5>,
+    pub bias: Learnable<Ix1>,
 }
 
 impl<Pad: PaddingMode> Conv3d<Pad> {
@@ -1119,7 +1177,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
         input: I,
     ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Overwrite + Backward>
     where
-        I: Convolve<I, VarDiff<Input<Ix5>, InputBackward<Ix5>>, Pad>,
+        I: Convolve<I, Learnable<Ix5>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix5>,
         U: Gradient<Dim = Ix5> + Overwrite,
@@ -1144,13 +1202,13 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
 /// Applies a **grouped volumetric convolution** over an input signal composed of several input
 /// planes.
 pub struct GroupedConv3d<Pad: PaddingMode> {
-    padding: (usize, usize, usize),
-    padding_mode: Pad,
-    stride: (usize, usize, usize),
-    dilation: (usize, usize, usize),
-    groups: usize,
-    weight: VarDiff<Input<Ix5>, InputBackward<Ix5>>,
-    bias: VarDiff<Input<Ix1>, InputBackward<Ix1>>,
+    pub padding: (usize, usize, usize),
+    pub padding_mode: Pad,
+    pub stride: (usize, usize, usize),
+    pub dilation: (usize, usize, usize),
+    pub groups: usize,
+    pub weight: Learnable<Ix5>,
+    pub bias: Learnable<Ix1>,
 }
 
 impl<Pad: PaddingMode> GroupedConv3d<Pad> {
@@ -1247,7 +1305,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
         input: I,
     ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Overwrite + Backward>
     where
-        I: ConvolveWithGroups<I, VarDiff<Input<Ix5>, InputBackward<Ix5>>, Pad>,
+        I: ConvolveWithGroups<I, Learnable<Ix5>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix5>,
         U: Gradient<Dim = Ix5> + Overwrite,
