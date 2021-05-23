@@ -364,8 +364,14 @@ impl PaddingMode for Replicative {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// Convolution.
 pub trait Convolve<Inp, Ker, Pad: PaddingMode> {
+    /// The type of the convolution's result. See the [*differentiability arithmetic*] for more
+    /// details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Applies a *n*-dimensional convolution with the given parameters. *n* can be either 1, 2 or
+    /// 3.
     fn convolve(
         input: Inp,
         kernel: Ker,
@@ -502,8 +508,14 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// Grouped convolution.
 pub trait ConvolveWithGroups<Inp, Ker, Pad: PaddingMode> {
+    /// The type of the grouped convolution's result. See the [*differentiability arithmetic*] for
+    /// more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Applies a *n*-dimensional grouped convolution with the given parameters. *n* can be either
+    /// 1, 2 or 3.
     fn convolve_with_groups(
         input: Inp,
         kernel: Ker,

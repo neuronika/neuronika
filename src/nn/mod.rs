@@ -18,12 +18,12 @@
 //! implementation. Such method must specify how the components interact.
 //!
 //! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
-//! layers for a multivariate regression task, in neuronika it would look like this:
+//! layers for a multivariate regression task, let's see what it would look like in neuronika.
+//!
+//! Firstly, we have to define its struct by using the provided components.
 //!
 //! ```
-//! use ndarray::Ix2;
-//! use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
-//! use neuronika::nn::{self, Learnable};
+//! use neuronika::nn;
 //!
 //! // MLP definition.
 //! struct Mlp {
@@ -31,7 +31,17 @@
 //!     lin2: nn::Linear,
 //!     lin3: nn::Linear,     
 //! }
+//! ```
 //!
+//! We'll also include a very simple constructor.
+//!
+//! ```
+//! # use neuronika::nn;
+//! # struct Mlp {
+//! #    lin1: nn::Linear,
+//! #    lin2: nn::Linear,
+//! #    lin3: nn::Linear,     
+//! # }
 //! impl Mlp {
 //!     // Basic constructor.
 //!     fn new() -> Self {
@@ -41,7 +51,22 @@
 //!             lin3: nn::Linear::new(35, 5),
 //!         }
 //!     }
-//!     
+//! }
+//! ```
+//!
+//! As the last thing, we have to specify how the multilayer perceptron behaves and we're done.
+//!
+//! ```
+//! use ndarray::Ix2;
+//! use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+//!
+//! # use neuronika::nn::{self, Learnable};
+//! # struct Mlp {
+//! #     lin1: nn::Linear,
+//! #     lin2: nn::Linear,
+//! #     lin3: nn::Linear,     
+//! # }
+//! impl Mlp {
 //!     // MLP behaviour. Notice the presence of the ReLU non-linearity.
 //!     fn forward<I, T, U>(
 //!         &self,
@@ -93,284 +118,187 @@
 //!
 //! * [`nn::GroupedConv3d`](struct@GroupedConv3d) - Applies a grouped volumetric convolution over an
 //! input signal composed of several input planes.
-use super::{Input, InputBackward};
+//!
+//! # Dropout Layers
+//!
+//! * [`nn::Dropout`](struct@Dropout) - During training, randomly zeroes some of the elements of
+//! the input variable with probability *p* using samples from a Bernoulli distribution.
+use super::{Input, InputBackward, Param};
 use crate::variable::{
     self,
-    node::{Backward, Data, Forward, Gradient, Overwrite},
+    node::{
+        Backward, Data, Dropout as DropoutNode, DropoutBackward as DropoutBackwardNode, Eval,
+        Forward, Gradient, Overwrite,
+    },
     MatMatMulT, Tensor, Var, VarDiff,
 };
 pub use convolution::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use convolution::{Convolve, ConvolveWithGroups};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub mod init {
-    //! Layers' parameters initialisation functions.
-    //!
-    //! These initializers define a way to set the initial random weights of neuronika's layers.
-    //!
-    //! # Using an initialiser
-    //!
-    //! You can freely access any learnable component of any layer, as their visibility is public,
-    //! and pass them, via a mutable reference, to the initialisation function of your choice.
-    //!
-    //! ```
-    //! use neuronika::nn;
-    //! use neuronika::nn::init::{calculate_gain, xavier_normal};
-    //!
-    //! let mut lin = nn::Linear::new(10, 10);
-    //!
-    //! xavier_normal(&mut lin.weight, calculate_gain("relu"));
-    //! ```
-    use super::Learnable;
-    use ndarray::{Axis, Dimension, Ix2};
-    use rand::thread_rng;
-    use rand_distr::{Distribution, Normal, Uniform};
-
-    /// Returns the recommended gain value for the given non-linearity function.
-    ///
-    /// Supported non-linearities are:
-    /// * linear
-    /// * sigmoid
-    /// * tanh
-    /// * relu
-    /// * leaky_relu
-    ///
-    /// # Arguments
-    ///
-    /// `non_linearity` - a non-linearity function's name.
-    ///
-    /// # Panics
-    ///
-    /// If `non_linearity` is not among those listed above.
-    pub fn calculate_gain(non_linearity: &str) -> f32 {
-        match non_linearity {
-            "linear" | "sigmoid" => 1.0,
-            "tanh" => 5.0 / 3.0,
-            "relu" => 2.0_f32.sqrt(),
-            "leaky_relu" => (2.0 / (1.0 + 0.01_f32.powi(2))).sqrt(),
-            _ => panic!("error: unsupported nonlinearity: {}", non_linearity),
-        }
-    }
-
-    /// Returns the *fan_in* and the *fan_out*.
-    ///
-    /// For *MLPs* *fan_in* and *fan_out* are respectively the number of inputs and outputs to an
-    /// hidden unit of the layer. For *CNNs* however, the number of input feature maps and the size
-    /// of the receptive field must be taken into account .
-    ///
-    /// # Arguments
-    ///
-    /// `param` - differentiable variable for which the *fan in* and the *fan out* must be
-    /// calculated.
-    pub fn calculate_fan_in_fan_out<D: Dimension>(param: &Learnable<D>) -> (f32, f32) {
-        let data = param.data();
-        let shape = data.shape();
-
-        let num_input_fmaps = shape[1] as f32;
-        let num_output_fmaps = shape[0] as f32;
-        let mut receptive_field_size = 1.;
-
-        let no_dim = data.ndim();
-        let mut num_el = 0;
-        if no_dim > 2 {
-            for dim in 2..no_dim {
-                num_el += data.len_of(Axis(dim));
-            }
-            receptive_field_size = num_el as f32;
-        }
-
-        let fan_in = num_input_fmaps * receptive_field_size;
-        let fan_out = num_output_fmaps * receptive_field_size;
-        (fan_in, fan_out)
-    }
-
-    /// Fills the differentiable leaf variable with a constant value.
-    ///
-    /// # Arguments
-    ///
-    /// * `param` - differentiable variable to initialise.
-    ///
-    /// * `value` - value to fill the variable with.
-    pub fn constant<D: Dimension>(param: &mut Learnable<D>, value: f32) {
-        param.data_mut().map_inplace(|el| *el = value);
-    }
-
-    /// Fills the differentiable leaf variable with zeros.
-    ///
-    /// # Arguments
-    ///
-    /// `param` - differentiable variable to initialise.
-    pub fn zeros<D: Dimension>(param: &mut Learnable<D>) {
-        param.data_mut().map_inplace(|el| *el = 0.);
-    }
-
-    /// Fills the differentiable leaf variable with ones.
-    ///
-    /// # Arguments
-    ///
-    /// `param` - differentiable variable to initialise.
-    pub fn ones<D: Dimension>(param: &mut Learnable<D>) {
-        param.data_mut().map_inplace(|el| *el = 1.0);
-    }
-
-    /// Fills the matrix differentiable leaf variable with the identity matrix.
-    ///
-    /// Preserves the identity of the inputs in Linear layers, where as
-    /// many inputs are preserved as possible.
-    ///
-    /// # Arguments
-    ///
-    /// `param` - differentiable variable to initialise.
-    pub fn eye(param: &mut Learnable<Ix2>) {
-        for ((x, y), el) in param.data_mut().indexed_iter_mut() {
-            if x == y {
-                *el = 1.
-            } else {
-                *el = 0.
-            }
-        }
-    }
-
-    /// Fills the {3, 4, 5}-dimensional differentiable leaf variable with the Dirac delta function.
-    ///
-    /// Preserves the identity of the inputs in convolutional layers, where as many input channels
-    /// are preserved as possible. In case of `groups > 1`, each group of channels preserves
-    /// identity.
-    ///
-    /// # Arguments
-    ///
-    /// * `param` - differentiable variable to initialise.
-    ///
-    /// * `groups` - number of groups.
-    ///
-    /// # Panics
-    ///
-    /// If the differentiable variable is not {3, 4, 5}-dimensional and the number of output
-    /// channels is not divisible by `groups`. The number of output channels is equal to the length
-    /// of the first axis of `param`'s data.
-    pub fn dirac<D: Dimension>(param: &mut Learnable<D>, groups: usize) {
-        let mut data = param.data_mut();
-        let shape = data.shape().to_vec();
-        let no_dim = shape.len();
-
-        if !(3..=5).contains(&no_dim) {
-            panic!("error: only 3, 4 and 5 dimensional parameters are supported.");
-        }
-        assert_eq!(
-            shape[0].rem_euclid(groups),
-            0,
-            "error: output channels must be divisible by groups."
-        );
-        let out_channels_per_groups = shape[0] / groups;
-        let min_dim = out_channels_per_groups.min(shape[1]);
-
-        for g in 0..groups {
-            for d in 0..min_dim {
-                let mut index = D::zeros(no_dim);
-                index[0] = g * out_channels_per_groups + d;
-                index[1] = d;
-                index
-                    .slice_mut()
-                    .iter_mut()
-                    .skip(2)
-                    .zip(shape.iter().skip(2))
-                    .for_each(|(el, sh)| *el = sh / 2);
-                data[index] = 1.
-            }
-        }
-    }
-
-    /// Fills the differentiable leaf variable with elements drawn from the uniform distribution
-    /// *U(low, high)*.
-    ///
-    /// # Arguments
-    ///
-    /// * `param` - differentiable variable to initialise.
-    ///
-    /// * `low` - lower bound of the uniform distribution.
-    ///
-    /// * `high` - upper bound of the uniform distribution.
-    ///
-    /// # Panics
-    ///
-    /// If `low` >= `high`.
-    pub fn uniform<D: Dimension>(param: &mut Learnable<D>, low: f32, high: f32) {
-        let unif_dstr = Uniform::new(low, high);
-        let mut t_rng = thread_rng();
-        param
-            .data_mut()
-            .map_inplace(|el| *el = unif_dstr.sample(&mut t_rng));
-    }
-
-    /// Fills the differentiable leaf variable with elements drawn from the normal distribution
-    /// *N(mean, std^2)*.
-    ///
-    /// # Arguments
-    ///
-    /// * `param` - differentiable variable to initialise.
-    ///
-    /// * `mean` - mean of the normal distribution.
-    ///
-    /// * `std` - standard deviation of the normal distribution.
-    pub fn normal<D: Dimension>(param: &mut Learnable<D>, mean: f32, std: f32) {
-        let norm_dstr = Normal::new(mean, std).unwrap();
-        let mut t_rng = thread_rng();
-        param
-            .data_mut()
-            .map_inplace(|el| *el = norm_dstr.sample(&mut t_rng));
-    }
-
-    /// Fills the differentiable leaf variable with values according to the method described in
-    /// [Understanding the difficulty of training deep feedforward
-    /// neural networks](http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf) - Glorot, X. &
-    /// Bengio, Y. (2010), using a uniform distribution.
-    ///
-    /// # Arguments
-    ///
-    /// * `param` - differentiable variable to initialise.
-    ///
-    /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
-    pub fn xavier_uniform<D: Dimension>(param: &mut Learnable<D>, gain: f32) {
-        let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
-        let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
-        let a = 3.0_f32.sqrt() * std;
-        let unif_distr = Uniform::new(-a, a);
-        let mut t_rng = thread_rng();
-        param
-            .data_mut()
-            .map_inplace(|el| *el = unif_distr.sample(&mut t_rng));
-    }
-
-    /// Fills the differentiable leaf variable with values according to the method described in
-    /// [Understanding the difficulty of training deep feedforward
-    /// neural networks](http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf) - Glorot, X. &
-    /// Bengio, Y. (2010), using a normal distribution.
-    ///
-    /// Also known as **Glorot initialization**.
-    ///
-    /// # Arguments
-    ///
-    /// * `param` - differentiable variable to initialise.
-    ///
-    /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
-    pub fn xavier_normal<D: Dimension>(param: &mut Learnable<D>, gain: f32) {
-        let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
-        let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
-        let norm_distr = Normal::new(0., std).unwrap();
-        let mut t_rng = thread_rng();
-        param
-            .data_mut()
-            .map_inplace(|el| *el = norm_distr.sample(&mut t_rng));
-    }
-}
+use std::{cell::Cell, rc::Rc};
 
 pub(super) mod convolution;
+pub mod init;
 pub mod loss;
 
 /// A generic parameter of a neural component.
 pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
+
+/// A model's components registry.
+///
+/// This struct should be used when you are interested in keeping track of the statuses and the
+/// parameters of the components that are part of a neural network. There are many circumstances in
+/// which this can be useful, such as when you have more than one model in a pipeline.
+///
+/// This struct stores all the [`Learnable`] associated to a given model and the model's status.
+pub struct ModelRegistry {
+    pub params: Vec<Param>,
+    pub train: Rc<Cell<bool>>,
+}
+
+impl ModelRegistry {
+    /// Returns a vector of [`Param`] linked to the learnable weights associated to this
+    /// network.
+    ///
+    /// Conceptually, this method behaves similarly to [`.parameters()`](VarDiff::parameters()) when
+    /// called on the network's output. The key difference is that while `.parameters()` would
+    /// return *all* the differentiable leaves that took part in the computation of the output,
+    /// possibly also the weights of another network, `.get_params()` returns *only* the leaves
+    /// associated with the network that this `ModelRegistry` belongs to.
+    ///
+    /// Usually the result of this method is passed to an optimizer.
+    pub fn parameters(&self) -> Vec<Param> {
+        self.params.iter().cloned().collect()
+    }
+
+    /// Registers a component to the status.
+    ///
+    /// # Arguments
+    ///
+    /// `component` - layer to be registered.
+    pub fn register<T: Register>(&mut self, mut component: T) -> T {
+        component.register_params(&mut self.params);
+        component.register_status(self.train.clone());
+        component
+    }
+}
+
+impl Default for ModelRegistry {
+    /// Returns a new `ModelRegistry` with empty parameters and status set to train.
+    fn default() -> Self {
+        Self {
+            params: Vec::new(),
+            train: Rc::new(Cell::new(true)),
+        }
+    }
+}
+
+impl Eval for ModelRegistry {
+    /// Sets the status to train.
+    fn train(&self) {
+        self.train.set(true)
+    }
+
+    /// Sets the status to eval.
+    fn eval(&self) {
+        self.train.set(false)
+    }
+}
+
+/// Dropout input.
+///
+/// This trait is implemented by `Var` and `VarDiff`.
+pub trait DropoutInput {
+    type Output;
+
+    fn dropout(self, p: f64, status: Rc<Cell<bool>>) -> Self::Output;
+}
+
+impl<T, U> DropoutInput for VarDiff<T, U>
+where
+    T: Data + Forward,
+    U: Gradient<Dim = T::Dim> + Overwrite + Backward,
+{
+    type Output = VarDiff<DropoutNode<T>, DropoutBackwardNode<U, T>>;
+
+    fn dropout(self, p: f64, status: Rc<Cell<bool>>) -> Self::Output {
+        self.dropout_with_status(p, status)
+    }
+}
+
+impl<T> DropoutInput for Var<T>
+where
+    T: Data + Forward,
+{
+    type Output = Var<DropoutNode<T>>;
+
+    fn dropout(self, p: f64, status: Rc<Cell<bool>>) -> Self::Output {
+        self.dropout_with_status(p, status)
+    }
+}
+
+/// Registration for neuronika's components.
+pub trait Register {
+    /// Registers `self`'s parameters to the model's  status parameters `params`.
+    fn register_params(&self, params: &mut Vec<Param>);
+
+    /// Register `self`'s status to the model's status state `status`.
+    fn register_status(&mut self, status: Rc<Cell<bool>>);
+}
+
+/// During training, randomly zeroes some of the elements of `self` with probability *p* using
+/// samples from a Bernoulli distribution. Each channel will be zeroed out independently on
+/// every forward call.
+///
+/// This has proven to be an effective technique for regularization and preventing the
+/// co-adaptation of neurons as described in the paper
+/// [Improving neural networks by preventing co-adaptation of feature detectors](https://arxiv.org/abs/1207.0580).
+///
+/// Furthermore, the outputs are scaled by a factor of 1/(1 - p) during training. This means
+/// that during evaluation the resulting variable simply computes an identity function.
+pub struct Dropout {
+    pub status: Rc<Cell<bool>>,
+    pub p: f64,
+}
+
+impl Dropout {
+    /// Creates a dropout layer.
+    ///
+    /// # Arguments
+    ///
+    /// `p` - probability of an element to be zeroed.
+    pub fn new(p: f64) -> Self {
+        let status = Rc::new(Cell::new(true));
+        Self { status, p }
+    }
+
+    /// Applies the dropout to the variable in input.
+    ///
+    /// # Arguments
+    ///
+    /// `input`  - variable in input to the layer.
+    pub fn forward<I: DropoutInput>(&self, input: I) -> I::Output {
+        input.dropout(self.p, self.status.clone())
+    }
+}
+
+impl Eval for Dropout {
+    fn eval(&self) {
+        self.status.set(false)
+    }
+
+    fn train(&self) {
+        self.status.set(true)
+    }
+}
+
+impl Register for Dropout {
+    fn register_status(&mut self, status: Rc<Cell<bool>>) {
+        self.status = status;
+    }
+
+    fn register_params(&self, _: &mut Vec<Param>) {}
+}
 
 /// Applies a **linear transformation** to the incoming data.
 ///
@@ -410,20 +338,30 @@ impl Linear {
     ///
     /// # Arguments
     ///
-    /// `data` - a tensor of shape *(N, in_features)*, the output's shape will be
+    /// `data` - a variable of shape *(N, in_features)*, the output's shape will be
     /// *(N, out_features)*.
-    pub fn forward<W, T, U>(
+    pub fn forward<I, T, U>(
         &self,
-        input: W,
+        input: I,
     ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
     where
-        W: MatMatMulT<Learnable<Ix2>>,
-        W::Output: Into<VarDiff<T, U>>,
+        I: MatMatMulT<Learnable<Ix2>>,
+        I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
     {
         input.mm_mul_t(self.weight.clone()).into() + self.bias.clone()
     }
+}
+
+impl Register for Linear {
+    /// Registers the weight and the bias of this `Linear` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight.parameters());
+        params.extend(self.bias.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
 
 /// A **long short-term memory (LSTM)** cell.
@@ -482,7 +420,7 @@ impl LSTMCell {
     /// initial hidden state for each element in the batch and the initial cell's state for
     /// each element in the batch.
     ///
-    /// * `input` - a tensor containing the input features of shape *(batch, input_size)*.
+    /// * `input` - a variable containing the input features of shape *(batch, input_size)*.
     ///
     /// The **output** is a tuple of tensors made of the next hidden state for each element in
     /// the batch, of shape *(batch, hidden_size)* and the next cell's state for each element in
@@ -526,6 +464,18 @@ impl LSTMCell {
 
         (new_cell_state, new_hidden)
     }
+}
+
+impl Register for LSTMCell {
+    /// Registers the weights and the biases of this LSTMCell instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight_hh.parameters());
+        params.extend(self.weight_ih.parameters());
+        params.extend(self.bias_hh.parameters());
+        params.extend(self.bias_ih.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
 
 /// A **gated recurrent unit (GRU)** cell.
@@ -578,12 +528,12 @@ impl GRUCell {
 
     /// Computes a single **GRU step**.
     ///
-    /// * `hidden` - a tensor of shape *(batch, hidden_size)*, containing the initial hidden state
+    /// * `hidden` - a variable of shape *(batch, hidden_size)*, containing the initial hidden state
     /// for each element in the batch.
     ///
-    /// * `input` - a tensor containing the input features of shape *(batch, input_size)*.
+    /// * `input` - a variable containing the input features of shape *(batch, input_size)*.
     ///
-    /// The **output** is  a tensor made of the next hidden state for each element in
+    /// The **output** is  a variable made of the next hidden state for each element in
     /// the batch, of shape *(batch, hidden_size)*.
     pub fn forward<Hf, Hb, I, T, U>(
         &self,
@@ -617,6 +567,18 @@ impl GRUCell {
             (chunked_igates[2].clone() + (chunked_hgates[2].clone() * reset_gate)).tanh();
         (hidden - new_gate.clone()) * input_gate + new_gate
     }
+}
+
+impl Register for GRUCell {
+    /// Parametric the weights and the biases of this `GRUCell` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight_hh.parameters());
+        params.extend(self.weight_ih.parameters());
+        params.extend(self.bias_hh.parameters());
+        params.extend(self.bias_ih.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
 
 /// Applies a **temporal convolution** over an input signal composed of several input planes.
@@ -719,6 +681,16 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
         .into()
             + self.bias.clone()
     }
+}
+
+impl<Pad: PaddingMode> Register for Conv1d<Pad> {
+    /// Parametric the weight and the biase of this `Conv1d` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight.parameters());
+        params.extend(self.bias.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
 
 /// Applies a **grouped temporal convolution** over an input signal composed of several input
@@ -841,6 +813,16 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     }
 }
 
+impl<Pad: PaddingMode> Register for GroupedConv1d<Pad> {
+    /// Parametric the weight and the biase of this `GroupedConv1d` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight.parameters());
+        params.extend(self.bias.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
+}
+
 /// Applies a **spatial convolution** over an input signal composed of several input planes.
 ///
 /// See also [`GroupedConv2d`].
@@ -953,6 +935,16 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
         .into()
             + self.bias.clone()
     }
+}
+
+impl<Pad: PaddingMode> Register for Conv2d<Pad> {
+    /// Parametric the weight and the biase of this `Conv2d` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight.parameters());
+        params.extend(self.bias.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
 
 /// Applies a **spatial grouped convolution** over an input signal composed of several input planes.
@@ -1082,6 +1074,16 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     }
 }
 
+impl<Pad: PaddingMode> Register for GroupedConv2d<Pad> {
+    /// Parametric the weight and the biase of this `GroupedConv2d` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight.parameters());
+        params.extend(self.bias.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
+}
+
 /// Applies a **volumetric convolution** over an input signal composed of several input planes.
 ///
 /// See also [`GroupedConv3d`].
@@ -1197,6 +1199,16 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
         .into()
             + self.bias.clone()
     }
+}
+
+impl<Pad: PaddingMode> Register for Conv3d<Pad> {
+    /// Parametric the weight and the biase of this `Conv3d` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight.parameters());
+        params.extend(self.bias.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
 
 /// Applies a **grouped volumetric convolution** over an input signal composed of several input
@@ -1326,4 +1338,14 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
         .into()
             + self.bias.clone()
     }
+}
+
+impl<Pad: PaddingMode> Register for GroupedConv3d<Pad> {
+    /// Parametric the weight and the biase of this `GroupedConv3d` instance.
+    fn register_params(&self, params: &mut Vec<Param>) {
+        params.extend(self.weight.parameters());
+        params.extend(self.bias.parameters());
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
