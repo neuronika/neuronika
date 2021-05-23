@@ -30,7 +30,7 @@ pub trait Data {
 /// from the leaf variables to the graph's root.
 ///
 /// The other two methods, namely `.was_computed()` and `.reset_computation()`, are used to perform
-/// caching during the forward pass. Caching is critical to avoid recocumputing paths and to achieve
+/// caching during the forward pass. Caching is critical to avoid recomputing paths and to achieve
 /// good performance when a computational graph has more than one root, like the one, for instance,
 /// of a recurrent neural network.
 pub trait Forward {
