@@ -1,7 +1,8 @@
 //! Basic building blocks for neural networks.
 //!
 //! Neuronika provides some pre-assembled components, you can either use them individually or
-//! combine them into a bigger architecture.
+//! combine them into a bigger architecture. Feel free to take a look at the
+//! [complete list](#layers).
 //!
 //! You can also customise the initialisation of the parameters of such components, and that of any
 //! other differentiable variable, by picking the function that best fits your needs from the
@@ -12,21 +13,21 @@
 //! # Assembling a neural network
 //!
 //! The suggested way of bulding a model using neuronika's building blocks is to define a struct
-//! encapsulating the components.
+//! encapsulating its components.
 //!
-//! The behaviour of the model can be defined by including an appropriate method in its struct
+//! The behaviour of the model should be defined by including an appropriate method in its struct
 //! implementation. Such method must specify how the components interact.
 //!
 //! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
 //! layers for a multivariate regression task, let's see what it would look like in neuronika.
 //!
-//! Firstly, we have to define its struct by using the provided components.
+//! We begin by definining its struct using the provided components.
 //!
 //! ```
 //! use neuronika::nn;
 //!
 //! // MLP definition.
-//! struct Mlp {
+//! struct MLP {
 //!     lin1: nn::Linear,
 //!     lin2: nn::Linear,
 //!     lin3: nn::Linear,     
@@ -37,12 +38,12 @@
 //!
 //! ```
 //! # use neuronika::nn;
-//! # struct Mlp {
+//! # struct MLP {
 //! #    lin1: nn::Linear,
 //! #    lin2: nn::Linear,
 //! #    lin3: nn::Linear,     
 //! # }
-//! impl Mlp {
+//! impl MLP {
 //!     // Basic constructor.
 //!     fn new() -> Self {
 //!         Self {
@@ -54,7 +55,7 @@
 //! }
 //! ```
 //!
-//! As the last thing, we have to specify how the multilayer perceptron behaves and we're done.
+//! As the last step, we have to specify how the multilayer perceptron behaves, then, we're done.
 //!
 //! ```
 //! use ndarray::Ix2;
@@ -62,12 +63,12 @@
 //! use neuronika::nn::Learnable;
 //!
 //! # use neuronika::nn;
-//! # struct Mlp {
+//! # struct MLP {
 //! #     lin1: nn::Linear,
 //! #     lin2: nn::Linear,
 //! #     lin3: nn::Linear,     
 //! # }
-//! impl Mlp {
+//! impl MLP {
 //!     // MLP behaviour. Notice the presence of the ReLU non-linearity.
 //!     fn forward<I, T, U>(
 //!         &self,
@@ -90,17 +91,210 @@
 //! }
 //! ```
 //!
-//! # Linear Layers
+//! Here's a fictitious example of the newly created multilayer perceptron in use.
+//!
+//! ```
+//! # use neuronika::nn;
+//! # use ndarray::Ix2;
+//! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+//! # use neuronika::nn::Learnable;
+//! # struct MLP {
+//! #    lin1: nn::Linear,
+//! #    lin2: nn::Linear,
+//! #    lin3: nn::Linear,     
+//! # }
+//! # impl MLP {
+//! #     // Basic constructor.
+//! #     fn new() -> Self {
+//! #         Self {
+//! #             lin1: nn::Linear::new(25, 30),
+//! #             lin2: nn::Linear::new(30, 35),
+//! #             lin3: nn::Linear::new(35, 5),
+//! #         }
+//! #     }
+//! # }
+//! # impl MLP {
+//! #     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//! #     fn forward<I, T, U>(
+//! #         &self,
+//! #         input: I,
+//! #     ) -> VarDiff<
+//! #             impl Data<Dim = Ix2> + Forward,
+//! #             impl Gradient<Dim = Ix2> + Overwrite + Backward
+//! #         >
+//! #     where
+//! #         I: MatMatMulT<Learnable<Ix2>>,
+//! #         I::Output: Into<VarDiff<T, U>>,
+//! #         T: Data<Dim = Ix2> + Forward,
+//! #         U: Gradient<Dim = Ix2> + Backward + Overwrite,
+//! #     {
+//! #         let out1 = self.lin1.forward(input).relu();
+//! #         let out2 = self.lin2.forward(out1).relu();
+//! #         let out3 = self.lin3.forward(out2);
+//! #         out3
+//! #     }
+//! # }
+//! let model = MLP::new();
+//!
+//! // Random data to be given in input to the model.
+//! let fictitious_data = neuronika::rand((200, 25));
+//!
+//! let mut out = model.forward(fictitious_data);
+//! out.forward(); // Always remember to call forward() !
+//! # assert_eq!(out.data().shape(), &[200, 5]);
+//! ```
+//! # Tracking parameters with ModelRegistry
+//!
+//! In some circumstances you may find useful to group the parameters of a model. Consider for
+//! instance the following scenario.
+//!
+//! ```
+//! # use neuronika::nn;
+//! # use ndarray::Ix2;
+//! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+//! # use neuronika::nn::Learnable;
+//! # struct MLP {
+//! #    lin1: nn::Linear,
+//! #    lin2: nn::Linear,
+//! #    lin3: nn::Linear,     
+//! # }
+//! # impl MLP {
+//! #     // Basic constructor.
+//! #     fn new() -> Self {
+//! #         Self {
+//! #             lin1: nn::Linear::new(25, 30),
+//! #             lin2: nn::Linear::new(30, 35),
+//! #             lin3: nn::Linear::new(35, 5),
+//! #         }
+//! #     }
+//! # }
+//! # impl MLP {
+//! #     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//! #     fn forward<I, T, U>(
+//! #         &self,
+//! #         input: I,
+//! #     ) -> VarDiff<
+//! #             impl Data<Dim = Ix2> + Forward,
+//! #             impl Gradient<Dim = Ix2> + Overwrite + Backward
+//! #         >
+//! #     where
+//! #         I: MatMatMulT<Learnable<Ix2>>,
+//! #         I::Output: Into<VarDiff<T, U>>,
+//! #         T: Data<Dim = Ix2> + Forward,
+//! #         U: Gradient<Dim = Ix2> + Backward + Overwrite,
+//! #     {
+//! #         let out1 = self.lin1.forward(input).relu();
+//! #         let out2 = self.lin2.forward(out1).relu();
+//! #         let out3 = self.lin3.forward(out2);
+//! #         out3
+//! #     }
+//! # }
+//! let model = MLP::new();
+//!
+//! let some_other_variable = neuronika::rand((1, 25)).requires_grad();
+//!
+//! // Random perturbated data.
+//! let fictitious_data = neuronika::rand((200, 25)) + some_other_variable;
+//!
+//! let out = model.forward(fictitious_data);
+//! assert_eq!(out.parameters().len(), 7); // 7 leaf ancestors !
+//! ```
+//!
+//! You can notice how, if we give in input to the multilayer perceptron the result of an
+//! addition operation, in which one of the operands is a differentiable variable, and then
+//! request the *mlp*'s output differentiable ancestors, we are given a vector containing 7
+//! [`Param`](struct@Param).
+//!
+//! By doing some quick math: 7 = 2 * 3 + 1, and by noticing that each of the three linear layers
+//! that the multilayer perceptron is made of has one learnable weight matrix and one learnable
+//! bias vector, we can conclude that the presence of the seventh ancestors is due to the addition
+//! between `fictitious_data` and `some_other_variable`.
+//!
+//! If you need to distinguish between the parameters of a model and another differentiable variable
+//! or between the parameters of several different models, you can use [`ModelRegistry`].
+//!
+//! With `ModelRegistry` you can build the exact same multilayer perceptron only varying the
+//! implementation so slightly.
+//!
+//! ```
+//!  use neuronika::Param;
+//!  use neuronika::nn::{ModelRegistry, Linear};
+//!
+//!  struct RegistryMLP {
+//!     lin1: Linear,
+//!     lin2: Linear,
+//!     lin3: Linear,
+//!     registry: ModelRegistry,     
+//!  }
+//!
+//!  impl RegistryMLP {
+//!      fn new() -> Self {
+//!          let mut registry = ModelRegistry::default();
+//!
+//!          Self {
+//!              lin1: registry.register(Linear::new(25, 30)),
+//!              lin2: registry.register(Linear::new(30, 35)),
+//!              lin3: registry.register(Linear::new(35, 5)),
+//!              registry,
+//!          }
+//!      }
+//!
+//!      fn parameters(&self) -> Vec<Param> {
+//!          self.registry.parameters()
+//!      }
+//!  }
+//! ```
+//!
+//! Let's verify that the number of registered parameters for the new version of our multilayer
+//! perceptron is indeed 6. Do also note that the implementation of the `.forward()` method has not
+//! changed at all.
+//!
+//! ```
+//! # use ndarray::Ix2;
+//! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff, Param};
+//! # use neuronika::nn::{ModelRegistry, Linear, Learnable};
+//! # struct RegistryMLP {
+//! #     lin1: Linear,
+//! #     lin2: Linear,
+//! #     lin3: Linear,
+//! #     registry: ModelRegistry,     
+//! # }
+//! # impl RegistryMLP {
+//! #     // Basic constructor.
+//! #     fn new() -> Self {
+//! #         let mut registry = ModelRegistry::default();
+//! #
+//! #         Self {
+//! #            lin1: registry.register(Linear::new(25, 30)),
+//! #            lin2: registry.register(Linear::new(30, 35)),
+//! #            lin3: registry.register(Linear::new(35, 5)),
+//! #            registry,
+//! #         }
+//! #     }
+//! #
+//! #     fn parameters(&self) -> Vec<Param> {
+//! #        self.registry.parameters()
+//! #     }
+//! # }
+//! let model = RegistryMLP::new();
+//! assert_eq!(model.parameters().len(), 6);
+//! ```
+//!
+//! # Layers
+//!
+//! Here are listed all neuronika's building blocks.
+//!
+//! ## Linear Layers
 //!
 //! * [`nn::Linear`](struct@Linear) - Applies a linear transformation to the incoming data.
 //!
-//! # Recurrent Layers
+//! ## Recurrent Layers
 //!
 //! * [`nn::GRUCell`](struct@GRUCell) - A gated recurrent unit cell.
 //!
 //! * [`nn::LSTMCell`](struct@LSTMCell) - A long short term memory cell.
 //!
-//! # Convolution Layers
+//! ## Convolution Layers
 //!
 //! * [`nn::Conv1d`](struct@Conv1d) - Applies a temporal convolution over an input signal composed
 //! of several input planes.
@@ -120,7 +314,7 @@
 //! * [`nn::GroupedConv3d`](struct@GroupedConv3d) - Applies a grouped volumetric convolution over an
 //! input signal composed of several input planes.
 //!
-//! # Dropout Layers
+//! ## Dropout Layers
 //!
 //! * [`nn::Dropout`](struct@Dropout) - During training, randomly zeroes some of the elements of
 //! the input variable with probability *p* using samples from a Bernoulli distribution.
@@ -151,22 +345,23 @@ pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 /// parameters of the components that are part of a neural network. There are many circumstances in
 /// which this can be useful, such as when you have more than one model in a pipeline.
 ///
-/// This struct stores all the [`Learnable`] associated to a given model and the model's status.
+/// This struct stores all the [`Learnable`] associated to a given model and the model's status. It
+/// is suggested to perform the registration of the layers at the model construction.
 pub struct ModelRegistry {
     params: Vec<Param>,
     train: Rc<Cell<bool>>,
 }
 
 impl ModelRegistry {
-    /// Returns a vector of [`Param`] linked to the learnable weights associated to this
+    /// Returns a vector of [`Param`] linked to the learnable weights associated to a neural
     /// network.
     ///
     /// Conceptually, this method behaves similarly to [`.parameters()`](VarDiff::parameters()) when
-    /// called on the network's output. The key difference is that while differentiable variable's
-    /// `.parameters()` would return *all* the differentiable leaves that took part in the
-    /// computation of the output, possibly also the weights of another network, registry's
-    /// `.parameters()` returns *only* the leaves associated with the network that the
-    /// `ModelRegistry` belongs to.
+    /// called on the differentiable variable outputted by the network. The key difference lies in
+    /// the fact that, while the differentiable variable's `.parameters()` method would return *all*
+    /// the differentiable leaves that took part in the computation of the output, possibly also
+    /// the weights of another network, `ModelRegistry`'s `.parameters()` method returns *only* the
+    /// leaves that have been associated with it at the model's instantiation.
     ///
     /// Usually the result of this method is passed to an optimizer.
     pub fn parameters(&self) -> Vec<Param> {
