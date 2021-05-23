@@ -59,8 +59,9 @@
 //! ```
 //! use ndarray::Ix2;
 //! use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+//! use neuronika::nn::Learnable;
 //!
-//! # use neuronika::nn::{self, Learnable};
+//! # use neuronika::nn;
 //! # struct Mlp {
 //! #     lin1: nn::Linear,
 //! #     lin2: nn::Linear,
