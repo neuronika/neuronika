@@ -3,7 +3,7 @@ use super::{
         broadcasted_zeros, expect_tensor, expect_tensor_mut, BroadTensor, Broadcasted, DynTensor,
         Tensor,
     },
-    Backward, Data, Differentiable, DotDim, Dropout, Eval, Gradient, Input, Overwrite,
+    Backward, Data, Differentiable, DotDim, Dropout, Gradient, Input, Overwrite,
 };
 use ndarray::{
     concatenate,
@@ -4314,7 +4314,7 @@ where
     diff_operand: Rc<T>,
     no_diff_operand: Rc<Dropout<U>>,
     p: f64,
-    train: Cell<bool>,
+    train: Rc<Cell<bool>>,
 }
 
 impl<T, U> DropoutBackward<T, U>
@@ -4326,6 +4326,7 @@ where
         diff_operand: Rc<T>,
         no_diff_operand: Rc<Dropout<U>>,
         p: f64,
+        forward_status: Rc<Cell<bool>>,
     ) -> DropoutBackward<T, U> {
         let shape = diff_operand.gradient().raw_dim();
 
@@ -4336,22 +4337,8 @@ where
             diff_operand,
             no_diff_operand,
             p,
-            train: Cell::new(true),
+            train: forward_status,
         }
-    }
-}
-
-impl<T, U> Eval for DropoutBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn train(&self) {
-        self.train.set(true);
-    }
-
-    fn eval(&self) {
-        self.train.set(false);
     }
 }
 
@@ -8399,8 +8386,13 @@ mod tests {
         fn creation() {
             let node = DropoutBackward::new(
                 new_backward_input((3, 3), vec![0.; 9]),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.5)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    0.5,
+                    Rc::new(Cell::new(true)),
+                )),
                 0.5,
+                Rc::new(Cell::new(true)),
             );
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
@@ -8413,8 +8405,13 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             let node = DropoutBackward::new(
                 input.clone(),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.5)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    0.5,
+                    Rc::new(Cell::new(true)),
+                )),
                 0.5,
+                Rc::new(Cell::new(true)),
             );
 
             node.backward();
@@ -8463,8 +8460,13 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             let node = DropoutBackward::new(
                 input.clone(),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 1.)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    1.,
+                    Rc::new(Cell::new(true)),
+                )),
                 1.,
+                Rc::new(Cell::new(true)),
             );
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -8490,8 +8492,13 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             let node = DropoutBackward::new(
                 input.clone(),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    0.,
+                    Rc::new(Cell::new(true)),
+                )),
                 0.,
+                Rc::new(Cell::new(true)),
             );
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

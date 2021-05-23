@@ -1690,11 +1690,11 @@ pub struct Dropout<T: Data> {
     distr: Bernoulli,
     p: f64,
     computed: Cell<bool>,
-    train: Cell<bool>,
+    train: Rc<Cell<bool>>,
 }
 
 impl<T: Data> Dropout<T> {
-    pub fn new(operand: Rc<T>, p: f64) -> Self {
+    pub fn new(operand: Rc<T>, p: f64, status: Rc<Cell<bool>>) -> Self {
         if !(0. ..=1.).contains(&p) {
             panic!(
                 "error: dropout probability has to be between 0 and 1, but got {}.",
@@ -1715,12 +1715,16 @@ impl<T: Data> Dropout<T> {
             distr,
             p,
             computed: Cell::new(false),
-            train: Cell::new(true),
+            train: status,
         }
     }
 
     pub(crate) fn noise(&self) -> Ref<Tensor<T::Dim>> {
         self.noise.borrow()
+    }
+
+    pub(crate) fn status(&self) -> Rc<Cell<bool>> {
+        self.train.clone()
     }
 }
 
@@ -4142,7 +4146,7 @@ mod tests {
         #[test]
         fn creation() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Dropout::new(input, 0.5);
+            let node = Dropout::new(input, 0.5, Rc::new(Cell::new(true)));
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(node.was_computed(), false);
@@ -4154,13 +4158,13 @@ mod tests {
         )]
         fn creation_less_than_zero() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let _ = Dropout::new(input, -0.5);
+            let _ = Dropout::new(input, -0.5, Rc::new(Cell::new(true)));
         }
 
         #[test]
         fn computation_was_computed_transition() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Dropout::new(input, 0.5);
+            let node = Dropout::new(input, 0.5, Rc::new(Cell::new(true)));
 
             node.forward();
             assert_eq!(node.was_computed(), true);
@@ -4178,7 +4182,7 @@ mod tests {
         #[test]
         fn forward_p_one() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Dropout::new(input.clone(), 1.);
+            let node = Dropout::new(input.clone(), 1., Rc::new(Cell::new(true)));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
@@ -4206,7 +4210,7 @@ mod tests {
         #[test]
         fn forward_scaling() {
             let input = new_input((3, 3), vec![3.; 9]);
-            let node = Dropout::new(input, 0.5);
+            let node = Dropout::new(input, 0.5, Rc::new(Cell::new(true)));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();
@@ -4218,7 +4222,7 @@ mod tests {
         #[test]
         fn forward_p_zero() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-            let node = Dropout::new(input.clone(), 0.);
+            let node = Dropout::new(input.clone(), 0., Rc::new(Cell::new(true)));
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             node.forward();

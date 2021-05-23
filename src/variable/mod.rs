@@ -23,7 +23,7 @@ use node::{
     VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::BTreeMap,
     collections::HashSet,
     ops::{Add, Div, Mul, Neg, Sub},
@@ -108,7 +108,6 @@ pub(crate) struct DiffVarHistory {
     path: BTreeMap<usize, Rc<dyn Backward>>,
     buffer: Vec<Rc<dyn Backward>>,
     parameters: HashSet<Param>,
-    changeables: HashSet<*const dyn Eval>,
 }
 
 impl DiffVarHistory {
@@ -117,23 +116,17 @@ impl DiffVarHistory {
             path: BTreeMap::new(),
             buffer: Vec::new(),
             parameters,
-            changeables: HashSet::new(),
         }
     }
 
     pub fn merge(&mut self, mut other: DiffVarHistory) {
         self.path.append(&mut other.path);
         self.parameters.extend(other.parameters);
-        self.changeables.extend(other.changeables);
     }
 
     pub fn append_backward(&mut self, id: usize, next: Rc<dyn Backward>) {
         self.path.insert(id, next);
         self.buffer.truncate(0);
-    }
-
-    pub fn append_changeable(&mut self, next: *const dyn Eval) {
-        self.changeables.insert(next);
     }
 
     pub fn len(&self) -> usize {
@@ -203,17 +196,30 @@ pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter 
 
 /// Matrix-matrix multiplication.
 pub trait MatMatMul<Rhs> {
+    /// The type of the matrix-matrix multiplication's result. See the
+    /// [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Computes the matrix-matrix multiplication between `self` and `other`.
     fn mm_mul(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Matrix-matrix multiplication with transposed right hand side operand.
+///
+/// This fused operation is marginally faster than performing the matrix-matrix multiplication
+/// and transposition separately.
 pub trait MatMatMulT<Rhs> {
+    /// The type of the matrix-matrix multiplication with transposed right hand side operand's
+    /// result. See the [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Computes the matrix-matrix multiplication between `self` and transposed `other`.
     fn mm_mul_t(self, other: Rhs) -> Self::Output;
 }
 
@@ -221,8 +227,13 @@ pub trait MatMatMulT<Rhs> {
 
 /// Matrix-vector multiplication.
 pub trait MatVecMul<Rhs> {
+    /// The type of the matrix-vector multiplication's result. See the
+    /// [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Computes the matrix-vector multiplication between `self` and `other`.
     fn mv_mul(self, other: Rhs) -> Self::Output;
 }
 
@@ -230,17 +241,27 @@ pub trait MatVecMul<Rhs> {
 
 /// Vector-matrix multiplication.
 pub trait VecMatMul<Rhs> {
+    /// The type of the vector-matrix multiplication's result. See the
+    /// [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Computes the vector-matrix multiplication between `self` and `other`.
     fn vm_mul(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-/// Vector-vector multiplication.
+/// Vector-vector multiplication, *a.k.a. dot product or inner product*.
 pub trait VecVecMul<Rhs> {
+    /// The type of the dot product's result. See the [*differentiability arithmetic*] for
+    /// more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Computes the dot product between `self` and `other`.
     fn vv_mul(self, other: Rhs) -> Self::Output;
 }
 
@@ -250,15 +271,25 @@ pub trait VecVecMul<Rhs> {
 
 /// Concatenation.
 pub trait Cat<Rhs> {
+    /// The type of the concatenation's result. See the [*differentiability arithmetic*] for
+    /// more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Concatenates variables along the given axis.
     fn cat(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
 /// Stacking.
 pub trait Stack<Rhs> {
+    /// The type of the stacking's result. See the [*differentiability arithmetic*] for
+    /// more details.
+    ///
+    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
     type Output;
 
+    /// Stacks variables along the given axis.
     fn stack(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
@@ -472,7 +503,7 @@ impl<T: Data + Forward + 'static> Var<T> {
 }
 
 impl<T: Data + Forward + Eval + 'static> Var<T> {
-    pub(crate) fn from_changable(node: T, mut past: VarHistory) -> Self {
+    pub(crate) fn from_changeable(node: T, mut past: VarHistory) -> Self {
         let node = Rc::new(node);
         past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
         past.append_changeable(node.as_ref() as *const dyn Eval);
@@ -638,6 +669,9 @@ impl<T: Data + 'static> Var<T> {
 
     /// Applies *dropout* to `self` and returns a variable with the result.
     ///
+    /// It is strongly suggested to use [`nn::Dropout`] instead of this method when working with
+    /// neural networks.
+    ///
     /// During training, randomly zeroes some of the elements of `self` with probability *p* using
     /// samples from a Bernoulli distribution. Each channel will be zeroed out independently on
     /// every forward call.
@@ -648,8 +682,16 @@ impl<T: Data + 'static> Var<T> {
     ///
     /// Furthermore, the outputs are scaled by a factor of 1/(1 - p) during training. This means
     /// that during evaluation the resulting variable simply computes an identity function.
+    ///
+    /// [`nn::Dropout`]: crate::nn::Dropout
     pub fn dropout(self, p: f64) -> Var<Dropout<T>> {
-        Var::from_changable(Dropout::new(self.node, p), self.past)
+        self.dropout_with_status(p, Rc::new(Cell::new(true)))
+    }
+
+    /// Creates a new variable with a status. This method is used in the `Dropout` component of the
+    /// `nn` module.
+    pub fn dropout_with_status(self, p: f64, status: Rc<Cell<bool>>) -> Var<Dropout<T>> {
+        Var::from_changeable(Dropout::new(self.node, p, status), self.past)
     }
 
     /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
@@ -684,6 +726,17 @@ where
     /// Concatenates the variables `self` and `rhs` along `axis`.
     ///
     /// All variables must have the same shape, except in the concatenating dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to concatenate along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
     pub fn cat<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Cat<Rhs>>::Output
     where
         Self: Cat<Rhs>,
@@ -694,23 +747,22 @@ where
     /// Stacks the variables `self` and `rhs` along a new dimension specified by `axis`.
     ///
     /// All variables must have the same shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to stack along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
     pub fn stack<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Stack<Rhs>>::Output
     where
         Self: Stack<Rhs>,
     {
         Stack::stack(self, rhs, axis)
-    }
-}
-
-impl<T: Data + Forward + Eval> Var<T> {
-    /// Sets `self` in training mode.
-    pub fn set_train(&self) {
-        self.node.train();
-    }
-
-    /// Sets `self` in evaluation mode.
-    pub fn set_eval(&self) {
-        self.node.eval();
     }
 }
 
@@ -783,20 +835,6 @@ where
     pub(crate) fn from(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
         let node = Rc::new(node);
         past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-
-        VarDiff { var, node, past }
-    }
-}
-
-impl<T, U> VarDiff<T, U>
-where
-    T: Data + Forward + Eval + 'static,
-    U: Gradient + Overwrite + Backward + Eval + 'static,
-{
-    pub(crate) fn from_changable(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
-        let node = Rc::new(node);
-        past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-        past.append_changeable(node.as_ref() as *const dyn Eval);
 
         VarDiff { var, node, past }
     }
@@ -894,7 +932,7 @@ where
     ///
     ///  [`.dropout()`]: VarDiff::dropout()
     pub fn train(&self) {
-        for changeable in &self.past.changeables {
+        for changeable in &self.var.past.changeables {
             unsafe {
                 (&**changeable).train();
             }
@@ -908,11 +946,7 @@ where
     ///
     ///  [`.dropout()`]: VarDiff::dropout()
     pub fn eval(&self) {
-        for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).eval();
-            }
-        }
+        self.var.eval()
     }
 }
 
@@ -1123,6 +1157,9 @@ where
 
     /// Applies *dropout* to `self` and returns a differentiable variable with the result.
     ///
+    /// It is strongly suggested to use [`nn::Dropout`] instead of this method when working with
+    /// neural networks.
+    ///
     /// During training, randomly zeroes some of the elements of `self` with probability *p* using
     /// samples from a Bernoulli distribution. Each channel will be zeroed out independently on
     /// every forward call.
@@ -1133,10 +1170,20 @@ where
     ///
     /// Furthermore, the outputs are scaled by a factor of 1/(1 - p) during training. This means
     /// that during evaluation the resulting variable simply computes an identity function.
+    ///
+    /// [`nn::Dropout`]: crate::nn::Dropout
     pub fn dropout(self, p: f64) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
-        let var = self.var.dropout(p);
-        let node = DropoutBackward::new(self.node, var.node.clone(), p);
-        VarDiff::from_changable(node, self.past, var)
+        self.dropout_with_status(p, Rc::new(Cell::new(true)))
+    }
+
+    pub(crate) fn dropout_with_status(
+        self,
+        p: f64,
+        status: Rc<Cell<bool>>,
+    ) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
+        let var = self.var.dropout_with_status(p, status);
+        let node = DropoutBackward::new(self.node, var.node.clone(), p, var.node.status());
+        VarDiff::from(node, self.past, var)
     }
 
     /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
@@ -1168,24 +1215,6 @@ where
 
 impl<T, U> VarDiff<T, U>
 where
-    T: Data + Forward + Eval + 'static,
-    U: Gradient + Overwrite + Backward + Eval + 'static,
-{
-    /// Sets `self` in training mode.
-    pub fn set_train(&self) {
-        self.var.set_eval();
-        self.node.train();
-    }
-
-    /// Sets `self` in evaluation mode.
-    pub fn set_eval(&self) {
-        self.var.set_eval();
-        self.node.eval();
-    }
-}
-
-impl<T, U> VarDiff<T, U>
-where
     T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: RemoveAxis,
@@ -1203,6 +1232,16 @@ where
     /// Concatenates the variables `self` and `rhs` along `axis`.
     ///
     /// All variables must have the same shape, except in the concatenating dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to concatenate along to.
+    ///
+    /// # Panics
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
     pub fn cat<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Cat<Rhs>>::Output
     where
         Self: Cat<Rhs>,
@@ -1213,6 +1252,17 @@ where
     /// Stacks the variables `self` and `rhs` along a new dimension specified by `axis`.
     ///
     /// All variables must have the same shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to stack along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
     pub fn stack<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Stack<Rhs>>::Output
     where
         Self: Stack<Rhs>,

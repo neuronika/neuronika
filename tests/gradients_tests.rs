@@ -773,3 +773,58 @@ fn culo() {
 
     xavier_normal(&mut lin.weight, calculate_gain("relu"));
 }
+
+#[test]
+fn tutorial() {
+    use ndarray::Ix2;
+    use neuronika::nn::{self, Learnable};
+    use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+
+    // MLP definition.
+    struct Mlp {
+        lin1: nn::Linear,
+        lin2: nn::Linear,
+        lin3: nn::Linear,
+    }
+
+    impl Mlp {
+        // Basic constructor.
+        fn new() -> Self {
+            Self {
+                lin1: nn::Linear::new(25, 30),
+                lin2: nn::Linear::new(30, 35),
+                lin3: nn::Linear::new(35, 5),
+            }
+        }
+    }
+
+    impl Mlp {
+        // MLP behaviour. Notice the presence of the ReLU non-linearity.
+        fn forward<I, T, U>(
+            &self,
+            input: I,
+        ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
+        where
+            I: MatMatMulT<Learnable<Ix2>>,
+            I::Output: Into<VarDiff<T, U>>,
+            T: Data<Dim = Ix2> + Forward,
+            U: Gradient<Dim = Ix2> + Backward + Overwrite,
+        {
+            let out1 = self.lin1.forward(input).relu();
+            let out2 = self.lin2.forward(out1).relu();
+            let out3 = self.lin3.forward(out2);
+            out3
+        }
+    }
+
+    fn main() {
+        let model = Mlp::new();
+        let data = neuronika::rand((100, 25));
+
+        let mut out = model.forward(data);
+        out.forward();
+        println!("{}", out.data());
+    }
+
+    main()
+}
