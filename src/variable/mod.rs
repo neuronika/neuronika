@@ -199,7 +199,7 @@ pub trait MatMatMul<Rhs> {
     /// The type of the matrix-matrix multiplication's result. See the
     /// [*differentiability arithmetic*] for more details.
     ///
-    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
     /// Computes the matrix-matrix multiplication between `self` and `other`.
@@ -216,7 +216,7 @@ pub trait MatMatMulT<Rhs> {
     /// The type of the matrix-matrix multiplication with transposed right hand side operand's
     /// result. See the [*differentiability arithmetic*] for more details.
     ///
-    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
     /// Computes the matrix-matrix multiplication between `self` and transposed `other`.
@@ -230,7 +230,7 @@ pub trait MatVecMul<Rhs> {
     /// The type of the matrix-vector multiplication's result. See the
     /// [*differentiability arithmetic*] for more details.
     ///
-    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
     /// Computes the matrix-vector multiplication between `self` and `other`.
@@ -244,7 +244,7 @@ pub trait VecMatMul<Rhs> {
     /// The type of the vector-matrix multiplication's result. See the
     /// [*differentiability arithmetic*] for more details.
     ///
-    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
     /// Computes the vector-matrix multiplication between `self` and `other`.
@@ -258,7 +258,7 @@ pub trait VecVecMul<Rhs> {
     /// The type of the dot product's result. See the [*differentiability arithmetic*] for
     /// more details.
     ///
-    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
     /// Computes the dot product between `self` and `other`.
@@ -274,7 +274,7 @@ pub trait Cat<Rhs> {
     /// The type of the concatenation's result. See the [*differentiability arithmetic*] for
     /// more details.
     ///
-    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
     /// Concatenates variables along the given axis.
@@ -286,7 +286,7 @@ pub trait Stack<Rhs> {
     /// The type of the stacking's result. See the [*differentiability arithmetic*] for
     /// more details.
     ///
-    /// [*differentiability arithmetic*]: #differentiablity_arithmetic
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
     /// Stacks variables along the given axis.
