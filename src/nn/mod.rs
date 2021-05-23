@@ -173,7 +173,7 @@ impl ModelRegistry {
         self.params.iter().cloned().collect()
     }
 
-    /// Registers a component to the status.
+    /// Registers a component.
     ///
     /// # Arguments
     ///
