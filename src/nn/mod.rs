@@ -152,8 +152,8 @@ pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 ///
 /// This struct stores all the [`Learnable`] associated to a given model and the model's status.
 pub struct ModelRegistry {
-    pub params: Vec<Param>,
-    pub train: Rc<Cell<bool>>,
+    params: Vec<Param>,
+    train: Rc<Cell<bool>>,
 }
 
 impl ModelRegistry {
@@ -161,10 +161,11 @@ impl ModelRegistry {
     /// network.
     ///
     /// Conceptually, this method behaves similarly to [`.parameters()`](VarDiff::parameters()) when
-    /// called on the network's output. The key difference is that while `.parameters()` would
-    /// return *all* the differentiable leaves that took part in the computation of the output,
-    /// possibly also the weights of another network, `.get_params()` returns *only* the leaves
-    /// associated with the network that this `ModelRegistry` belongs to.
+    /// called on the network's output. The key difference is that while differentiable variable's
+    /// `.parameters()` would return *all* the differentiable leaves that took part in the
+    /// computation of the output, possibly also the weights of another network, registry's
+    /// `.parameters()` returns *only* the leaves associated with the network that the
+    /// `ModelRegistry` belongs to.
     ///
     /// Usually the result of this method is passed to an optimizer.
     pub fn parameters(&self) -> Vec<Param> {
