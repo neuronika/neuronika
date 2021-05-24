@@ -363,9 +363,6 @@ pub(crate) fn expect_tensor_mut<D: Dimension>(
 ///
 /// Conceptually, it can be thought of as a [`ndarray::Array`] for which the computations are
 /// automatically kept track of.
-///
-/// It is important to note that cloning is extremely memory efficient as only a shallow copy is
-/// returned. Cloning a variable is thus the way to go if it must be used multiple times.
 pub struct Var<T: Data + 'static> {
     pub(crate) node: Rc<T>,
     pub(crate) past: VarHistory,
@@ -782,10 +779,6 @@ where
 /// result of the computation itself, and that of any other subsequent computations performed on
 /// it, will also be differentiable. As an obvious consequence, the results of operations
 /// performed on two *VarDiff* will also be *VarDiff*.
-///
-/// It is important to note that cloning is extremely memory efficient as only a shallow copy is
-/// returned. Cloning a differentiable variable is thus the way to go if it must be used multiple
-/// times.
 pub struct VarDiff<T, U>
 where
     T: Data + 'static,

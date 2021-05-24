@@ -23,6 +23,9 @@
 //! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
 //! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
 //!
+//! It is important to note that cloning variables is extremely memory efficient as only a shallow
+//! copy is returned. Cloning a variable is thus the way to go if you need to use it several times.
+//!
 //! The provided API is linear in thought and minimal as it is carefully tailored around you, the
 //! user.
 //!
