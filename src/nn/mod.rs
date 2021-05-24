@@ -767,7 +767,7 @@ impl GRUCell {
 }
 
 impl Register for GRUCell {
-    /// Parametric the weights and the biases of this `GRUCell` instance.
+    /// Registers the weights and the biases of this `GRUCell` instance.
     fn register_params(&self, params: &mut Vec<Param>) {
         params.extend(self.weight_hh.parameters());
         params.extend(self.weight_ih.parameters());
@@ -881,7 +881,7 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
 }
 
 impl<Pad: PaddingMode> Register for Conv1d<Pad> {
-    /// Parametric the weight and the biase of this `Conv1d` instance.
+    /// Registers the weight and the bias of this `Conv1d` instance.
     fn register_params(&self, params: &mut Vec<Param>) {
         params.extend(self.weight.parameters());
         params.extend(self.bias.parameters());
@@ -1011,7 +1011,7 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
 }
 
 impl<Pad: PaddingMode> Register for GroupedConv1d<Pad> {
-    /// Parametric the weight and the biase of this `GroupedConv1d` instance.
+    /// Registers the weight and the bias of this `GroupedConv1d` instance.
     fn register_params(&self, params: &mut Vec<Param>) {
         params.extend(self.weight.parameters());
         params.extend(self.bias.parameters());
@@ -1135,7 +1135,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
 }
 
 impl<Pad: PaddingMode> Register for Conv2d<Pad> {
-    /// Parametric the weight and the biase of this `Conv2d` instance.
+    /// Registers the weight and the bias of this `Conv2d` instance.
     fn register_params(&self, params: &mut Vec<Param>) {
         params.extend(self.weight.parameters());
         params.extend(self.bias.parameters());
@@ -1272,7 +1272,7 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
 }
 
 impl<Pad: PaddingMode> Register for GroupedConv2d<Pad> {
-    /// Parametric the weight and the biase of this `GroupedConv2d` instance.
+    /// Registers the weight and the bias of this `GroupedConv2d` instance.
     fn register_params(&self, params: &mut Vec<Param>) {
         params.extend(self.weight.parameters());
         params.extend(self.bias.parameters());
@@ -1399,7 +1399,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
 }
 
 impl<Pad: PaddingMode> Register for Conv3d<Pad> {
-    /// Parametric the weight and the biase of this `Conv3d` instance.
+    /// Registers the weight and the bias of this `Conv3d` instance.
     fn register_params(&self, params: &mut Vec<Param>) {
         params.extend(self.weight.parameters());
         params.extend(self.bias.parameters());
@@ -1538,7 +1538,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
 }
 
 impl<Pad: PaddingMode> Register for GroupedConv3d<Pad> {
-    /// Parametric the weight and the biase of this `GroupedConv3d` instance.
+    /// Registers the weight and the bias of this `GroupedConv3d` instance.
     fn register_params(&self, params: &mut Vec<Param>) {
         params.extend(self.weight.parameters());
         params.extend(self.bias.parameters());
