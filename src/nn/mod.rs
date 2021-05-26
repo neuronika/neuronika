@@ -694,7 +694,7 @@ impl GRUCell {
     /// * `hidden_size` - number of features in the hidden state.
     ///
     /// All the weight and biases are initialised from *U(-k, k)* where
-    /// `k = (1. /hidden_size as f32).sqrt()`.
+    /// `k = (1. / hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
             let xhidden_size = 3 * hidden_size;
