@@ -86,14 +86,7 @@ impl<'a, T: Penalty> SGD<'a, T> {
         dampening: f32,
         nesterov: bool,
     ) -> SGDWithMomentum<'a, T> {
-        let params = {
-            let parameters = self.params;
-            let mut vec = Vec::with_capacity(parameters.len());
-            for param in parameters {
-                vec.push(SGDWithMomentumParam::from(param));
-            }
-            vec
-        };
+        let params: Vec<SGDWithMomentumParam> = Self::transform_params(self.params);
 
         SGDWithMomentum {
             params,

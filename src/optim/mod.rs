@@ -1,14 +1,15 @@
-//! Implementations of various optimization algorithms and penalty regularisations.
+//! Implementations of various optimization algorithms and penalty regularizations.
 //!
 //! Some of the most commonly used methods are already supported, and the interface is linear
 //! enough, so that more sophisticated ones can be also easily integrated in the future.
 //!
-//! An optimizer holds a state, in the form of a representation, for each of the parameters to
-//! optimize and updates such parameters based on the computed gradients and the state itself.
+//! An optimizer holds a state, in the form of a *representation*, for each of the parameters to
+//! optimize and it updates such parameters accordingly to the computed gradients and the state
+//! itself.
 //!
 //! # Using an optimizer
 //!
-//! The first step to be performed in order to use any optmizer is to construct it.
+//! The first step to be performed in order to use any optimizer is to construct it.
 //!
 //! ## Constructing it
 //!
@@ -206,11 +207,25 @@ pub trait Optimizer {
     ///
     /// # Arguments
     ///
-    /// `params` - the parameters.
+    /// `params` - parameters.
     fn build_params(params: Vec<Param>) -> Vec<Self::ParamRepr> {
         let mut vec = Vec::with_capacity(params.len());
         for param in params {
             vec.push(Self::ParamRepr::from(param));
+        }
+        vec
+    }
+
+    /// Transforms the vector of parameter representation of this optimizer into a vector of another
+    /// type of parameter representations. The new type must be built from `Self::ParamRepr`.
+    ///
+    /// # Arguments
+    ///
+    /// `params` - parameter representations.
+    fn transform_params<T: From<Self::ParamRepr>>(params: Vec<Self::ParamRepr>) -> Vec<T> {
+        let mut vec = Vec::with_capacity(params.len());
+        for param in params {
+            vec.push(T::from(param));
         }
         vec
     }

@@ -55,13 +55,7 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     /// Transforms this *RMSProp* optimizer in the *centered RMSProp* version of the algorithm
     /// where the gradient is normalized by an estimation of its variance.
     pub fn centered(self) -> RMSPropCentered<'a, T> {
-        let params = {
-            let mut vec = Vec::with_capacity(self.params.len());
-            for param in self.params {
-                vec.push(RMSPropCenteredParam::from(param));
-            }
-            vec
-        };
+        let params: Vec<RMSPropCenteredParam> = Self::transform_params(self.params);
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropCentered {
@@ -79,13 +73,7 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     ///
     /// `momentum` - the momentum factor.
     pub fn with_momentum(self, momentum: f32) -> RMSPropWithMomentum<'a, T> {
-        let params = {
-            let mut vec = Vec::with_capacity(self.params.len());
-            for param in self.params {
-                vec.push(RMSPropWithMomentumParam::from(param));
-            }
-            vec
-        };
+        let params: Vec<RMSPropWithMomentumParam> = Self::transform_params(self.params);
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropWithMomentum {
@@ -105,13 +93,7 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     ///
     /// `momentum` - the momentum factor.
     pub fn centered_with_momentum(self, momentum: f32) -> RMSPropCenteredWithMomentum<'a, T> {
-        let params = {
-            let mut vec = Vec::with_capacity(self.params.len());
-            for param in self.params {
-                vec.push(RMSPropCenteredWithMomentumParam::from(param));
-            }
-            vec
-        };
+        let params: Vec<RMSPropCenteredWithMomentumParam> = Self::transform_params(self.params);
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropCenteredWithMomentum {
@@ -259,13 +241,7 @@ impl<'a, T: Penalty> RMSPropWithMomentum<'a, T> {
 
     /// Transofrms this *RMSProp* optimizer in the *centered* variant with *momentum*.
     pub fn centered(self) -> RMSPropCenteredWithMomentum<'a, T> {
-        let params = {
-            let mut vec = Vec::with_capacity(self.params.len());
-            for param in self.params {
-                vec.push(RMSPropCenteredWithMomentumParam::from(param));
-            }
-            vec
-        };
+        let params: Vec<RMSPropCenteredWithMomentumParam> = Self::transform_params(self.params);
         let (lr, alpha, momentum, penalty, eps) =
             (self.lr, self.alpha, self.momentum, self.penalty, self.eps);
 
@@ -409,13 +385,7 @@ impl<'a, T: Penalty> RMSPropCentered<'a, T> {
     ///
     /// `momentum` - momentum factor.
     pub fn with_momentum(self, momentum: f32) -> RMSPropCenteredWithMomentum<'a, T> {
-        let params = {
-            let mut vec = Vec::with_capacity(self.params.len());
-            for param in self.params {
-                vec.push(RMSPropCenteredWithMomentumParam::from(param));
-            }
-            vec
-        };
+        let params: Vec<RMSPropCenteredWithMomentumParam> = Self::transform_params(self.params);
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropCenteredWithMomentum {
