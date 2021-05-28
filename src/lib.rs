@@ -1,47 +1,140 @@
-pub mod model_selection;
+//! The `neuronika` crate provides autodifferentiation and dynamic neural networks.
+//!
+//! Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
+//! use, fast experimentation and performance.
+//!
+//! # Highlights
+//!
+//! * Define by run computational graphs
+//! * Reverse-mode automatic differentiation
+//! * Dynamic neural networks
+//!
+//! # Variables
+//!
+//! The main building blocks of neuronika are *variables* and *differentiable variables*.
+//! This means that when you use this crate you are handling and manipulating instances of [`Var`]
+//! and [`VarDiff`].
+//!
+//! Variables are lean and powerful abstractions over the computational graph's nodes. Neuronika
+//! empowers you with the ability of imperatively building and differentiating such graphs with
+//! minimal amount of code and effort.
+//!
+//! Both differentiable and non-differentiable variables can be understood as *tensors*, you
+//! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
+//! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
+//!
+//! It is important to note that cloning variables is extremely memory efficient as only a shallow
+//! copy is returned. Cloning a variable is thus the way to go if you need to use it several times.
+//!
+//! The provided API is linear in thought and minimal as it is carefully tailored around you, the
+//! user.
+//!
+//! ## Leaf Variables
+//!
+//! You can create leaf variables by using one of the many provided functions, such as [`zeros()`],
+//! [`ones()`], [`full()`] and [`rand()`]. Feel free to refer to the [complete list](#functions).
+//!
+//! Leaf variables are so called because they form the *leaves* of the computational graph, as are
+//! not the result of any computation.
+//!
+//! Every leaf variable is by default created as non-differentiable, to promote it to a
+//! *differentiable* leaf, i. e. a variable for which you can compute the gradient, you can use
+//! [`.requires_grad()`](Var::requires_grad()).
+//!
+//! Differentiable leaf variables are leaves that have been promoted. You will encounter them
+//! very often in your journey through neuronika as they are the the main components of the
+//! neural networks' building blocks. To learn more in detail about those check the
+//! [`nn`](module@nn) module.
+//!
+//! Differentiable leaves hold a gradient, you can access it with [`.grad()`](VarDiff::grad()).
+//!
+//! ## Differentiability Arithmetic
+//!
+//! As stated before, you can manipulate variables by performing operations on them; the results of
+//! those computations will also be variables, although not leaf ones.
+//!
+//! The result of an operation between two differentiable variables will also be a differentiable
+//! variable and the converse holds for non-differentiable variables. However, things behave
+//! slightly differently when an operation is performed between a non-differentiable variable and a
+//! differentiable one, as the resulting variable will be differentiable.
+//!
+//! You can think of differentiability as a *sticky* property. The table that follows is a summary
+//! of how differentiability is broadcasted through variables.
+//!
+//!  **Operands** | Var     | VarDiff
+//! --------------|---------|---------
+//!  **Var**      | Var     | VarDiff
+//!  **VarDiff**  | VarDiff | VarDiff
+//!
+//!
+//! ## Differentiable Ancestors
+//!
+//! The differentiable ancestors of a variable are the differentiable leaves of the graph involved
+//! in its computation. Obviously, only [`VarDiff`] can have a set of ancestors.
+//!
+//! You can gain access, via mutable views, to all the ancestors of a variable by iterating through
+//! the vector of [`Param`] returned by [`.parameters()`](VarDiff::parameters()).
+//! To gain more insights about the role that such components fulfil in neuronika feel free to check
+//! the [`optim`] module.
+//!
+//! # Computational Graph
+//!
+//! A computational graph is implicitly created as you write your program. You can differentiate it
+//! with respect to some of the differentiable leaves, thus populating their gradients, by using
+//! [`.backward()`](VarDiff::backward()).
+//!
+//! It is important to note that the computational grap is *lazily* evalutated, this means that
+//! neuronika decouples the construction of the graph from the actual computation of the nodes'
+//! values. You must use `.forward()` in order to obtain the actual result of the computation.
+//!
+//!```
+//!use neuronika;
+//!
+//!let x = neuronika::rand(5);                 //----+
+//!let q = neuronika::rand((5, 5));            //    | Those lines just build
+//!                                            //    | the graph.
+//!let mut y = x.clone().vm(q).vv(x);          //----+
+//!                                            //
+//!y.forward();                                // After .forward() is called y
+//!                                            // contains the result.
+//!```
+//!
+//! ## Freeing and keeping the graph
+//!
+//! By default, computational graphs will persist in the program's memory. If you want to be more
+//! conservative about this aspect you can place any arbitrary subset of the computations in an
+//! inner scope. This allows for the corresponding portion of the graph to be freed when the end of
+//! the scope is reached by your program.
+//!
+//!```
+//!use neuronika;
+//!
+//!let w = neuronika::rand((3, 3)).requires_grad(); // -----------------+
+//!let b = neuronika::rand(3).requires_grad();      //                  |
+//!let x = neuronika::rand((10, 3));                //                  |-- Leaves are created
+//!                                                 //                  |
+//!{                                                // ---+             |
+//!     let mut h = x.mm(w.t()) + b;                //    | w's and b's |
+//!     h.forward();                                //    | grads are   |
+//!     h.backward(1.0);                            //    | accumulated |
+//!}                                                // ---+             |-- Graph is freed and
+//!                                                 // -----------------+   only leaves remain
+//!```
+pub mod data;
 pub mod nn;
 pub mod optim;
 mod variable;
-pub use ndarray::{self, Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
-pub use ndarray_rand::rand_distr::Uniform;
-pub use ndarray_rand::RandomExt;
+use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
+use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::RandomExt;
+pub use nn::convolution::{Convolve, ConvolveWithGroups};
+use variable::node::{Input, InputBackward};
 pub use variable::{
-    node::{Input, InputBackward},
-    Cat, MatMatMul, MatVecMul, Stack, Var, VarDiff, VecMatMul, VecVecMul,
+    node::{Backward, Data, Eval, Forward, Gradient, Overwrite},
+    Cat, MatMatMul, MatMatMulT, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
 
-/// Creates an Input node with one, two or three dimensions.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-/// let t1 = neuronika::tensor!([1., 2., 3., 4.]);
-///
-/// let t2 = neuronika::tensor!([[1., 2.],
-///                             [3., 4.]]);
-///
-/// let t3 = neuronika::tensor!([[[1., 2.], [3., 4.]],
-///                             [[5., 6.], [7., 8.]]]);
-///
-/// assert_eq!(t1.data().shape(), &[4]);
-/// assert_eq!(t2.data().shape(), &[2, 2]);
-/// assert_eq!(t3.data().shape(), &[2, 2, 2]);
-/// ```
-#[macro_export]
-macro_rules! tensor {
-    ([$([$([$($x:expr),* $(,)*]),+ $(,)*]),+ $(,)*]) => {{
-        $crate::Input::new($crate::ndarray::Array3::from(vec![$([$([$($x,)*],)*],)*]))
-    }};
-    ([$([$($x:expr),* $(,)*]),+ $(,)*]) => {{
-        $crate::Input::new($crate::ndarray::Array2::from(vec![$([$($x,)*],)*]))
-    }};
-    ([$($x:expr),* $(,)*]) => {{
-        $crate::Input::new($crate::ndarray::Array1::from(vec![$($x,)*]))
-    }};
-}
-
-/// Creates an Input node from a **ndarray** array.
+/// Creates a variable from a **[ndarray]** array that owns its data.
 ///
 /// # Examples
 ///
@@ -53,24 +146,21 @@ macro_rules! tensor {
 /// let t = neuronika::from_ndarray(a.clone());
 ///
 /// assert_eq!(*t.data(), a);
-///
 /// ```
 pub fn from_ndarray<D: Dimension>(array: Array<f32, D>) -> Var<Input<D>> {
     Input::new(array)
 }
 
-/// Creates an Input node node with zeroed data.
+/// Creates a variable with zeroed data.
 ///
-/// The shape is of type `ndarray::ShapeBuilder`.
+/// The shape is of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
 /// ```
 /// use neuronika;
 /// let t1 = neuronika::zeros(1);
-///
 /// let t2 = neuronika::zeros((1, 5));
-///
 /// let t3 = neuronika::zeros([1, 2, 3]);
 ///
 /// assert_eq!(t1.data().shape(), &[1]);
@@ -81,18 +171,16 @@ pub fn zeros<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>
     Input::new(Array::from_elem(shape, 0.0))
 }
 
-/// Creates an Input node with data filled with ones.
+/// Creates a variable with data filled with ones.
 ///
-/// The shape is of type `ndarray::ShapeBuilder`.
+/// The shape is of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
 /// ```
 /// use neuronika;
 /// let t1 = neuronika::ones(1);
-///
 /// let t2 = neuronika::ones((1, 5));
-///
 /// let t3 = neuronika::ones([1, 2, 3]);
 ///
 /// assert_eq!(t1.data().shape(), &[1]);
@@ -103,18 +191,16 @@ pub fn ones<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
     Input::new(Array::from_elem(shape, 1.0))
 }
 
-/// Creates an Input node with data filled with the `f32` value `el`.
+/// Creates a variable with data filled with a constant value.
 ///
-/// The shape is of type `ndarray::ShapeBuilder`.
+/// `el` must be `f32` and the shape of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
 /// ```
 /// use neuronika;
 /// let t1 = neuronika::full(1, 5.); // Filled with 5.0
-///
 /// let t2 = neuronika::full((1, 5), 6.); // Filled with 6.0
-///
 /// let t3 = neuronika::full([1, 2, 3], 8.); // Filled with 8.0
 ///
 /// assert_eq!(t1.data().shape(), &[1]);
@@ -125,16 +211,15 @@ pub fn full<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh, elem: f32) -> Va
     Input::new(Array::from_elem(shape, elem))
 }
 
-/// Returns an Input node with values sampled from a uniform distribution
-/// on the interval **[0,1)**.
+/// Creates a variable with values sampled from a uniform distribution on the interval *[0,1)*.
 ///
-/// The shape is of type `ndarray::ShapeBuilder`.
+/// The shape is of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use neuronika;
-/// let t = neuronika::rand([4,5,6]);
+/// let t = neuronika::rand([4, 5, 6]);
 ///
 /// assert_eq!(t.data().shape(), &[4, 5, 6]);
 /// ```
@@ -142,7 +227,7 @@ pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
     Input::new(Array::random(shape, Uniform::new(0., 1.)))
 }
 
-/// Creates an identity matrix of size `n` (a square 2D matrix).
+/// Creates a variable with an identity matrix of size *n*.
 ///
 /// # Panics
 ///
@@ -150,32 +235,30 @@ pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use neuronika;
 /// use ndarray::Array2;
 ///
-/// // [[1., 0., 0.],
-/// // [0., 1., 0.],
-/// // [0., 0., 1.]]
 /// let tensor = neuronika::eye(3);
-///
 /// assert_eq!(*tensor.data(), Array2::eye(3));
 /// ```
 pub fn eye(n: usize) -> Var<Input<Ix2>> {
     Input::new(Array2::eye(n))
 }
 
-/// Create a one-dimensional array with `n` evenly spaced elements from `start` to `end`
-/// (exclusive). The elements must be `f32`.
+/// Creates a one-dimensional variable with *n* evenly spaced elements.
 ///
+/// The elements range from `start` to `end` (exclusive).
 ///
 /// # Panics
 ///
-/// If the length is greater than `isize::MAX`.
+/// If the length is greater than [`isize::MAX`].
+///
+/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use neuronika;
 /// use ndarray::arr1;
 ///
@@ -186,42 +269,51 @@ pub fn linspace(start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::linspace(start, end, n))
 }
 
-/// Create a one-dimensional array with `n` logarithmically spaced
-/// elements, with the starting value being `base.powf(start)` and the
-/// final one being `base.powf(end)`. Elements must be `f32`.
+/// Creates a one-dimensional variable with *n* logarithmically spaced elements.
+///
+/// The starting value is `base.powf(start)` and the final one is `base.powf(end)`.
 ///
 /// If `base` is negative, all values will be negative.
 ///
 /// # Panics
-//
-/// If `n` is greater than `isize::MAX` or if converting `n - 1`
-/// to type `f32` fails.
+///
+/// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
+///
+/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
 pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
     Input::new(Array::logspace(base, start, end, n))
 }
 
-/// Create a one-dimensional array with `n` geometrically spaced elements
-/// from `start` to `end` (inclusive). Elements must be `f32`.
+/// Creates a one-dimensional variable with *n* geometrically spaced elements.
 ///
-/// Returns `None` if `start` and `end` have different signs or if either
-/// one is zero. Conceptually, this means that in order to obtain a `Some`
-/// result, `end / start` must be positive.
+/// The elements range from `start` to `end` (inclusive).
+///
+/// Returns `None` if `start` and `end` have different signs or if either one is zero. Conceptually,
+/// this means that in order to obtain a `Some` result, `end / start` must be positive.
 ///
 /// # Panics
-/// If `n` is greater than `isize::MAX` or if converting `n - 1`
-/// to type `f32` fails.
+///
+/// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
+///
+/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
 pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
     Array::geomspace(start, end, n).map(Input::new)
 }
 
-/// Create a one-dimensional array with elements from `start` to `end`
-/// (exclusive), incrementing by `step`. Elements must be `f32`.
+/// Creates a one-dimensional variable with elements from *start* to *end* spaced by *step*.
+///
+/// The elements range from `start` to `end` (exclusive).
 ///
 /// # Panics
 ///
-/// If the length is greater than `isize::MAX`.
+/// If the length is greater than
+/// [`isize::MAX`].
 ///
-/// ```rust
+/// [`isize::Max`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
+///
+/// # Examples
+///
+/// ```
 /// use neuronika;
 /// use ndarray::arr1;
 ///
@@ -234,20 +326,6 @@ pub fn range(start: f32, end: f32, step: f32) -> Var<Input<Ix1>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    #[test]
-    fn tensor_test() {
-        use super::*;
-
-        let t1 = tensor!([1., 2., 3., 4.]);
-        let t2 = tensor!([[1., 2.], [3., 4.]]);
-        let t3 = tensor!([[[1., 2.], [3., 4.]], [[5., 6.], [7., 8.]]]);
-
-        assert_eq!(t1.data().shape(), &[4]);
-        assert_eq!(t2.data().shape(), &[2, 2]);
-        assert_eq!(t3.data().shape(), &[2, 2, 2]);
-    }
-
     #[test]
     fn from_ndarray_test() {
         use super::*;
@@ -270,9 +348,9 @@ mod tests {
         assert_eq!(t3.data().shape(), &[1, 2, 3]);
 
         assert!(
-            t1.data().into_iter().all(|el| *el == 0.)
-                && t2.data().into_iter().all(|el| *el == 0.)
-                && t3.data().into_iter().all(|el| *el == 0.)
+            t1.data().iter().all(|el| *el <= f32::EPSILON)
+                && t2.data().iter().all(|el| *el <= f32::EPSILON)
+                && t3.data().iter().all(|el| *el <= f32::EPSILON)
         )
     }
     #[test]
@@ -288,9 +366,9 @@ mod tests {
         assert_eq!(t3.data().shape(), &[1, 2, 3]);
 
         assert!(
-            t1.data().into_iter().all(|el| *el == 1.)
-                && t2.data().into_iter().all(|el| *el == 1.)
-                && t3.data().into_iter().all(|el| *el == 1.)
+            t1.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
+                && t2.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
+                && t3.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
         )
     }
     #[test]
@@ -302,9 +380,9 @@ mod tests {
         let t3 = full([1, 2, 3], 8.);
 
         assert!(
-            t1.data().into_iter().all(|el| *el == 5.)
-                && t2.data().into_iter().all(|el| *el == 6.)
-                && t3.data().into_iter().all(|el| *el == 8.)
+            t1.data().iter().all(|el| (*el - 5.).abs() <= f32::EPSILON)
+                && t2.data().iter().all(|el| (*el - 6.).abs() <= f32::EPSILON)
+                && t3.data().iter().all(|el| (*el - 8.).abs() <= f32::EPSILON)
         )
     }
 

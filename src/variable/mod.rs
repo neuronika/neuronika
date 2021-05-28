@@ -5,26 +5,25 @@ use ndarray::{
     RemoveAxis,
 };
 use node::{
-    Addition, AdditionBackward, AdditionBackwardUnary, Backward, ChangeBehaviour, Chunk,
-    ChunkBackward, Concatenate, ConcatenateBackward, ConcatenateBackwardLeft,
-    ConcatenateBackwardRight, Data, Differentiable, Division, DivisionBackward,
-    DivisionBackwardLeft, DivisionBackwardRight, Dropout, DropoutBackward, Exp, ExpBackward,
-    Forward, Gradient, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn,
-    LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
-    MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackward,
-    MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
-    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight,
-    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
-    NegationBackward, Overwrite, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid,
-    SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward, Stack as StackF,
-    StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction, SubtractionBackward,
-    SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
-    Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
+    Addition, AdditionBackward, AdditionBackwardUnary, Backward, Chunk, ChunkBackward, Concatenate,
+    ConcatenateBackward, ConcatenateBackwardLeft, ConcatenateBackwardRight, Data, Differentiable,
+    Division, DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout,
+    DropoutBackward, Eval, Exp, ExpBackward, Forward, Gradient, LeakyReLU, LeakyReLUBackward,
+    LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward,
+    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixMatrixMulT,
+    MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight,
+    MatrixVectorMul, MatrixVectorMulBackward, MatrixVectorMulBackwardLeft,
+    MatrixVectorMulBackwardRight, Multiplication, MultiplicationBackward,
+    MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Power, PowerBackward, ReLU,
+    ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
+    Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction,
+    SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH,
+    TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
     VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
     VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::BTreeMap,
     collections::HashSet,
     ops::{Add, Div, Mul, Neg, Sub},
@@ -59,7 +58,7 @@ impl OperationsCounter {
 pub(crate) struct VarHistory {
     path: BTreeMap<usize, Rc<dyn Forward>>,
     buffer: Vec<Rc<dyn Forward>>,
-    changeables: HashSet<*const dyn ChangeBehaviour>,
+    changeables: HashSet<*const dyn Eval>,
 }
 
 impl VarHistory {
@@ -80,7 +79,7 @@ impl VarHistory {
         self.buffer.truncate(0);
     }
 
-    pub fn append_changeable(&mut self, next: *const dyn ChangeBehaviour) {
+    pub fn append_changeable(&mut self, next: *const dyn Eval) {
         self.changeables.insert(next);
     }
 
@@ -108,7 +107,6 @@ pub(crate) struct DiffVarHistory {
     path: BTreeMap<usize, Rc<dyn Backward>>,
     buffer: Vec<Rc<dyn Backward>>,
     parameters: HashSet<Param>,
-    changeables: HashSet<*const dyn ChangeBehaviour>,
 }
 
 impl DiffVarHistory {
@@ -117,23 +115,17 @@ impl DiffVarHistory {
             path: BTreeMap::new(),
             buffer: Vec::new(),
             parameters,
-            changeables: HashSet::new(),
         }
     }
 
     pub fn merge(&mut self, mut other: DiffVarHistory) {
         self.path.append(&mut other.path);
         self.parameters.extend(other.parameters);
-        self.changeables.extend(other.changeables);
     }
 
     pub fn append_backward(&mut self, id: usize, next: Rc<dyn Backward>) {
         self.path.insert(id, next);
         self.buffer.truncate(0);
-    }
-
-    pub fn append_changeable(&mut self, next: *const dyn ChangeBehaviour) {
-        self.changeables.insert(next);
     }
 
     pub fn len(&self) -> usize {
@@ -158,6 +150,12 @@ impl DiffVarHistory {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Param Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// A builder of mutable views over a differentiable variable's data and gradient.
+///
+/// See also [`.parameters()`] and [`ModelStatus`] for more informations.
+///
+/// [`.parameters()`]: VarDiff::parameters()
+/// [`ModelStatus`]: crate::nn::ModelStatus
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Param {
     data: *mut f32,
@@ -170,6 +168,13 @@ impl Param {
         Self { data, grad, shape }
     }
 
+    /// Consumes the Param, yelding mutable views over the data and the gradient of the
+    /// differentiable variable that it refers to. The lifetime `'a` is for the
+    /// scope of the borrow.
+    ///
+    /// The views are [`ndarray::ArrayViewMutD`].
+    ///
+    /// [`ndarray::ArrayViewMutD`]: ndarray::ArrayViewMutD
     pub fn get<'a>(self) -> (ArrayViewMutD<'a, f32>, ArrayViewMutD<'a, f32>) {
         unsafe {
             (
@@ -189,60 +194,108 @@ pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter 
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// Matrix-matrix multiplication.
 pub trait MatMatMul<Rhs> {
+    /// The type of the matrix-matrix multiplication's result. See the
+    /// [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
-    fn mm_mul(self, other: Rhs) -> Self::Output;
+    /// Computes the matrix-matrix multiplication between `self` and `other`.
+    fn mm(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// Matrix-matrix multiplication with transposed right hand side operand.
+///
+/// This fused operation is marginally faster than performing the matrix-matrix multiplication
+/// and transposition separately.
 pub trait MatMatMulT<Rhs> {
+    /// The type of the matrix-matrix multiplication with transposed right hand side operand's
+    /// result. See the [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
-    fn mm_mul_t(self, other: Rhs) -> Self::Output;
+    /// Computes the matrix-matrix multiplication between `self` and transposed `other`.
+    fn mm_t(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// Matrix-vector multiplication.
 pub trait MatVecMul<Rhs> {
+    /// The type of the matrix-vector multiplication's result. See the
+    /// [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
-    fn mv_mul(self, other: Rhs) -> Self::Output;
+    /// Computes the matrix-vector multiplication between `self` and `other`.
+    fn mv(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// Vector-matrix multiplication.
 pub trait VecMatMul<Rhs> {
+    /// The type of the vector-matrix multiplication's result. See the
+    /// [*differentiability arithmetic*] for more details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
-    fn vm_mul(self, other: Rhs) -> Self::Output;
+    /// Computes the vector-matrix multiplication between `self` and `other`.
+    fn vm(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Vector-vector multiplication, *a.k.a. dot product or inner product*.
 pub trait VecVecMul<Rhs> {
+    /// The type of the dot product's result. See the [*differentiability arithmetic*] for
+    /// more details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
-    fn vv_mul(self, other: Rhs) -> Self::Output;
+    /// Computes the dot product between `self` and `other`.
+    fn vv(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concat and Stack traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Concatenation.
 pub trait Cat<Rhs> {
+    /// The type of the concatenation's result. See the [*differentiability arithmetic*] for
+    /// more details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
+    /// Concatenates variables along the given axis.
     fn cat(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
+/// Stacking.
 pub trait Stack<Rhs> {
+    /// The type of the stacking's result. See the [*differentiability arithmetic*] for
+    /// more details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
     type Output;
 
+    /// Stacks variables along the given axis.
     fn stack(self, other: Rhs, axis: usize) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Utils ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// Creates an empty tensor whose shape is the result of broadcasting between `left` and `right`.
 pub(crate) fn broadcasted_zeros<Lhs, Rhs>(
     left: &Tensor<Lhs>,
     right: &Tensor<Rhs>,
@@ -271,17 +324,29 @@ where
     Tensor::zeros(broad_dim)
 }
 
+/// Requests the gradient of `tensor` as a reference.
+///
+/// **panics** if the gradient has been deallocated.
 pub(crate) fn expect_tensor<D: Dimension>(tensor: &RefCell<Option<Tensor<D>>>) -> Ref<Tensor<D>> {
     Ref::map(tensor.borrow(), |b| {
-        b.as_ref().expect("tensor actually not allocated")
+        b.as_ref().expect(
+            "error: trying to get a deallocated gradient. 
+        Switch on the gradients first by using with_grad().",
+        )
     })
 }
 
+/// Requests the gradient of `tensor` as a mutable reference.
+///
+/// **panics** if the gradient has been deallocated.
 pub(crate) fn expect_tensor_mut<D: Dimension>(
     tensor: &RefCell<Option<Tensor<D>>>,
 ) -> RefMut<Tensor<D>> {
     RefMut::map(tensor.borrow_mut(), |b| {
-        b.as_mut().expect("tensor actually not allocated")
+        b.as_mut().expect(
+            "error: trying to get a deallocated gradient. 
+        Switch on the gradients first by using with_grad().",
+        )
     })
 }
 
@@ -290,6 +355,13 @@ pub(crate) fn expect_tensor_mut<D: Dimension>(
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Non differentiable Variable ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// A non-differentiable variable.
+///
+/// This, together with its differentiable counterpart [`VarDiff`], is the main building block of
+/// every computation.
+///
+/// Conceptually, it can be thought of as a [`ndarray::Array`] for which the computations are
+/// automatically kept track of.
 pub struct Var<T: Data + 'static> {
     pub(crate) node: Rc<T>,
     pub(crate) past: VarHistory,
@@ -305,12 +377,38 @@ impl<T: Data + 'static> Clone for Var<T> {
 }
 
 impl<D: Dimension> Var<Input<D>> {
+    /// Promotes `self` to a differentiable variable. A subsequent call to [`.backward()`]
+    /// will compute its gradient.
+    ///
+    /// [`.backward()`]: VarDiff::backward()
+    ///
+    /// # Examples
+    ///
+    /// This is the preferred usage.
+    ///
+    ///```
+    /// use neuronika;
+    ///
+    /// let x = neuronika::ones(5).requires_grad();
+    ///```
+    ///
+    /// This is also permitted, however, one should be aware of the difference between `x_diff` and
+    /// `x`.
+    ///
+    ///```
+    /// use neuronika;
+    ///
+    /// let x = neuronika::ones(5);
+    /// let y = x.clone() + neuronika::ones(1);
+    ///
+    /// let x_diff = x.requires_grad();
+    ///```
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
-        debug_assert_eq!(self.past.is_empty(), true);
-
-        if Rc::strong_count(&self.node) > 2 {
-            panic!("error: cannot make the Input differentiable.")
-        }
+        debug_assert_eq!(
+            self.past.is_empty(),
+            true,
+            "error: the variable is not a leaf."
+        );
         let node = Rc::new(self.node.differentiable());
         let mut gradient = node.gradient_mut();
         let mut parameters = HashSet::new();
@@ -329,7 +427,18 @@ impl<D: Dimension> Var<Input<D>> {
 }
 
 impl<T: Data + Forward + 'static> Var<T> {
+    /// Propagates the computations forwards and populates all the variables from the leaves of the
+    /// graph to `self`.
     pub fn forward(&mut self) {
+        if self.node.was_computed() {
+            // If the user has already called `.forward()` on this var,
+            // then he wants to recompute it.
+            assert_eq!(self.past.len(), self.past.buffer().len());
+            for node in self.past.buffer() {
+                node.reset_computation();
+            }
+        }
+
         self.past.prepare_buffer();
 
         let buffer = self.past.buffer();
@@ -361,6 +470,17 @@ impl<T: Data + Forward + 'static> Var<T> {
         Var { node, past }
     }
 
+    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
+    /// in training mode.
+    ///    
+    /// See also [`.dropout()`].
+    ///
+    /// [`.dropout()`]: Var::dropout()
+    ///
+    /// # Examples
+    ///
+    /// The following snippet pictures the effect of several calls placed at different locations
+    /// inside the program. The last call switches all the dropout variables in training mode.
     pub fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -369,6 +489,12 @@ impl<T: Data + Forward + 'static> Var<T> {
         }
     }
 
+    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
+    /// in evaluation mode.
+    ///    
+    /// See also [`.dropout()`].
+    ///
+    /// [`.dropout()`]: Var::dropout()
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -378,13 +504,71 @@ impl<T: Data + Forward + 'static> Var<T> {
     }
 }
 
-impl<T: Data + Forward + ChangeBehaviour + 'static> Var<T> {
-    pub(crate) fn from_changable(node: T, mut past: VarHistory) -> Self {
+impl<T: Data + Forward + Eval + 'static> Var<T> {
+    pub(crate) fn from_changeable(node: T, mut past: VarHistory) -> Self {
         let node = Rc::new(node);
         past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-        past.append_changeable(node.as_ref() as *const dyn ChangeBehaviour);
+        past.append_changeable(node.as_ref() as *const dyn Eval);
 
         Var { node, past }
+    }
+}
+
+impl<T: Data<Dim = Ix1> + 'static> Var<T> {
+    /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
+    /// variable `rhs`.
+    ///
+    /// If `self` is *n* and `rhs` is *(n, m)* the output will be *m*.
+    pub fn vm<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
+    where
+        Self: VecMatMul<Rhs>,
+    {
+        VecMatMul::vm(self, rhs)
+    }
+
+    /// Vector-vector product, a.k.a. *scalar product* or *inner product*.
+    ///
+    /// Performs the scalar product between the two vector variables `self` and `rhs`.
+    pub fn vv<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
+    where
+        Self: VecVecMul<Rhs>,
+    {
+        VecVecMul::vv(self, rhs)
+    }
+}
+
+impl<T: Data<Dim = Ix2> + 'static> Var<T> {
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
+    /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
+    pub fn mm<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
+    where
+        Self: MatMatMul<Rhs>,
+    {
+        MatMatMul::mm(self, rhs)
+    }
+
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`.
+    /// This is a **fused operation** as `rhs` is implicitly transposed. Fusing the two operations
+    /// it's marginally faster than computing the matrix multiplication and the transposition
+    /// separately.
+    ///
+    /// If `self` is  *(n, m)* and `rhs` is *(o, m)* the output will be *(n, o)*.
+    pub fn mm_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
+    where
+        Self: MatMatMulT<Rhs>,
+    {
+        MatMatMulT::mm_t(self, rhs)
+    }
+
+    /// Performs a matrix-vector multiplication between the matrix variable `self` and the vector
+    /// variable `rhs`.
+    ///
+    /// If `self` is *(n, m)* and `rhs` is *m* the output will be *n*.
+    pub fn mv<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
+    where
+        Self: MatVecMul<Rhs>,
+    {
+        MatVecMul::mv(self, rhs)
     }
 }
 
@@ -396,62 +580,124 @@ impl<T: Data + 'static> Var<T> {
         }
     }
 
+    /// Returns an immutable reference to the data inside `self`.
+    ///
+    /// At the variable's creation the data is filled with zeros. You can populate it with a
+    /// call to [`.forward()`](Var::forward()).
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.node.data()
     }
 
+    /// Returns the sum of all elements in `self`.
     pub fn sum(self) -> Var<Sum<T>> {
         Var::from(Sum::new(self.node), self.past)
     }
 
+    /// Takes the power of each element in `self` with exponent `exp` and returns a variable with the
+    /// result.
     pub fn pow(self, exp: i32) -> Var<Power<T>> {
         Var::from(Power::new(self.node, exp), self.past)
     }
 
+    /// Applies the *rectified linear unit* element-wise and returns a variable with the
+    /// result.
+    ///
+    /// *ReLU(x) = max(0, x)*
     pub fn relu(self) -> Var<ReLU<T>> {
         Var::from(ReLU::new(self.node), self.past)
     }
 
+    /// Applies the *leaky rectified linear unit* element-wise and returns a variable with
+    /// the result.
+    ///
+    /// *LeakyReLU(x) = max(0, x) + 0.01 * min(0, x)*
     pub fn leaky_relu(self) -> Var<LeakyReLU<T>> {
         Var::from(LeakyReLU::new(self.node), self.past)
     }
 
+    /// Applies the *softplus* element-wise and returns a variable with the result.
+    ///
+    /// *Softplus(x) = log(1 + exp(x))*
     pub fn softplus(self) -> Var<SoftPlus<T>> {
         Var::from(SoftPlus::new(self.node), self.past)
     }
 
+    /// Applies the *sigmoid* element-wise and returns a variable with the result.
     pub fn sigmoid(self) -> Var<Sigmoid<T>> {
         Var::from(Sigmoid::new(self.node), self.past)
     }
 
+    /// Applies the *tanh* element-wise and returns a variable with the result.
     pub fn tanh(self) -> Var<TanH<T>> {
         Var::from(TanH::new(self.node), self.past)
     }
 
+    /// Applies the *natural logarithm* element-wise and returns a variable with the result.
     pub fn ln(self) -> Var<Logn<T>> {
         Var::from(Logn::new(self.node), self.past)
     }
 
+    /// Applies the *exponential* element-wise and returns a variable with the result.
     pub fn exp(self) -> Var<Exp<T>> {
         Var::from(Exp::new(self.node), self.past)
     }
 
+    /// Applies the *softmax* to `self` and returns a variable with the result.
+    ///
+    /// The *softmax* is applied to all slices along `axis`, and will re-scale them so
+    ///  that the elements lie in the range *[0, 1]* and sum to 1.0.
     pub fn softmax(self, axis: usize) -> Var<Softmax<T>> {
         Var::from(Softmax::new(self.node, axis), self.past)
     }
 
+    /// Applies the *log-softmax* to `self` and returns a variable with the result.
+    ///
+    /// Applies a softmax followed by a logarithm. While mathematically equivalent to
+    /// *log(softmax(x))*, doing these two operations separately is slower, and numerically
+    /// unstable. This function uses an alternative formulation to compute the output and
+    /// gradient correctly.
+    ///
+    /// See also [`.softmax()`].
+    ///
+    /// [`.softmax()`]: Var::softmax()
     pub fn log_softmax(self, axis: usize) -> Var<LogSoftmax<T>> {
         Var::from(LogSoftmax::new(self.node, axis), self.past)
     }
 
+    /// Returns a variable equivalent to `self` with its dimensions reversed.
     pub fn t(self) -> Var<Transpose<T>> {
         Var::from(Transpose::new(self.node), self.past)
     }
 
+    /// Applies *dropout* to `self` and returns a variable with the result.
+    ///
+    /// It is strongly suggested to use [`nn::Dropout`] instead of this method when working with
+    /// neural networks.
+    ///
+    /// During training, randomly zeroes some of the elements of `self` with probability *p* using
+    /// samples from a Bernoulli distribution. Each channel will be zeroed out independently on
+    /// every forward call.
+    ///
+    /// This has proven to be an effective technique for regularization and preventing the
+    /// co-adaptation of neurons as described in the paper
+    /// [Improving neural networks by preventing co-adaptation of feature detectors](https://arxiv.org/abs/1207.0580).
+    ///
+    /// Furthermore, the outputs are scaled by a factor of 1/(1 - p) during training. This means
+    /// that during evaluation the resulting variable simply computes an identity function.
+    ///
+    /// [`nn::Dropout`]: crate::nn::Dropout
     pub fn dropout(self, p: f64) -> Var<Dropout<T>> {
-        Var::from_changable(Dropout::new(self.node, p), self.past)
+        self.dropout_with_status(p, Rc::new(Cell::new(true)))
     }
 
+    /// Creates a new variable with a status. This method is used in the `Dropout` component of the
+    /// `nn` module.
+    pub fn dropout_with_status(self, p: f64, status: Rc<Cell<bool>>) -> Var<Dropout<T>> {
+        Var::from_changeable(Dropout::new(self.node, p, status), self.past)
+    }
+
+    /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
+    /// remainder along each dimension that doesn’t fit evenly.
     pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
         self.node
             .data()
@@ -473,41 +719,70 @@ where
     T: Data + 'static,
     T::Dim: RemoveAxis,
 {
+    /// Returns a new variable with a dimension of size one inserted at the position specified by
+    /// `axis`.
     pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
         Var::from(Unsqueeze::new(self.node, axis), self.past)
     }
-}
 
-impl<T: Data + Forward + 'static> ChangeBehaviour for Var<T> {
-    fn eval(&self) {
-        for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).eval();
-            }
-        }
+    /// Concatenates the variables `self` and `rhs` along `axis`.
+    ///
+    /// All variables must have the same shape, except in the concatenating dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to concatenate along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
+    pub fn cat<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Cat<Rhs>>::Output
+    where
+        Self: Cat<Rhs>,
+    {
+        Cat::cat(self, rhs, axis)
     }
 
-    fn train(&self) {
-        for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).train();
-            }
-        }
-    }
-}
-
-impl<T: Data + Forward + ChangeBehaviour> Var<T> {
-    pub fn set_eval(&self) {
-        self.node.eval();
-    }
-
-    pub fn set_train(&self) {
-        self.node.train();
+    /// Stacks the variables `self` and `rhs` along a new dimension specified by `axis`.
+    ///
+    /// All variables must have the same shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to stack along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
+    pub fn stack<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Stack<Rhs>>::Output
+    where
+        Self: Stack<Rhs>,
+    {
+        Stack::stack(self, rhs, axis)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Differentiable Variable ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// A differentiable variable.
+///
+/// Differentiable variables can be created in the **two** following ways described hereafter:
+///
+/// 1. By calling [`.requires_grad()`] on a non-differentiable leaf.
+///
+/// [`.requires_grad()`]: Var::requires_grad()
+///
+/// 2. By performing any binary operation between a [`Var`] and a `VarDiff`. Differentiability
+/// is thus a *contagious* property, that is, if during a computation a `VarDiff` is used, the
+/// result of the computation itself, and that of any other subsequent computations performed on
+/// it, will also be differentiable. As an obvious consequence, the results of operations
+/// performed on two *VarDiff* will also be *VarDiff*.
 pub struct VarDiff<T, U>
 where
     T: Data + 'static,
@@ -536,10 +811,15 @@ impl<D> VarDiff<Input<D>, InputBackward<D>>
 where
     D: Dimension,
 {
+    /// Returns an immutable reference to the gradient inside `self`.
+    ///
+    /// At the differentiable variable's creation the gradient is filled with zeros. You can
+    /// populate it with a call to [`.backward()`](VarDiff::backward()).
     pub fn grad(&self) -> Ref<Tensor<D>> {
         self.node.gradient()
     }
 
+    /// Returns a mutable reference to the data inside `self`.
     pub(crate) fn data_mut(&mut self) -> RefMut<Tensor<D>> {
         self.var.node.data_mut()
     }
@@ -560,23 +840,13 @@ where
 
 impl<T, U> VarDiff<T, U>
 where
-    T: Data + Forward + ChangeBehaviour + 'static,
-    U: Gradient + Overwrite + Backward + ChangeBehaviour + 'static,
-{
-    pub(crate) fn from_changable(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
-        let node = Rc::new(node);
-        past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-        past.append_changeable(node.as_ref() as *const dyn ChangeBehaviour);
-
-        VarDiff { var, node, past }
-    }
-}
-
-impl<T, U> VarDiff<T, U>
-where
     T: Data + 'static,
     U: Gradient + Overwrite + 'static,
 {
+    /// Returns an immutable reference to the data inside `self`.
+    ///
+    /// At the differentiable variable's creation the data is filled with zeros. You can populate it
+    /// with a call to [`.forward()`](VarDiff::forward()).
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.var.node.data()
     }
@@ -587,6 +857,8 @@ where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + Backward + 'static,
 {
+    /// Propagates the computations forwards and populates all the variables and differetiable
+    /// variables from the leaves of the graph to `self`.   
     pub fn forward(&mut self) {
         self.var.forward();
 
@@ -601,6 +873,17 @@ where
         }
     }
 
+    /// Back-propagates through the computational graph and populates the gradients of the
+    /// differentiable leaves that are ancestors of `self`. Before back-propagating the gradient
+    /// of `self` is seeded with `seed`, thus, the leaves' gradients will be scaled accordingly.
+    ///
+    /// The graph is differentiated through the
+    /// [chain rule](https://en.wikipedia.org/wiki/Chain_rule).
+    ///
+    /// The leaves whose gradients are populated by this method are also those referred by the
+    /// vector of [`Param`] returned by [`.parameters()`].
+    ///
+    ///  [`.parameters()`]: VarDiff::parameters()
     pub fn backward(&mut self, seed: f32) {
         debug_assert_eq!(self.past.is_empty(), false);
 
@@ -611,6 +894,7 @@ where
             node.backward();
         }
 
+        // TODO: remove this comments
         // ! We are sure that the forward computation must have be already done
         debug_assert_eq!(self.var.past.len(), self.var.past.buffer().len());
         for node in self.var.past.buffer() {
@@ -621,6 +905,8 @@ where
         }
     }
 
+    /// Disables gradient computation and deallocates the gradient for `self` and all of its
+    /// ancestors.
     pub fn no_grad(&mut self) {
         self.past.prepare_buffer();
         for node in &self.past.buffer {
@@ -628,11 +914,108 @@ where
         }
     }
 
+    /// Re-enables gradient computation and re-allocates the gradient for `self` and all of its
+    /// ancestors.
     pub fn with_grad(&mut self) {
         self.past.prepare_buffer();
         for node in &self.past.buffer {
             node.with_grad();
         }
+    }
+
+    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
+    /// and differentiable variables in training mode.
+    ///    
+    /// See also [`.dropout()`].
+    ///
+    /// [`.dropout()`]: VarDiff::dropout()
+    pub fn train(&self) {
+        for changeable in &self.var.past.changeables {
+            unsafe {
+                (&**changeable).train();
+            }
+        }
+    }
+
+    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
+    /// and differentiable variables in evaluation mode.
+    ///    
+    /// See also [`.dropout()`].
+    ///
+    /// [`.dropout()`]: VarDiff::dropout()
+    ///
+    /// # Examples
+    ///
+    /// The following snippet pictures the effect of several calls placed at different locations
+    /// inside the program. The last call switches all the dropout variables in evaluation mode.
+    pub fn eval(&self) {
+        self.var.eval()
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data<Dim = Ix1> + 'static,
+    U: Gradient<Dim = Ix1> + Overwrite + 'static,
+{
+    /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
+    /// variable `rhs`.
+    ///
+    /// If `self` is *n* and `rhs` is *(n, m)* the output will be *m*.
+    pub fn vm<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
+    where
+        Self: VecMatMul<Rhs>,
+    {
+        VecMatMul::vm(self, rhs)
+    }
+
+    /// Vector-vector product, a.k.a. *scalar product* or *inner product*.
+    ///
+    /// Performs the scalar product between the two vector variables `self` and `rhs`.
+    pub fn vv<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
+    where
+        Self: VecVecMul<Rhs>,
+    {
+        VecVecMul::vv(self, rhs)
+    }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data<Dim = Ix2> + 'static,
+    U: Gradient<Dim = Ix2> + Overwrite + 'static,
+{
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
+    /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
+    pub fn mm<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
+    where
+        Self: MatMatMul<Rhs>,
+    {
+        MatMatMul::mm(self, rhs)
+    }
+
+    /// Performs a matrix multiplication between the matrix variables `self` and `rhs`.
+    /// This is a **fused operation** as `rhs` is implicitly transposed. Fusing the two operations
+    /// it's marginally faster than computing the matrix multiplication and the transposition
+    /// separately.
+    ///
+    /// If `self` is  *(n, m)* and `rhs` is *(o, m)* the output will be *(n, o)*.
+    pub fn mm_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
+    where
+        Self: MatMatMulT<Rhs>,
+    {
+        MatMatMulT::mm_t(self, rhs)
+    }
+
+    /// Performs a matrix-vector multiplication between the matrix variable `self` and the vector
+    /// variable `rhs`.
+    ///
+    /// If `self` is *(n, m)* and `rhs` is *m* the output will be *n*.
+    pub fn mv<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
+    where
+        Self: MatVecMul<Rhs>,
+    {
+        MatVecMul::mv(self, rhs)
     }
 }
 
@@ -641,64 +1024,125 @@ where
     T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
 {
+    /// Returns a vector of [`Param`] referencing all the differentiable leaves that are ancestors
+    /// of the variable.
+    ///
+    /// If directly called on a differentiable leaf the resulting vector will include only a single
+    /// `Param` referencing `self`.
+    ///
+    /// Ancestors that appear multiple times in the computation of the variable are listed only
+    /// once. Thus, the parameters of a differentiable variable *z* resulting from a binary
+    /// operation involving two other differentiable variables *x* and *y* will be the set union
+    /// of the parameters of *x* and *y*. This can be extended to the general case.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use neuronika;
+    ///
+    /// let x = neuronika::rand((3,3)).requires_grad() + neuronika::rand((3,3)).requires_grad();
+    /// let y = neuronika::rand(3).requires_grad() + neuronika::rand(1).requires_grad();
+    ///
+    /// assert!(x.parameters().len() == y.parameters().len() && y.parameters().len() == 2);
+    ///
+    /// let z = x.clone() + y;
+    /// assert_eq!(z.parameters().len(), 4);
+    ///
+    /// let w = z + x;
+    /// assert_eq!(w.parameters().len(), 4);
+    /// ```
     pub fn parameters(&self) -> Vec<Param> {
         self.past.parameters.iter().cloned().collect()
     }
 
+    /// Returns the sum of all elements in `self`.
     pub fn sum(self) -> VarDiff<Sum<T>, SumBackward<U>> {
         let node = SumBackward::new(self.node);
         VarDiff::from(node, self.past, self.var.sum())
     }
 
+    /// Takes the power of each element in `self` with exponent `exp` and returns a differentiable
+    /// variable with the result.
     pub fn pow(self, exp: i32) -> VarDiff<Power<T>, PowerBackward<U, T>> {
         let node = PowerBackward::new(self.node, self.var.node.clone(), exp);
         VarDiff::from(node, self.past, self.var.pow(exp))
     }
 
+    /// Applies the *rectified linear unit* element-wise and and returns a differentiable
+    /// variable with the result.
+    ///
+    /// *ReLU(x) = max(0, x)*
     pub fn relu(self) -> VarDiff<ReLU<T>, ReLUBackward<U, T>> {
         let node = ReLUBackward::new(self.node, self.var.node.clone());
         VarDiff::from(node, self.past, self.var.relu())
     }
 
+    /// Applies the *leaky rectified linear unit* element-wise and returns a differentiable
+    /// variable with the result.
+    ///
+    /// *LeakyReLU(x) = max(0, x) + 0.01 * min(0, x)*
     pub fn leaky_relu(self) -> VarDiff<LeakyReLU<T>, LeakyReLUBackward<U, T>> {
         let node = LeakyReLUBackward::new(self.node, self.var.node.clone());
         VarDiff::from(node, self.past, self.var.leaky_relu())
     }
 
+    /// Applies the *softplus* element-wise and returns a differentiable variable with the result.
+    ///
+    /// *Softplus(x) = log(1 + exp(x))*
     pub fn softplus(self) -> VarDiff<SoftPlus<T>, SoftPlusBackward<U, T>> {
         let node = SoftPlusBackward::new(self.node, self.var.node.clone());
         VarDiff::from(node, self.past, self.var.softplus())
     }
 
+    /// Applies the *sigmoid* element-wise and returns a differentiable variable with the result.
     pub fn sigmoid(self) -> VarDiff<Sigmoid<T>, SigmoidBackward<U, Sigmoid<T>>> {
         let var = self.var.sigmoid();
         let node = SigmoidBackward::new(self.node, var.node.clone());
         VarDiff::from(node, self.past, var)
     }
 
+    /// Applies the *tanh* element-wise and returns a differentiable variable with the result.
     pub fn tanh(self) -> VarDiff<TanH<T>, TanHBackward<U, TanH<T>>> {
         let var = self.var.tanh();
         let node = TanHBackward::new(self.node, var.node.clone());
         VarDiff::from(node, self.past, var)
     }
 
+    /// Applies the *natural logarithm* element-wise and returns a differentiable variable with the
+    /// result.
     pub fn ln(self) -> VarDiff<Logn<T>, LognBackward<U, T>> {
         let node = LognBackward::new(self.node, self.var.node.clone());
         VarDiff::from(node, self.past, self.var.ln())
     }
 
+    /// Applies the *exponential* element-wise and returns a differentiable variable with the
+    /// result.
     pub fn exp(self) -> VarDiff<Exp<T>, ExpBackward<U, Exp<T>>> {
         let var = self.var.exp();
         let node = ExpBackward::new(self.node, var.node.clone());
         VarDiff::from(node, self.past, var)
     }
 
+    /// Applies the *softmax* to `self` and returns a differentiable variable with the result.
+    ///
+    /// The *softmax* is applied to all slices along `axis`, and will re-scale them so
+    ///  that the elements lie in the range *[0, 1]* and sum to 1.0.
     pub fn softmax(self, axis: usize) -> VarDiff<Softmax<T>, SoftmaxBackward<U, Softmax<T>>> {
         let var = self.var.softmax(axis);
         let node = SoftmaxBackward::new(self.node, var.node.clone(), axis);
         VarDiff::from(node, self.past, var)
     }
 
+    /// Applies the *log-softmax* to `self` and returns a differentiable variable with the result.
+    ///
+    /// Applies a softmax followed by a logarithm. While mathematically equivalent to
+    /// *log(softmax(x))*, doing these two operations separately is slower, and numerically
+    /// unstable. This function uses an alternative formulation to compute the output and
+    /// gradient correctly.
+    ///
+    /// See also [`.softmax()`].
+    ///
+    /// [`.softmax()`]: VarDiff::softmax()
     pub fn log_softmax(
         self,
         axis: usize,
@@ -708,17 +1152,45 @@ where
         VarDiff::from(node, self.past, var)
     }
 
+    /// Returns a differentiable variable equivalent to `self` with its dimensions reversed.
     pub fn t(self) -> VarDiff<Transpose<T>, TransposeBackward<U>> {
         let node = TransposeBackward::new(self.node);
         VarDiff::from(node, self.past, self.var.t())
     }
 
+    /// Applies *dropout* to `self` and returns a differentiable variable with the result.
+    ///
+    /// It is strongly suggested to use [`nn::Dropout`] instead of this method when working with
+    /// neural networks.
+    ///
+    /// During training, randomly zeroes some of the elements of `self` with probability *p* using
+    /// samples from a Bernoulli distribution. Each channel will be zeroed out independently on
+    /// every forward call.
+    ///
+    /// This has proven to be an effective technique for regularization and preventing the
+    /// co-adaptation of neurons as described in the paper
+    /// [Improving neural networks by preventing co-adaptation of feature detectors](https://arxiv.org/abs/1207.0580).
+    ///
+    /// Furthermore, the outputs are scaled by a factor of 1/(1 - p) during training. This means
+    /// that during evaluation the resulting variable simply computes an identity function.
+    ///
+    /// [`nn::Dropout`]: crate::nn::Dropout
     pub fn dropout(self, p: f64) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
-        let var = self.var.dropout(p);
-        let node = DropoutBackward::new(self.node, var.node.clone(), p);
-        VarDiff::from_changable(node, self.past, var)
+        self.dropout_with_status(p, Rc::new(Cell::new(true)))
     }
 
+    pub(crate) fn dropout_with_status(
+        self,
+        p: f64,
+        status: Rc<Cell<bool>>,
+    ) -> VarDiff<Dropout<T>, DropoutBackward<U, T>> {
+        let var = self.var.dropout_with_status(p, status);
+        let node = DropoutBackward::new(self.node, var.node.clone(), p, var.node.status());
+        VarDiff::from(node, self.past, var)
+    }
+
+    /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
+    /// remainder along each dimension that doesn’t fit evenly.
     pub fn chunks<E>(self, chunk_size: E) -> Vec<VarDiff<Chunk<T>, ChunkBackward<U>>>
     where
         E: IntoDimension<Dim = T::Dim>,
@@ -744,60 +1216,61 @@ where
     }
 }
 
-impl<T, U> ChangeBehaviour for VarDiff<T, U>
-where
-    T: Data + Forward + 'static,
-    U: Gradient + Overwrite + Backward + 'static,
-{
-    fn eval(&self) {
-        self.var.eval();
-
-        for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).eval();
-            }
-        }
-    }
-
-    fn train(&self) {
-        self.var.train();
-
-        for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).train();
-            }
-        }
-    }
-}
-
-impl<T, U> VarDiff<T, U>
-where
-    T: Data + Forward + ChangeBehaviour + 'static,
-    U: Gradient + Overwrite + Backward + ChangeBehaviour + 'static,
-{
-    pub fn set_eval(&self) {
-        self.var.set_eval();
-        self.node.eval();
-    }
-
-    pub fn set_train(&self) {
-        self.var.set_eval();
-        self.node.train();
-    }
-}
-
 impl<T, U> VarDiff<T, U>
 where
     T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: RemoveAxis,
 {
+    /// Returns a new differentiable variable with a dimension of size one inserted at the position
+    /// specified by `axis`.
     pub fn unsqueeze(self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
         VarDiff::from(
             UnsqueezeBackward::new(self.node, axis),
             self.past,
             self.var.unsqueeze(axis),
         )
+    }
+
+    /// Concatenates the variables `self` and `rhs` along `axis`.
+    ///
+    /// All variables must have the same shape, except in the concatenating dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to concatenate along to.
+    ///
+    /// # Panics
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
+    pub fn cat<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Cat<Rhs>>::Output
+    where
+        Self: Cat<Rhs>,
+    {
+        Cat::cat(self, rhs, axis)
+    }
+
+    /// Stacks the variables `self` and `rhs` along a new dimension specified by `axis`.
+    ///
+    /// All variables must have the same shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - other variable.
+    ///
+    /// * `axis` - axis to stack along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
+    pub fn stack<Rhs>(self, rhs: Rhs, axis: usize) -> <Self as Stack<Rhs>>::Output
+    where
+        Self: Stack<Rhs>,
+    {
+        Stack::stack(self, rhs, axis)
     }
 }
 
@@ -1113,7 +1586,7 @@ where
 {
     type Output = Var<MatrixMatrixMul<F1, F2>>;
 
-    fn mm_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn mm(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(MatrixMatrixMul::new(self.node, rhs.node), self.past)
     }
@@ -1127,9 +1600,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardRight<F1, B2>>;
 
-    fn mm_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = MatrixMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mm_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.mm(rhs.var))
     }
 }
 
@@ -1141,9 +1614,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardLeft<B1, F2>>;
 
-    fn mm_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn mm(self, rhs: Var<F2>) -> Self::Output {
         let node = MatrixMatrixMulBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.mm_mul(rhs))
+        VarDiff::from(node, self.past, self.var.mm(rhs))
     }
 }
 
@@ -1156,7 +1629,7 @@ where
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackward<F1, B1, F2, B2>>;
 
-    fn mm_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = MatrixMatrixMulBackward::new(
             self.var.node.clone(),
@@ -1164,7 +1637,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.mm_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.mm(rhs.var))
     }
 }
 
@@ -1177,7 +1650,7 @@ where
 {
     type Output = Var<MatrixMatrixMulT<F1, F2>>;
 
-    fn mm_mul_t(mut self, rhs: Var<F2>) -> Self::Output {
+    fn mm_t(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(MatrixMatrixMulT::new(self.node, rhs.node), self.past)
     }
@@ -1191,9 +1664,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardRight<F1, B2>>;
 
-    fn mm_mul_t(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm_t(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = MatrixMatrixMulTBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mm_mul_t(rhs.var))
+        VarDiff::from(node, rhs.past, self.mm_t(rhs.var))
     }
 }
 
@@ -1205,9 +1678,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardLeft<B1, F2>>;
 
-    fn mm_mul_t(self, rhs: Var<F2>) -> Self::Output {
+    fn mm_t(self, rhs: Var<F2>) -> Self::Output {
         let node = MatrixMatrixMulTBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.mm_mul_t(rhs))
+        VarDiff::from(node, self.past, self.var.mm_t(rhs))
     }
 }
 
@@ -1220,7 +1693,7 @@ where
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackward<F1, B1, F2, B2>>;
 
-    fn mm_mul_t(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm_t(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = MatrixMatrixMulTBackward::new(
             self.var.node.clone(),
@@ -1228,7 +1701,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.mm_mul_t(rhs.var))
+        VarDiff::from(node, self.past, self.var.mm_t(rhs.var))
     }
 }
 
@@ -1241,7 +1714,7 @@ where
 {
     type Output = Var<MatrixVectorMul<F1, F2>>;
 
-    fn mv_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn mv(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(MatrixVectorMul::new(self.node, rhs.node), self.past)
     }
@@ -1255,9 +1728,9 @@ where
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardRight<F1, B2>>;
 
-    fn mv_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mv(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = MatrixVectorMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mv_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.mv(rhs.var))
     }
 }
 
@@ -1269,9 +1742,9 @@ where
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardLeft<B1, F2>>;
 
-    fn mv_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn mv(self, rhs: Var<F2>) -> Self::Output {
         let node = MatrixVectorMulBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.mv_mul(rhs))
+        VarDiff::from(node, self.past, self.var.mv(rhs))
     }
 }
 
@@ -1284,7 +1757,7 @@ where
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackward<F1, B1, F2, B2>>;
 
-    fn mv_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mv(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = MatrixVectorMulBackward::new(
             self.var.node.clone(),
@@ -1292,7 +1765,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.mv_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.mv(rhs.var))
     }
 }
 
@@ -1305,7 +1778,7 @@ where
 {
     type Output = Var<VectorMatrixMul<F1, F2>>;
 
-    fn vm_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn vm(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(VectorMatrixMul::new(self.node, rhs.node), self.past)
     }
@@ -1319,9 +1792,9 @@ where
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardRight<F1, B2>>;
 
-    fn vm_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vm(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = VectorMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.vm_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.vm(rhs.var))
     }
 }
 
@@ -1333,9 +1806,9 @@ where
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardLeft<B1, F2>>;
 
-    fn vm_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn vm(self, rhs: Var<F2>) -> Self::Output {
         let node = VectorMatrixMulBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.vm_mul(rhs))
+        VarDiff::from(node, self.past, self.var.vm(rhs))
     }
 }
 
@@ -1348,7 +1821,7 @@ where
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackward<F1, B1, F2, B2>>;
 
-    fn vm_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vm(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = VectorMatrixMulBackward::new(
             self.var.node.clone(),
@@ -1356,7 +1829,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.vm_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.vm(rhs.var))
     }
 }
 
@@ -1369,7 +1842,7 @@ where
 {
     type Output = Var<VectorVectorMul<F1, F2>>;
 
-    fn vv_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn vv(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(VectorVectorMul::new(self.node, rhs.node), self.past)
     }
@@ -1383,9 +1856,9 @@ where
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B2, F1>>;
 
-    fn vv_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vv(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = VectorVectorMulBackwardUnary::new(rhs.node, self.node.clone());
-        VarDiff::from(node, rhs.past, self.vv_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.vv(rhs.var))
     }
 }
 
@@ -1397,9 +1870,9 @@ where
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B1, F2>>;
 
-    fn vv_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn vv(self, rhs: Var<F2>) -> Self::Output {
         let node = VectorVectorMulBackwardUnary::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.vv_mul(rhs))
+        VarDiff::from(node, self.past, self.var.vv(rhs))
     }
 }
 
@@ -1412,7 +1885,7 @@ where
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackward<F1, B1, F2, B2>>;
 
-    fn vv_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vv(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = VectorVectorMulBackward::new(
             self.var.node.clone(),
@@ -1420,7 +1893,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.vv_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.vv(rhs.var))
     }
 }
 

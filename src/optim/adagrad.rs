@@ -1,5 +1,4 @@
-use super::{Optimizer, Penalty};
-use crate::variable::Param;
+use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
@@ -9,7 +8,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 /// The **Adagrad** optimizer.
 ///
 /// The algorithm has been proposed in [this paper](http://jmlr.org/papers/v12/duchi11a.html).
-pub struct Adagrad<'a, T> {
+pub struct Adagrad<'a, T: Penalty> {
     params: Vec<AdagradParam<'a>>,
     lr: f32,
     lr_decay: f32,
@@ -17,22 +16,22 @@ pub struct Adagrad<'a, T> {
     eps: f32,
 }
 
-impl<'a, T> Adagrad<'a, T> {
-    /// Creates a new **Adagrad** optimizer.
+impl<'a, T: Penalty> Adagrad<'a, T> {
+    /// Creates a new *Adagrad* optimizer.
     ///
-    /// * `params` - `Vec` of parameters to optimize.
+    /// # Arguments
+    ///
+    /// * `params` - vector of [`Param`] to optimize.
+    ///
     /// * `lr` - learning rate.
+    ///
     /// * `lr_decay` - the learning rate decay.
+    ///
     /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-10**.
+    ///
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-10*.
     pub fn new(params: Vec<Param>, lr: f32, lr_decay: f32, penalty: T, eps: f32) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(AdagradParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -44,7 +43,7 @@ impl<'a, T> Adagrad<'a, T> {
     }
 }
 
-/// A parameter used by the **Adagrad** optimizer.
+/// A parameter used by the *Adagrad* optimizer.
 pub struct AdagradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -67,7 +66,8 @@ impl<'a> From<Param> for AdagradParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<AdagradParam<'a>> for Adagrad<'a, T> {
+impl<'a, T: Penalty> Optimizer for Adagrad<'a, T> {
+    type ParamRepr = AdagradParam<'a>;
     fn step(&mut self) {
         let (params, lr, lr_decay, penalty, eps) = (
             &mut self.params,
@@ -87,18 +87,15 @@ impl<'a, T: Penalty> Optimizer<AdagradParam<'a>> for Adagrad<'a, T> {
 
             *step += 1;
             let clr = *lr / (1. + (*step - 1) as f32 * lr_decay);
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(grad_sq)
-                .and(grad)
-                .for_each(|grad_sq_el, grad_el| {
-                    *grad_sq_el += (grad_el + penalty.penalise(grad_el))
-                        * (grad_el + penalty.penalise(grad_el))
-                });
+                .and(&p_grad)
+                .for_each(|grad_sq_el, p_grad_el| *grad_sq_el += p_grad_el * p_grad_el);
 
-            Zip::from(data).and(grad).and(&param.grad_sq).for_each(
-                |data_el, grad_el, grad_sq_el| {
-                    *data_el +=
-                        -(grad_el + penalty.penalise(grad_el)) / (grad_sq_el.sqrt() + eps) * clr
+            Zip::from(data).and(&p_grad).and(&param.grad_sq).for_each(
+                |data_el, p_grad_el, grad_sq_el| {
+                    *data_el += -p_grad_el / (grad_sq_el.sqrt() + eps) * clr
                 },
             );
         });

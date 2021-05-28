@@ -3,7 +3,7 @@ use super::{
         broadcasted_zeros, expect_tensor, expect_tensor_mut, BroadTensor, Broadcasted, DynTensor,
         Tensor,
     },
-    Backward, ChangeBehaviour, Data, Differentiable, DotDim, Dropout, Gradient, Input, Overwrite,
+    Backward, Data, Differentiable, DotDim, Dropout, Gradient, Input, Overwrite,
 };
 use ndarray::{
     concatenate,
@@ -129,6 +129,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ InputBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+/// The backward component of a differentiable leaf of the computational graph.
 pub struct InputBackward<D: Dimension> {
     gradient: RefCell<Option<Tensor<D>>>,
     overwrite: Cell<bool>,
@@ -1082,10 +1083,10 @@ where
     LhsG: Gradient + Overwrite,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
-    gradient: RefCell<Option<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>>,
+    gradient: RefCell<Option<BroadTensor<LhsG::Dim, RhsD::Dim>>>,
     shape: Broadcasted<LhsG::Dim, RhsD::Dim>,
     overwrite: Cell<bool>,
-    buffer: RefCell<Option<Tensor<Broadcasted<LhsG::Dim, RhsD::Dim>>>>,
+    buffer: RefCell<Option<BroadTensor<LhsG::Dim, RhsD::Dim>>>,
     left_grad: Rc<LhsG>,
     right_data: Rc<RhsD>,
 }
@@ -1179,10 +1180,10 @@ where
     RhsG: Gradient + Overwrite,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
-    gradient: RefCell<Option<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>>,
+    gradient: RefCell<Option<BroadTensor<LhsD::Dim, RhsG::Dim>>>,
     shape: Broadcasted<LhsD::Dim, RhsG::Dim>,
     overwrite: Cell<bool>,
-    buffer: RefCell<Option<Tensor<Broadcasted<LhsD::Dim, RhsG::Dim>>>>,
+    buffer: RefCell<Option<BroadTensor<LhsD::Dim, RhsG::Dim>>>,
     left_data: Rc<LhsD>,
     right_data: Rc<RhsD>,
     right_grad: Rc<RhsG>,
@@ -2979,12 +2980,14 @@ where
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.diff_operand.can_overwrite() {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = if *op_data_el > 0.0 { *grad_el } else { 0.01 }
+                *op_grad_el = ((*op_data_el > 0.0) as usize as f32) * grad_el
+                    + ((*op_data_el <= 0.0) as usize as f32) * 0.01
             });
             self.diff_operand.set_overwrite(false);
         } else {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += if *op_data_el > 0.0 { *grad_el } else { 0.01 }
+                *op_grad_el += ((*op_data_el > 0.0) as usize as f32) * grad_el
+                    + ((*op_data_el <= 0.0) as usize as f32) * 0.01
             });
         }
     }
@@ -3073,24 +3076,12 @@ where
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*op_data);
         if self.diff_operand.can_overwrite() {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el = if *op_data_el >= 15.0 {
-                    *grad_el
-                } else if *op_data_el <= -15.0 {
-                    0.0
-                } else {
-                    grad_el / (1.0 + (-*op_data_el).exp())
-                }
+                *op_grad_el = grad_el / (1.0 + (-*op_data_el).exp())
             });
             self.diff_operand.set_overwrite(false);
         } else {
             zip.for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += if *op_data_el >= 15.0 {
-                    *grad_el
-                } else if *op_data_el <= -15.0 {
-                    0.0
-                } else {
-                    grad_el / (1.0 + (-*op_data_el).exp())
-                }
+                *op_grad_el += grad_el / (1.0 + (-*op_data_el).exp())
             });
         }
     }
@@ -4323,7 +4314,7 @@ where
     diff_operand: Rc<T>,
     no_diff_operand: Rc<Dropout<U>>,
     p: f64,
-    train: Cell<bool>,
+    train: Rc<Cell<bool>>,
 }
 
 impl<T, U> DropoutBackward<T, U>
@@ -4335,6 +4326,7 @@ where
         diff_operand: Rc<T>,
         no_diff_operand: Rc<Dropout<U>>,
         p: f64,
+        forward_status: Rc<Cell<bool>>,
     ) -> DropoutBackward<T, U> {
         let shape = diff_operand.gradient().raw_dim();
 
@@ -4345,22 +4337,8 @@ where
             diff_operand,
             no_diff_operand,
             p,
-            train: Cell::new(true),
+            train: forward_status,
         }
-    }
-}
-
-impl<T, U> ChangeBehaviour for DropoutBackward<T, U>
-where
-    T: Gradient + Overwrite,
-    U: Data<Dim = T::Dim>,
-{
-    fn train(&self) {
-        self.train.set(true);
-    }
-
-    fn eval(&self) {
-        self.train.set(false);
     }
 }
 
@@ -4399,18 +4377,17 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    #[allow(clippy::float_cmp)]
     fn backward(&self) {
         if self.train.get() {
             let mut op_grad = self.diff_operand.gradient_mut();
             let grad = self.gradient();
             let p = &self.p;
-            if *p == 1. {
+            if (*p - 1.).abs() <= f64::EPSILON {
                 if self.diff_operand.can_overwrite() {
                     Zip::from(&mut *op_grad).for_each(|op_grad_el| *op_grad_el = 0.);
                     self.diff_operand.set_overwrite(false);
                 }
-            } else if *p == 0. {
+            } else if *p <= f64::EPSILON {
                 let zip = Zip::from(&mut *op_grad).and(&*grad);
                 if self.diff_operand.can_overwrite() {
                     zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
@@ -8409,8 +8386,13 @@ mod tests {
         fn creation() {
             let node = DropoutBackward::new(
                 new_backward_input((3, 3), vec![0.; 9]),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.5)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    0.5,
+                    Rc::new(Cell::new(true)),
+                )),
                 0.5,
+                Rc::new(Cell::new(true)),
             );
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
@@ -8423,8 +8405,13 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             let node = DropoutBackward::new(
                 input.clone(),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.5)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    0.5,
+                    Rc::new(Cell::new(true)),
+                )),
                 0.5,
+                Rc::new(Cell::new(true)),
             );
 
             node.backward();
@@ -8473,8 +8460,13 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             let node = DropoutBackward::new(
                 input.clone(),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 1.)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    1.,
+                    Rc::new(Cell::new(true)),
+                )),
                 1.,
+                Rc::new(Cell::new(true)),
             );
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -8500,8 +8492,13 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             let node = DropoutBackward::new(
                 input.clone(),
-                Rc::new(Dropout::new(new_input((3, 3), vec![1.; 9]), 0.)),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![1.; 9]),
+                    0.,
+                    Rc::new(Cell::new(true)),
+                )),
                 0.,
+                Rc::new(Cell::new(true)),
             );
 
             // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

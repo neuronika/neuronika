@@ -1,0 +1,850 @@
+//! Data loading and manipulation utilities.
+//!
+//! # Dataset Types
+//!
+//! Neuronika provides two kinds of datasets, an unlabeled one, that is [`Dataset`], and a labeled
+//! one, that is [`LabeledDataset`]. They both own their data uniquely.
+//!
+//! Datasets are basic containers for your data and are designed to easily interact with models
+//! built with neuronika. They are created with the help of the [`DataLoader`] struct which performs
+//! the actual I/O operations.
+//!
+//! Both datasets are generic on the [dimensionality] of their records and are organized as a tensors
+//! in which the length of the outermost axis is equal to the total number of records and the
+//! number of remaining axes represent the dimensionality of each data point.
+//!
+//! [`.from_csv()`]: crate::data::DataLoader::from_csv
+//! [dimensionality]: ndarray::Dimension
+//!
+//! # Loading Data
+//!
+//! At the core of neuronika data utilities is the [`DataLoader`] struct. It can be used to load
+//! data in *comma-separated values format* from a [*reader*](Read) or directly from a *.csv* file.
+//!
+//! Additional parsing settings are passed using `DataLoader`'s methods in the following way.
+//!
+//! ```should_panic
+//! use neuronika::data::DataLoader;
+//!
+//! let data = DataLoader::default()           // A typical use case would be
+//!     .with_labels(&[5, 6, 7])               // to load some data from
+//!     .with_delimiter(',')                   // a .csv file.
+//!     .from_csv("./folder/data.csv", 3, 1);
+//! ```
+//!
+//! The result of the loading operation is either a [`Dataset`] or a [`LabeledDataset`], depending
+//! on how the loader was configured.
+//!
+//! ## Handling Labels
+//!
+//! You may find useful, in many real world scenarios, to convert labels to floating point numbers.
+//! In neuronika this is quickly achievable with closures. Take a look at the following example.
+//!
+//! ```rust
+//! use neuronika::data::DataLoader;
+//!
+//! let csv_content = "\
+//!     Paw_size,Tail_length,Weight,Animal\n\
+//!     0.2,5.0,15.0,Dog\n\
+//!     0.08,12.0,4.0,Cat\n\
+//!     0.05,3.0,0.8,Mouse";
+//!
+//! let dataset = DataLoader::default().with_labels(&[3]).from_reader_fn(
+//!     csv_content.as_bytes(),
+//!     3,
+//!     1,
+//!     |(record, label): (Vec<f32>, String)| {
+//!         let float_label = match label.as_str() {
+//!             "Dog" => 1.,
+//!             "Cat" => 2.,
+//!              _ => 3.,
+//!         };
+//!         (record, vec![float_label])
+//!     },
+//! );
+//! ```
+use csv::{ReaderBuilder, StringRecord};
+use ndarray::{Array, ArrayView, Axis, Dimension, IntoDimension, RemoveAxis};
+use serde::de::DeserializeOwned;
+use std::{fs::File, io::Read};
+
+/// Computes the correct shape for the stacked records of a dataset.
+fn stacked_shape<D: Dimension>(rows: usize, shape: D) -> D::Larger {
+    let mut new_shape = D::Larger::zeros(shape.ndim() + 1);
+    new_shape[0] = rows;
+    new_shape.slice_mut()[1..].clone_from_slice(shape.slice());
+
+    new_shape
+}
+
+/// A collection of uniquely owned unlabeled records.
+///
+/// See also [*data*](index.html#data).
+pub struct Dataset<D> {
+    records: Array<f32, D>,
+}
+
+impl<D: RemoveAxis> Dataset<D> {
+    /// Creates a new dataset from an [`Array`](ndarray::Array).
+    ///
+    /// # Arguments
+    ///
+    /// `records` - records to store into the dataset
+    fn new(records: Array<f32, D>) -> Self {
+        Self { records }
+    }
+
+    /// Returns a reference to the records.
+    pub fn records(&self) -> &Array<f32, D> {
+        &self.records
+    }
+
+    /// Constructs a K-Fold iterator from the dataset.
+    ///
+    /// The dataset is split *without shuffling* into k consecutive folds.
+    ///
+    /// Items returned by the [`KFold`] iterator are splits of the dataset. Each fold is used
+    /// exactly once as a validation set, while the remaining k - 1 form the training set.
+    ///
+    /// # Arguments
+    ///
+    /// `k` - number of folds to perform.
+    ///
+    /// # Panics
+    ///
+    /// If `k < 2`.
+    pub fn kfold(&self, k: usize) -> KFold<D> {
+        KFold::new(self.records.view(), k)
+    }
+}
+
+/// Configurable data loader.
+pub struct DataLoader {
+    r_builder: ReaderBuilder,
+}
+
+impl DataLoader {
+    /// Specifies the columns where the labels are located.
+    ///
+    /// # Arguments
+    ///
+    /// `labels` - labels' columns indices.
+    ///
+    /// # Panics
+    ///
+    /// If the supplied labels are empty or if they contain duplicate columns.
+    pub fn with_labels(self, labels: &[usize]) -> LabeledDataLoader {
+        LabeledDataLoader::new(self, labels)
+    }
+
+    /// Configures the loader so that it parses the first row. To be used in the absence of an
+    /// header row, as in most datasets the first row usually contains the columns' identifiers.
+    pub fn without_headers(&mut self) -> &mut Self {
+        self.r_builder.has_headers(false);
+
+        self
+    }
+
+    /// Specifies the field delimiter character.
+    ///
+    /// # Arguments
+    ///
+    /// `delimiter` - delimiter character.
+    pub fn with_delimiter(&mut self, delimiter: char) -> &mut Self {
+        self.r_builder.delimiter(delimiter as u8);
+
+        self
+    }
+
+    /// Builds a data collection by loading the content of the specified `.csv` file applying the
+    /// previously supplied configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - path of the source file.
+    /// * `shape` - shape of a single records.
+    ///
+    /// # Panics
+    ///
+    /// In the case of errors during I/O or if `shape` generates an empty record.
+    pub fn from_csv<S>(&mut self, src: &str, shape: S) -> Dataset<<S::Dim as Dimension>::Larger>
+    where
+        S: IntoDimension,
+    {
+        self.from_reader_fn(File::open(src).unwrap(), shape, |r| r)
+    }
+
+    /// Builds a data collection by loading the content of the specified source reader applying the
+    /// previously supplied configuration.    
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - reader from which to load the data.
+    /// * `shape` - shape of a single record.
+    ///
+    /// # Panics
+    ///
+    /// In the event of a deserialization error or if `shape` would generate an empty record.
+    pub fn from_reader<R, S>(&mut self, src: R, shape: S) -> Dataset<<S::Dim as Dimension>::Larger>
+    where
+        R: Read,
+        S: IntoDimension,
+    {
+        self.from_reader_fn(src, shape, |r| r)
+    }
+
+    /// Builds a data collection by loading the content of the specified `.csv` file applying the
+    /// previously supplied configuration. Applies `fn` to each record.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - reader from which to load the data.
+    /// * `shape` - shape of a single record.
+    /// * `fn` - closure to be applied to each record.
+    ///
+    /// # Panics
+    ///
+    /// In the event of a deserialization error or if `shape` would generate an empty record.
+    pub fn from_csv_fn<S, T, F>(
+        &mut self,
+        src: &str,
+        shape: S,
+        f: F,
+    ) -> Dataset<<S::Dim as Dimension>::Larger>
+    where
+        S: IntoDimension,
+        T: DeserializeOwned,
+        F: Fn(T) -> Vec<f32>,
+    {
+        self.from_reader_fn(File::open(src).unwrap(), shape, f)
+    }
+
+    /// Builds a data collection by loading the content of the specified source reader applying the
+    /// previously supplied configuration. Applies `fn` to each record.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - reader from which to load the data.
+    /// * `shape` - shape of a single record.
+    /// * `fn` - closure to be applied to each record.
+    ///
+    /// # Panics
+    ///
+    /// In the event of a deserialization error or if `shape` would generate an empty record.
+    pub fn from_reader_fn<R, S, T, F>(
+        &mut self,
+        src: R,
+        shape: S,
+        f: F,
+    ) -> Dataset<<S::Dim as Dimension>::Larger>
+    where
+        R: Read,
+        S: IntoDimension,
+        T: DeserializeOwned,
+        F: Fn(T) -> Vec<f32>,
+    {
+        let shape = shape.into_dimension();
+        if shape.size() == 0 {
+            panic!("cannot handle empty records")
+        }
+
+        let mut records = Vec::new();
+        let mut rows = 0;
+        for record in self.r_builder.from_reader(src).deserialize() {
+            let record = f(record.unwrap());
+            records.extend(record);
+            rows += 1;
+        }
+
+        Dataset::new(Array::from_shape_vec(stacked_shape(rows, shape), records).unwrap())
+    }
+}
+
+impl Default for DataLoader {
+    /// Creates a preconfigured data loader.
+    ///
+    /// The base configuration considers the first row of the source as an header, skipping it, and
+    /// it uses `,` as the field delimiter.
+    fn default() -> Self {
+        Self {
+            r_builder: ReaderBuilder::new(),
+        }
+    }
+}
+
+/// Configurable loader for labeled data.
+pub struct LabeledDataLoader {
+    r_builder: ReaderBuilder,
+    labels: Vec<usize>,
+}
+
+impl LabeledDataLoader {
+    fn deserialize_record<T, U>(&self, record: StringRecord) -> (T, U)
+    where
+        T: DeserializeOwned,
+        U: DeserializeOwned,
+    {
+        let mut input = StringRecord::new();
+        let mut label = StringRecord::new();
+        for (id, value) in record.iter().enumerate() {
+            match self.labels.binary_search(&id) {
+                Ok(_) => label.push_field(value),
+                Err(_) => input.push_field(value),
+            }
+        }
+
+        (
+            input.deserialize(None).unwrap(),
+            label.deserialize(None).unwrap(),
+        )
+    }
+
+    fn new(builder: DataLoader, labels: &[usize]) -> Self {
+        if labels.is_empty() {
+            panic!("labels not provided");
+        }
+
+        let mut labels = labels.to_vec();
+        labels.sort_unstable();
+        if labels.windows(2).any(|w| w[0] == w[1]) {
+            panic!("duplicated labels");
+        }
+
+        Self {
+            r_builder: builder.r_builder,
+            labels,
+        }
+    }
+
+    /// Configures the loader so that it parses the first row. To be used in the absence of an
+    /// header row, as in most datasets the first row usually contains the columns' identifiers.
+    pub fn without_headers(&mut self) -> &mut Self {
+        self.r_builder.has_headers(false);
+
+        self
+    }
+
+    /// Specifies the field delimiter character.
+    ///
+    /// # Arguments
+    ///
+    /// `delimiter` - delimiter character.
+    pub fn with_delimiter(&mut self, delimiter: char) -> &mut Self {
+        self.r_builder.delimiter(delimiter as u8);
+
+        self
+    }
+
+    /// Builds a labeled data collection by loading the content of the specified `.csv` file
+    /// applying the previously supplied configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - path of the source file.
+    /// * `sh1` - shape of a single records.
+    /// * `sh2` - shape of a single label.
+    ///
+    /// # Panics
+    ///
+    /// In the case of I/O errors or if `sh1` generates an empty record or `sh2` generates an empty
+    /// label.
+    pub fn from_csv<S1, S2>(
+        &mut self,
+        src: &str,
+        sh1: S1,
+        sh2: S2,
+    ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
+    where
+        S1: IntoDimension,
+        S2: IntoDimension,
+    {
+        self.from_reader_fn(File::open(src).unwrap(), sh1, sh2, |r| r)
+    }
+
+    /// Builds a data collection by loading the content of the specified source reader applying the
+    /// previously supplied configuration.    
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - reader from which to load the data.
+    /// * `sh1` - shape of a single record.
+    /// * `sh2` - shape of a single label.
+    ///
+    /// # Panics
+    ///
+    /// In the event of a deserialization error or if `sh1` generates an empty record or `sh2`
+    /// generates an empty label.
+    pub fn from_reader<R, S1, S2>(
+        &mut self,
+        src: R,
+        sh1: S1,
+        sh2: S2,
+    ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
+    where
+        R: Read,
+        S1: IntoDimension,
+        S2: IntoDimension,
+    {
+        self.from_reader_fn(src, sh1, sh2, |r| r)
+    }
+
+    /// Builds a data collection by loading the content of the specified `.csv` file applying the
+    /// previously supplied configuration. Applies `fn` to each record and each label.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - reader from which to load the data.
+    /// * `sh1` - shape of a single record.
+    /// * `sh2` - shape of a single label.    
+    /// * `fn` - closure to be applied to records and labels.
+    ///
+    /// # Panics
+    ///
+    /// In the event of a deserialization error or if `sh1` generates an empty record or `sh2`
+    /// generates an empty label.
+    pub fn from_csv_fn<S1, S2, T, U, F>(
+        &mut self,
+        src: &str,
+        sh1: S1,
+        sh2: S2,
+        f: F,
+    ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
+    where
+        S1: IntoDimension,
+        S2: IntoDimension,
+        T: DeserializeOwned,
+        U: DeserializeOwned,
+        F: Fn((T, U)) -> (Vec<f32>, Vec<f32>),
+    {
+        self.from_reader_fn(File::open(src).unwrap(), sh1, sh2, f)
+    }
+
+    /// Builds a data collection by loading the content of the specified source reader applying the
+    /// previously supplied configuration. Applies `fn` to each record and each label.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - reader from which to load the data.
+    /// * `sh1` - shape of a single record.
+    /// * `sh2` - shape of a single label.    
+    /// * `fn` - closure to be applied to records and labels.
+    ///
+    /// # Panics
+    ///
+    /// In the event of a deserialization error if `sh1` generates an empty record or `sh2`
+    /// generates an empty label.
+    pub fn from_reader_fn<R, S1, S2, T, U, F>(
+        &mut self,
+        src: R,
+        sh1: S1,
+        sh2: S2,
+        f: F,
+    ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
+    where
+        R: Read,
+        S1: IntoDimension,
+        S2: IntoDimension,
+        T: DeserializeOwned,
+        U: DeserializeOwned,
+        F: Fn((T, U)) -> (Vec<f32>, Vec<f32>),
+    {
+        let sh1 = sh1.into_dimension();
+        let sh2 = sh2.into_dimension();
+        if sh1.size() == 0 || sh2.size() == 0 {
+            panic!("cannot handle empty records")
+        }
+
+        let mut records = Vec::new();
+        let mut labels = Vec::new();
+        let mut rows = 0;
+        for record in self.r_builder.from_reader(src).records() {
+            let (record, label) = f(self.deserialize_record(record.unwrap()));
+            records.extend(record);
+            labels.extend(label);
+            rows += 1;
+        }
+
+        LabeledDataset::new(
+            Array::from_shape_vec(stacked_shape(rows, sh1), records).unwrap(),
+            Array::from_shape_vec(stacked_shape(rows, sh2), labels).unwrap(),
+        )
+    }
+}
+
+/// A collection of uniquely owned *labeled* records.
+///
+/// `LabeledDataset` is generic on both the dimensionality of the records, specified by `D1` and
+/// that of the labels, specified by `D2`. It's organized as a pair of tensors, one for the data and
+/// one for the labels.
+///
+/// See also [*data*](index.html#data).
+pub struct LabeledDataset<D1, D2> {
+    records: Array<f32, D1>,
+    labels: Array<f32, D2>,
+}
+
+impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
+    /// Creates a new `LabeledDataset` from a pair of [`Array`]s.
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - records to be stored.
+    /// * `labels` - labels to be stored.
+    fn new(records: Array<f32, D1>, labels: Array<f32, D2>) -> Self {
+        Self { records, labels }
+    }
+
+    /// Returns a reference to the records.
+    pub fn records(&self) -> &Array<f32, D1> {
+        &self.records
+    }
+
+    /// Returns a reference to the labels.
+    pub fn labels(&self) -> &Array<f32, D2> {
+        &self.labels
+    }
+
+    /// Constructs a K-Fold iterator from the labeled dataset.
+    ///
+    /// The dataset is split *without shuffling* into k consecutive folds.
+    ///
+    /// Items returned by the [`LabeledKFold`] iterator are splits of the dataset, both records and
+    /// labels. Each fold is used exactly once as a validation set, while the remaining k - 1 form
+    /// the training set.
+    ///
+    /// # Arguments
+    ///
+    /// `k` - number of folds to perform.
+    ///
+    /// # Panics
+    ///
+    /// If `k < 2`.
+    pub fn kfold(&self, k: usize) -> LabeledKFold<D1, D2> {
+        LabeledKFold::new(self.records.view(), self.labels.view(), k)
+    }
+}
+
+struct SetKFold<'a, D> {
+    source: ArrayView<'a, f32, D>,
+    step: usize,
+    axis_len: usize,
+}
+
+impl<'a, D: RemoveAxis> SetKFold<'a, D> {
+    pub fn new(source: ArrayView<'a, f32, D>, k: usize) -> Self {
+        if k < 2 {
+            panic!("meaningless fold number");
+        }
+
+        let axis_len = source.len_of(Axis(0));
+        debug_assert_ne!(axis_len, 0, "no record provided");
+
+        Self {
+            source,
+            step: 1 + (axis_len - 1) / k,
+            axis_len,
+        }
+    }
+
+    pub fn compute_fold(&mut self, i: usize) -> (Array<f32, D>, Array<f32, D>) {
+        let start = self.step * i;
+        let stop = self.axis_len.min(start + self.step);
+
+        let train_ids: Vec<usize> = (0..start).chain(stop..self.axis_len).collect();
+        let test_ids: Vec<usize> = (start..stop).collect();
+
+        (
+            self.source.select(Axis(0), &train_ids),
+            self.source.select(Axis(0), &test_ids),
+        )
+    }
+}
+
+/// K-Folds cross-validator on a labeled dataset.
+pub struct LabeledKFold<'a, D1, D2> {
+    records: SetKFold<'a, D1>,
+    labels: SetKFold<'a, D2>,
+    iteration: usize,
+    k: usize,
+}
+
+impl<'a, D1, D2> LabeledKFold<'a, D1, D2>
+where
+    D1: RemoveAxis,
+    D2: RemoveAxis,
+{
+    pub fn new(records: ArrayView<'a, f32, D1>, labels: ArrayView<'a, f32, D2>, k: usize) -> Self {
+        assert_eq!(records.len_of(Axis(0)), labels.len_of(Axis(0)));
+
+        Self {
+            records: SetKFold::new(records, k),
+            labels: SetKFold::new(labels, k),
+            iteration: 0,
+            k,
+        }
+    }
+}
+
+impl<'a, D1, D2> Iterator for LabeledKFold<'a, D1, D2>
+where
+    D1: RemoveAxis,
+    D2: RemoveAxis,
+{
+    type Item = (
+        (Array<f32, D1>, Array<f32, D1>),
+        (Array<f32, D2>, Array<f32, D2>),
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iteration >= self.k {
+            return None;
+        }
+
+        let training_part = self.records.compute_fold(self.iteration);
+        let test_part = self.labels.compute_fold(self.iteration);
+        self.iteration += 1;
+
+        Some((training_part, test_part))
+    }
+}
+
+/// K-Folds cross-validator on a dataset.
+pub struct KFold<'a, D> {
+    records: SetKFold<'a, D>,
+    iteration: usize,
+    k: usize,
+}
+
+impl<'a, D: RemoveAxis> KFold<'a, D> {
+    pub fn new(records: ArrayView<'a, f32, D>, k: usize) -> Self {
+        Self {
+            records: SetKFold::new(records, k),
+            iteration: 0,
+            k,
+        }
+    }
+}
+
+impl<'a, D: RemoveAxis> Iterator for KFold<'a, D> {
+    type Item = (Array<f32, D>, Array<f32, D>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iteration >= self.k {
+            return None;
+        }
+
+        let (records_in, records_out) = self.records.compute_fold(self.iteration);
+        self.iteration += 1;
+
+        Some((records_in, records_out))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod dataset {
+        use super::*;
+        use ndarray::Array;
+
+        static DATASET: &str = "\
+            0,1,2,3,4,5,6,7,8,9\n\
+            9,8,7,6,5,4,3,2,1,0\n\
+            0,1,2,3,4,5,6,7,8,9\n\
+            9,8,7,6,5,4,3,2,1,0\n\
+            0,1,2,3,4,5,6,7,8,9";
+
+        #[test]
+        fn from_reader() {
+            let dataset = DataLoader::default()
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10);
+
+            assert_eq!(
+                dataset.records(),
+                Array::from_shape_vec(
+                    (5, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2.,
+                        1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+        }
+
+        #[test]
+        fn kfold() {
+            let dataset = DataLoader::default()
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10);
+            let mut kfold = dataset.kfold(2);
+
+            let (train, test) = kfold.next().unwrap();
+            assert_eq!(
+                train,
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8.,
+                        9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                test,
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+
+            let (train, test) = kfold.next().unwrap();
+            assert_eq!(
+                train,
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                test,
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8.,
+                        9.,
+                    ]
+                )
+                .unwrap()
+            );
+
+            assert_eq!(kfold.next(), None);
+        }
+    }
+
+    mod labeled_dataset {
+        use super::*;
+        use ndarray::Array;
+
+        static DATASET: &str = "\
+            0,1,2,1,3,4,5,6,0,7,8,9\n\
+            9,8,7,0,6,5,4,3,1,2,1,0\n\
+            0,1,2,1,3,4,5,6,0,7,8,9\n\
+            9,8,7,0,6,5,4,3,1,2,1,0\n\
+            0,1,2,1,3,4,5,6,0,7,8,9";
+
+        #[test]
+        fn from_reader() {
+            let dataset = DataLoader::default()
+                .with_labels(&[3, 8])
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2);
+
+            assert_eq!(
+                dataset.records(),
+                Array::from_shape_vec(
+                    (5, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2.,
+                        1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+
+            assert_eq!(
+                dataset.labels(),
+                Array::from_shape_vec((5, 2), vec![1., 0., 0., 1., 1., 0., 0., 1., 1., 0.])
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn kfold() {
+            let dataset = DataLoader::default()
+                .with_labels(&[3, 8])
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2);
+            let mut kfold = dataset.kfold(2);
+
+            let ((train_in, train_out), (test_in, test_out)) = kfold.next().unwrap();
+            assert_eq!(
+                train_in,
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8.,
+                        9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                train_out,
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                test_in,
+                Array::from_shape_vec((2, 2), vec![0., 1., 1., 0.]).unwrap()
+            );
+            assert_eq!(
+                test_out,
+                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
+            );
+
+            let ((train_in, train_out), (test_in, test_out)) = kfold.next().unwrap();
+            assert_eq!(
+                train_in,
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                train_out,
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8.,
+                        9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                test_in,
+                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
+            );
+            assert_eq!(
+                test_out,
+                Array::from_shape_vec((2, 2), vec![0., 1., 1., 0.]).unwrap()
+            );
+
+            assert_eq!(kfold.next(), None);
+        }
+    }
+}

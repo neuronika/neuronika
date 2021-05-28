@@ -1,15 +1,16 @@
-use super::{Optimizer, Penalty};
-use crate::variable::Param;
+use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AMSGrad ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-///  The **AMSGrad** variant of the **Adam** algorithm from the paper
+/// The **AMSGrad** optimizer.
+///
+/// It is a variant of the *Adam* algorithm from the paper
 /// [On the Convergence of Adam and Beyond](https://openreview.net/forum?id=ryQu7f-RZ).
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct AMSGrad<'a, T> {
+pub struct AMSGrad<'a, T: Penalty> {
     params: Vec<AMSGradParam<'a>>,
     lr: f32,
     penalty: T,
@@ -17,23 +18,23 @@ pub struct AMSGrad<'a, T> {
     eps: f32,
 }
 
-impl<'a, T> AMSGrad<'a, T> {
-    /// Creates a new **AMSGrad** optimizer.
+impl<'a, T: Penalty> AMSGrad<'a, T> {
+    /// Creates a new *AMSGrad* optimizer.
     ///
-    /// * `params` - `Vec` of parameters to optimize.
+    /// # Arguments
+    ///
+    /// * `params` - vector of [`Param`] to optimize.
+    ///
     /// * `lr` - learning rate.
+    ///
     /// * `betas` - a `tuple` of coefficients used for computing running averages of the gradient
-    /// and its square. Good default is: **(0.9, 0.999)**.
+    /// and its square. Good default is: *(0.9, 0.999)*.
+    ///
     /// * `penalty` - penalty regularization.
-    /// * `eps` - small constant for numerical stability. A good default value is **1e-8**.
+    ///
+    /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, penalty: T, betas: (f32, f32), eps: f32) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(AMSGradParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -45,7 +46,7 @@ impl<'a, T> AMSGrad<'a, T> {
     }
 }
 
-// A parameter used by the **AMSGrad** optmizier.
+/// A parameter used by the *AMSGrad* optmizier.
 #[allow(clippy::clippy::upper_case_acronyms)]
 pub struct AMSGradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
@@ -79,7 +80,9 @@ impl<'a> From<Param> for AMSGradParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<AMSGradParam<'a>> for AMSGrad<'a, T> {
+impl<'a, T: Penalty> Optimizer for AMSGrad<'a, T> {
+    type ParamRepr = AMSGradParam<'a>;
+
     fn step(&mut self) {
         let (lr, penalty, params, (beta1, beta2), eps) = (
             &self.lr,
@@ -102,21 +105,18 @@ impl<'a, T: Penalty> Optimizer<AMSGradParam<'a>> for AMSGrad<'a, T> {
             *step += 1;
             let bias_correction1 = 1. - beta1.powi(*step as i32);
             let bias_correction2 = 1. - beta2.powi(*step as i32);
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(exp_avg)
-                .and(grad)
-                .for_each(|exp_avg_el, grad_el| {
-                    *exp_avg_el =
-                        *exp_avg_el * beta1 + (grad_el + penalty.penalise(grad_el)) * (1. - beta1)
+                .and(&p_grad)
+                .for_each(|exp_avg_el, p_grad_el| {
+                    *exp_avg_el = *exp_avg_el * beta1 + p_grad_el * (1. - beta1)
                 });
 
             Zip::from(exp_avg_sq)
-                .and(grad)
-                .for_each(|exp_avg_sq_el, grad_el| {
-                    *exp_avg_sq_el = *exp_avg_sq_el * beta2
-                        + (grad_el + penalty.penalise(grad_el))
-                            * (grad_el + penalty.penalise(grad_el))
-                            * (1. - beta2)
+                .and(&p_grad)
+                .for_each(|exp_avg_sq_el, p_grad_el| {
+                    *exp_avg_sq_el = *exp_avg_sq_el * beta2 + p_grad_el * p_grad_el * (1. - beta2)
                 });
 
             Zip::from(max_exp_avg_sq).and(&param.exp_avg_sq).for_each(

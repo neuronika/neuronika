@@ -1,6 +1,12 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ losses module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//! Loss functions.
+//!
+//! The purpose of a loss function is to compute the quantity that a model should seek to minimize
+//! during training.
+//!
+//! All losses are provided via function handles.
 use super::{
     variable::{expect_tensor, expect_tensor_mut, node::Overwrite, OPERATIONS_COUNTER},
     Backward, Data, Forward, Gradient, Tensor, Var, VarDiff,
@@ -11,7 +17,7 @@ use std::{
     rc::Rc,
 };
 
-/// Specifies the reduction to apply to the **Loss** output.
+/// Specifies the reduction to apply to the *loss* output.
 /// * `mean` - the sum of the output will be divided by the batch size.
 /// * `sum` - the output will be summed.
 #[derive(Clone)]
@@ -22,7 +28,7 @@ pub enum Reduction {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Square Erorr Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct MSELoss<T, U>
+struct MSELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -101,7 +107,7 @@ where
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct MSELossBackward<T, U, V>
+struct MSELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -207,8 +213,8 @@ where
     }
 }
 
-/// Computes a criterion that measures the **mean squared error** *(squared L2 norm)*
-/// between each element in the `input` **x**  and `target`**y**.
+/// Computes the **mean squared error** *(squared L2 norm)* between each element in the input x
+/// and target y.
 ///
 /// ```text
 ///        1   n
@@ -262,7 +268,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Absolute Error Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct MAELoss<T, U>
+struct MAELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -341,7 +347,7 @@ where
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct MAELossBackward<T, U, V>
+struct MAELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -454,8 +460,7 @@ where
     }
 }
 
-/// Computes a criterion that measures the **mean absolute error** *(MAE)* between
-/// each element in the `input` **x** and `target` **y**.
+/// Computes the **mean absolute error** *(MAE)* between each element in the input x and target y.
 ///
 /// ```text
 ///        1   n
@@ -510,7 +515,7 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct BCELoss<T, U>
+struct BCELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -594,7 +599,7 @@ where
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct BCELossBackward<T, U, V>
+struct BCELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -702,8 +707,7 @@ where
     }
 }
 
-/// Computes a criterion that measures the **binary cross entropy** between
-/// the `target` **y** and `input` **x**.
+/// Computes the **binary cross entropy** between the target y and input x.
 ///
 /// ```text
 ///        1   n
@@ -711,8 +715,8 @@ where
 ///        n  i=1
 /// ```
 ///
-/// Note that the target **y** should be numbers between 0 and 1.
-/// Notice that if a component of the `input` **x** is either 0 or 1,
+/// Note that the target y should be numbers between 0 and 1.
+/// Notice that if a component of the input x is either 0 or 1,
 /// one of the log terms would be mathematically undefined in the above loss equation.
 /// Rust sets *ln(0) = -inf*, however, an infinite term in the loss equation is not desirable.
 /// Our solution is that BCELoss clamps its log function outputs to be greater than or equal
@@ -764,7 +768,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy With Logits Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct BCEWithLogitsLoss<T, U>
+struct BCEWithLogitsLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -849,7 +853,7 @@ where
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct BCEWithLogitsLossBackward<T, U, V>
+struct BCEWithLogitsLossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -970,20 +974,19 @@ where
     }
 }
 
-/// Computes a criterion that measures the **binary cross entropy** between
-/// the `target` **y** and `input` **x**.
+/// Computes the **binary cross entropy with logits** between the target y and input x.
 ///
 /// ```text
 ///        1   n
 /// Lᴏss = ―   ∑  - [ʏᵢ * ln(σ(xᵢ)) + (1 - ʏᵢ) * ln(1 - σ(xᵢ))]
 ///        n  i=1
 /// ```
-/// This loss combines a sigmoid and a **binary cross entropy**.
+/// This loss combines a sigmoid and a binary cross entropy.
 /// This version is more numerically stable than using a plain sigmoid followed by a
 /// binary cross entropy as, by combining the operations into one layer, we take
-/// advantage of the **log-sum-exp** trick for numerical stability.
-/// Note that the target **y** should be numbers between 0 and 1 and the
-/// input **x** should be raw unnormalized scores.
+/// advantage of the log-sum-exp trick for numerical stability.
+/// Note that the target y should be numbers between 0 and 1 and the
+/// input x should be raw unnormalized scores.
 pub fn bce_with_logits_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
@@ -1031,7 +1034,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct NLLLoss<T, U>
+struct NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -1119,7 +1122,7 @@ where
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct NLLLossBackward<T, U>
+struct NLLLossBackward<T, U>
 where
     T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
     U: Data,
@@ -1229,8 +1232,7 @@ where
     }
 }
 
-/// Computes a criterion that measures the **negative log likelihood** between
-/// the `target` **y** and `input` **x**.
+/// Computes the **negative log likelihood** between the target y and input x.
 ///
 /// ```text
 ///         1   n
@@ -1238,18 +1240,20 @@ where
 ///         n  i=1
 /// ```
 ///
-/// The `input` **x** given is expected to contain **log-probabilities** for each class,
-/// this is typically achieved by using `log_softmax`. `input` has to be a of size either
-/// **(minibatch, C)** or **(minibatch, C, d1, d2, ..., dk)** with k >= 1 for the **K**-dimensional
-/// case. The target that this loss expects should be a class index in the range **[0, C)** where
-/// **C** = number of classes.
+/// The input x given is expected to contain log-probabilities for each class,
+/// this is typically achieved by using [`.log_softmax()`]. input has to be a of size either
+/// (minibatch, C) or (minibatch, C, d1, d2, ..., dk) with k >= 1 for the K-dimensional
+/// case. The target that this loss expects should be a class index in the range [0, C) where
+/// C = number of classes.
 ///
 /// As mentioned before, this loss can also be used for higher dimensional inputs, such as 2D
-/// images, by providing an input of size **(minibatch, C, d1, d2, ..., dk)** with k >= 1 where
-/// **k** is the number of dimensions. In the case of images, it computes **NLL loss** *per-pixel*.
+/// images, by providing an input of size (minibatch, C, d1, d2, ..., dk) with k >= 1 where
+/// k is the number of dimensions. In the case of images, it computes NLL loss *per-pixel*.
 ///
-/// In the **K**-dimensional case this loss expects a target of shape
-/// **(minibatch, d1, d2, ..., dk)**.
+/// In the K-dimensional case this loss expects a target of shape
+/// (minibatch, d1, d2, ..., dk).
+///
+/// [`.log_softmax()`]: VarDiff::log_softmax()
 pub fn nll_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,

@@ -1,5 +1,4 @@
-use super::{Optimizer, Penalty};
-use crate::variable::Param;
+use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
@@ -16,7 +15,7 @@ pub struct SGD<'a, T> {
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-/// A parameter used by the **SDG** optimizer.
+/// A parameter used by the *SDG* optimizer.
 pub struct SGDParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -29,7 +28,9 @@ impl<'a> From<Param> for SGDParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<SGDParam<'a>> for SGD<'a, T> {
+impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
+    type ParamRepr = SGDParam<'a>;
+
     fn step(&mut self) {
         let (lr, penalty, params) = (&self.lr, &self.penalty, &mut self.params);
         params.par_iter_mut().for_each(|param| {
@@ -49,18 +50,17 @@ impl<'a, T: Penalty> Optimizer<SGDParam<'a>> for SGD<'a, T> {
 }
 
 impl<'a, T: Penalty> SGD<'a, T> {
-    /// Creates a new **SGD** optmizer.
-    /// * `params` - `Vec` of parameters to optimize.
+    /// Creates a new *SGD* optmizer.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - vector of [`Param`] to optimize.
+    ///
     /// * `lr` - learning rate.
+    ///
     /// * `penalty` - penalty regularization.
     pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(parameters.len());
-            for param in parameters {
-                vec.push(SGDParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(parameters);
         Self {
             params,
             lr,
@@ -68,27 +68,25 @@ impl<'a, T: Penalty> SGD<'a, T> {
         }
     }
 
-    /// Transforms this **SGD** optimizer in the **momentum** version of the algorithm.
+    /// Transforms this *SGD* optimizer in the *momentum* version of the algorithm.
     ///
     /// Nesterov momentum is based on the formula from
     /// [On the importance of initialization and momentum in deep learning](http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf).
+    ///
+    /// # Arguments
+    ///
     /// * `momentum` - the momentum factor.
+    ///
     /// * `dampening` - the dampening factor for momentum.
-    /// * `nesterov` - enables **Nesterov** momentum.
+    ///
+    /// * `nesterov` - enables *Nesterov* momentum.
     pub fn with_momentum(
         self,
         momentum: f32,
         dampening: f32,
         nesterov: bool,
     ) -> SGDWithMomentum<'a, T> {
-        let params = {
-            let parameters = self.params;
-            let mut vec = Vec::with_capacity(parameters.len());
-            for param in parameters {
-                vec.push(SGDParamWithMomentum::from(param));
-            }
-            vec
-        };
+        let params: Vec<SGDWithMomentumParam> = Self::build_params(self.params);
 
         SGDWithMomentum {
             params,
@@ -105,9 +103,9 @@ impl<'a, T: Penalty> SGD<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent with Momentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::clippy::upper_case_acronyms)]
-/// The momentum variant of the **Stochastic Gradient Descent** optimizer.
+/// The momentum variant of the *Stochastic Gradient Descent* optimizer.
 pub struct SGDWithMomentum<'a, T> {
-    params: Vec<SGDParamWithMomentum<'a>>,
+    params: Vec<SGDWithMomentumParam<'a>>,
     lr: f32,
     penalty: T,
     momentum: f32,
@@ -116,14 +114,14 @@ pub struct SGDWithMomentum<'a, T> {
 }
 
 #[allow(clippy::clippy::upper_case_acronyms)]
-/// A parameter used by the **SDG** with momentum optimizer.
-pub struct SGDParamWithMomentum<'a> {
+/// A parameter used by the *SDG* with momentum optimizer.
+pub struct SGDWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     buffer: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for SGDParamWithMomentum<'a> {
+impl<'a> From<Param> for SGDWithMomentumParam<'a> {
     fn from(param: Param) -> Self {
         let (data, grad) = param.get();
         let buffer = ArrayD::zeros(grad.raw_dim());
@@ -131,7 +129,7 @@ impl<'a> From<Param> for SGDParamWithMomentum<'a> {
     }
 }
 
-impl<'a> From<SGDParam<'a>> for SGDParamWithMomentum<'a> {
+impl<'a> From<SGDParam<'a>> for SGDWithMomentumParam<'a> {
     fn from(param: SGDParam<'a>) -> Self {
         let (data, grad) = (param.data, param.grad);
         let buffer = ArrayD::zeros(grad.raw_dim());
@@ -139,7 +137,9 @@ impl<'a> From<SGDParam<'a>> for SGDParamWithMomentum<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<SGDParamWithMomentum<'a>> for SGDWithMomentum<'a, T> {
+impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
+    type ParamRepr = SGDWithMomentumParam<'a>;
+
     fn step(&mut self) {
         let (lr, penalty, momentum, dampening, nesterov, params) = (
             &self.lr,
@@ -150,20 +150,19 @@ impl<'a, T: Penalty> Optimizer<SGDParamWithMomentum<'a>> for SGDWithMomentum<'a,
             &mut self.params,
         );
         params.par_iter_mut().for_each(|param| {
+            let p_grad = param.grad.map(|el| el + penalty.penalise(el));
+
             Zip::from(&mut param.buffer)
-                .and(&param.grad)
-                .for_each(|buffer_el, grad_el| {
-                    *buffer_el = *buffer_el * *momentum
-                        + (grad_el + penalty.penalise(grad_el)) * (1. - dampening)
+                .and(&p_grad)
+                .for_each(|buffer_el, p_grad_el| {
+                    *buffer_el = *buffer_el * *momentum + p_grad_el * (1. - dampening)
                 });
 
             let zip = Zip::from(&mut param.data).and(&param.buffer);
             if *nesterov {
-                zip.and(&param.grad)
-                    .for_each(|data_el, buffer_el, grad_el| {
-                        *data_el +=
-                            -(grad_el + penalty.penalise(grad_el)) * lr + *buffer_el * *momentum
-                    });
+                zip.and(&p_grad).for_each(|data_el, buffer_el, p_grad_el| {
+                    *data_el += -p_grad_el * lr + *buffer_el * *momentum
+                });
             } else {
                 zip.for_each(|data_el, buffer_el| *data_el += -*buffer_el * *lr);
             }
@@ -179,13 +178,21 @@ impl<'a, T: Penalty> Optimizer<SGDParamWithMomentum<'a>> for SGDWithMomentum<'a,
 }
 
 impl<'a, T: Penalty> SGDWithMomentum<'a, T> {
-    /// Creates a new **SGD** optmizer.
-    /// * `params` - `Vec` of parameters to optimize.
+    /// Creates a new *SGD* optmizer.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - vector of [`Param`] to optimize.
+    ///
     /// * `lr` - learning rate.
+    ///
     /// * `penalty` - penalty regularization.
+    ///
     /// * `momentum` - the momentum factor.
+    ///
     /// * `dampening` - the dampening factor for momentum.
-    /// * `nesterov` - enables **Nesterov** momentum.
+    ///
+    /// * `nesterov` - enables *Nesterov* momentum.
     ///
     /// Nesterov momentum is based on the formula from
     /// [On the importance of initialization and momentum in deep learning](http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf).
@@ -197,13 +204,7 @@ impl<'a, T: Penalty> SGDWithMomentum<'a, T> {
         dampening: f32,
         nesterov: bool,
     ) -> Self {
-        let params = {
-            let mut vec = Vec::new();
-            for param in parameters {
-                vec.push(SGDParamWithMomentum::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(parameters);
         Self {
             params,
             lr,
