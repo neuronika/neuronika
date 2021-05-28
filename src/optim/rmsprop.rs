@@ -152,22 +152,20 @@ impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
             );
 
             *step += 1;
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(square_avg)
-                .and(grad)
-                .for_each(|square_avg_el, grad_el| {
-                    *square_avg_el += *square_avg_el * *alpha
-                        + (grad_el + penalty.penalise(grad_el))
-                            * (grad_el + penalty.penalise(grad_el))
-                            * (1. - alpha)
+                .and(&p_grad)
+                .for_each(|square_avg_el, p_grad_el| {
+                    *square_avg_el += *square_avg_el * *alpha + p_grad_el * p_grad_el * (1. - alpha)
                 });
 
-            Zip::from(data).and(grad).and(&param.square_avg).for_each(
-                |data_el, grad_el, square_avg_el| {
-                    *data_el +=
-                        -(grad_el + penalty.penalise(grad_el)) / (square_avg_el.sqrt() + eps) * lr
-                },
-            );
+            Zip::from(data)
+                .and(&p_grad)
+                .and(&param.square_avg)
+                .for_each(|data_el, p_grad_el, square_avg_el| {
+                    *data_el += -p_grad_el / (square_avg_el.sqrt() + eps) * lr
+                });
         });
     }
 
@@ -309,23 +307,21 @@ impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
             );
 
             *step += 1;
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(square_avg)
-                .and(grad)
-                .for_each(|square_avg_el, grad_el| {
-                    *square_avg_el += *square_avg_el * *alpha
-                        + (grad_el + penalty.penalise(grad_el))
-                            * (grad_el + penalty.penalise(grad_el))
-                            * (1. - alpha)
+                .and(&p_grad)
+                .for_each(|square_avg_el, p_grad_el| {
+                    *square_avg_el += *square_avg_el * *alpha + p_grad_el * p_grad_el * (1. - alpha)
                 });
 
             Zip::from(buffer)
-                .and(grad)
+                .and(&p_grad)
                 .and(&mut param.square_avg)
-                .for_each(|buffer_el, grad_el, square_avg_el| {
-                    *buffer_el = *buffer_el * *momentum
-                        + (grad_el + penalty.penalise(grad_el)) / (square_avg_el.sqrt() + eps)
+                .for_each(|buffer_el, p_grad_el, square_avg_el| {
+                    *buffer_el = *buffer_el * *momentum + p_grad_el / (square_avg_el.sqrt() + eps)
                 });
+
             Zip::from(data)
                 .and(&param.buffer)
                 .for_each(|data_el, buffer_el| *data_el += -buffer_el * lr);
@@ -462,29 +458,26 @@ impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
             );
 
             *step += 1;
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(square_avg)
-                .and(grad)
-                .for_each(|square_avg_el, grad_el| {
-                    *square_avg_el += *square_avg_el * *alpha
-                        + (grad_el + penalty.penalise(grad_el))
-                            * (grad_el + penalty.penalise(grad_el))
-                            * (1. - alpha)
+                .and(&p_grad)
+                .for_each(|square_avg_el, p_grad_el| {
+                    *square_avg_el += *square_avg_el * *alpha + p_grad_el * p_grad_el * (1. - alpha)
                 });
 
             Zip::from(grad_avg)
-                .and(grad)
-                .for_each(|grad_avg_el, grad_el| {
-                    *grad_avg_el =
-                        *grad_avg_el * *alpha + (grad_el + penalty.penalise(grad_el)) * (1. - alpha)
+                .and(&p_grad)
+                .for_each(|grad_avg_el, p_grad_el| {
+                    *grad_avg_el = *grad_avg_el * *alpha + p_grad_el * (1. - alpha)
                 });
 
             Zip::from(data)
-                .and(grad)
+                .and(&p_grad)
                 .and(&param.square_avg)
                 .and(&param.grad_avg)
-                .for_each(|data_el, grad_el, square_avg_el, grad_avg_el| {
-                    *data_el += -(grad_el + penalty.penalise(grad_el))
+                .for_each(|data_el, p_grad_el, square_avg_el, grad_avg_el| {
+                    *data_el += -p_grad_el
                         / ((square_avg_el + (-grad_avg_el * grad_avg_el)).sqrt() + eps)
                         * lr
                 });
@@ -664,31 +657,27 @@ impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
             );
 
             *step += 1;
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(square_avg)
-                .and(grad)
-                .for_each(|square_avg_el, grad_el| {
-                    *square_avg_el += *square_avg_el * *alpha
-                        + (grad_el + penalty.penalise(grad_el))
-                            * (grad_el + penalty.penalise(grad_el))
-                            * (1. - alpha)
+                .and(&p_grad)
+                .for_each(|square_avg_el, p_grad_el| {
+                    *square_avg_el += *square_avg_el * *alpha + p_grad_el * p_grad_el * (1. - alpha)
                 });
 
             Zip::from(grad_avg)
-                .and(grad)
-                .for_each(|grad_avg_el, grad_el| {
-                    *grad_avg_el =
-                        *grad_avg_el * *alpha + (grad_el + penalty.penalise(grad_el)) * (1. - alpha)
+                .and(&p_grad)
+                .for_each(|grad_avg_el, p_grad_el| {
+                    *grad_avg_el = *grad_avg_el * *alpha + p_grad_el * (1. - alpha)
                 });
 
             Zip::from(buffer)
-                .and(grad)
+                .and(&p_grad)
                 .and(&param.square_avg)
                 .and(&param.grad_avg)
-                .for_each(|buffer_el, grad_el, square_avg_el, grad_avg_el| {
+                .for_each(|buffer_el, p_grad_el, square_avg_el, grad_avg_el| {
                     *buffer_el = *buffer_el * *momentum
-                        + (grad_el + penalty.penalise(grad_el))
-                            / ((square_avg_el + (-grad_avg_el * grad_avg_el)).sqrt() + eps)
+                        + p_grad_el / ((square_avg_el + (-grad_avg_el * grad_avg_el)).sqrt() + eps)
                 });
 
             Zip::from(data)

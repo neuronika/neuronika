@@ -150,20 +150,19 @@ impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
             &mut self.params,
         );
         params.par_iter_mut().for_each(|param| {
+            let p_grad = param.grad.map(|el| el + penalty.penalise(el));
+
             Zip::from(&mut param.buffer)
-                .and(&param.grad)
-                .for_each(|buffer_el, grad_el| {
-                    *buffer_el = *buffer_el * *momentum
-                        + (grad_el + penalty.penalise(grad_el)) * (1. - dampening)
+                .and(&p_grad)
+                .for_each(|buffer_el, p_grad_el| {
+                    *buffer_el = *buffer_el * *momentum + p_grad_el * (1. - dampening)
                 });
 
             let zip = Zip::from(&mut param.data).and(&param.buffer);
             if *nesterov {
-                zip.and(&param.grad)
-                    .for_each(|data_el, buffer_el, grad_el| {
-                        *data_el +=
-                            -(grad_el + penalty.penalise(grad_el)) * lr + *buffer_el * *momentum
-                    });
+                zip.and(&p_grad).for_each(|data_el, buffer_el, p_grad_el| {
+                    *data_el += -p_grad_el * lr + *buffer_el * *momentum
+                });
             } else {
                 zip.for_each(|data_el, buffer_el| *data_el += -*buffer_el * *lr);
             }

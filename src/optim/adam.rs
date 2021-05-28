@@ -94,21 +94,18 @@ impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
             *step += 1;
             let bias_correction1 = 1. - beta1.powi(*step as i32);
             let bias_correction2 = 1. - beta2.powi(*step as i32);
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(exp_avg)
-                .and(grad)
-                .for_each(|exp_avg_el, grad_el| {
-                    *exp_avg_el =
-                        *exp_avg_el * beta1 + (grad_el + penalty.penalise(grad_el)) * (1. - beta1)
+                .and(&p_grad)
+                .for_each(|exp_avg_el, p_grad_el| {
+                    *exp_avg_el = *exp_avg_el * beta1 + p_grad_el * (1. - beta1)
                 });
 
             Zip::from(exp_avg_sq)
-                .and(grad)
-                .for_each(|exp_avg_sq_el, grad_el| {
-                    *exp_avg_sq_el = *exp_avg_sq_el * beta2
-                        + (grad_el + penalty.penalise(grad_el))
-                            * (grad_el + penalty.penalise(grad_el))
-                            * (1. - beta2)
+                .and(&p_grad)
+                .for_each(|exp_avg_sq_el, p_grad_el| {
+                    *exp_avg_sq_el = *exp_avg_sq_el * beta2 + p_grad_el * p_grad_el * (1. - beta2)
                 });
 
             Zip::from(data)

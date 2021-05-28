@@ -87,18 +87,15 @@ impl<'a, T: Penalty> Optimizer for Adagrad<'a, T> {
 
             *step += 1;
             let clr = *lr / (1. + (*step - 1) as f32 * lr_decay);
+            let p_grad = grad.map(|el| el + penalty.penalise(el));
 
             Zip::from(grad_sq)
-                .and(grad)
-                .for_each(|grad_sq_el, grad_el| {
-                    *grad_sq_el += (grad_el + penalty.penalise(grad_el))
-                        * (grad_el + penalty.penalise(grad_el))
-                });
+                .and(&p_grad)
+                .for_each(|grad_sq_el, p_grad_el| *grad_sq_el += p_grad_el * p_grad_el);
 
-            Zip::from(data).and(grad).and(&param.grad_sq).for_each(
-                |data_el, grad_el, grad_sq_el| {
-                    *data_el +=
-                        -(grad_el + penalty.penalise(grad_el)) / (grad_sq_el.sqrt() + eps) * clr
+            Zip::from(data).and(&p_grad).and(&param.grad_sq).for_each(
+                |data_el, p_grad_el, grad_sq_el| {
+                    *data_el += -p_grad_el / (grad_sq_el.sqrt() + eps) * clr
                 },
             );
         });
