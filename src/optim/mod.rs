@@ -4,7 +4,7 @@
 //! enough, so that more sophisticated ones can be also easily integrated in the future.
 //!
 //! An optimizer holds a state, in the form of a *representation*, for each of the parameters to
-//! optimize and it updates such parameters accordingly to the computed gradients and the state
+//! optimize and it updates such parameters accordingly to the computed gradient and the state
 //! itself.
 //!
 //! # Using an optimizer
@@ -75,7 +75,7 @@
 //!
 //! Let's go through them by implementing the vanilla version of the stochastic gradient descent.
 //!
-//! Firstly, the SGD parameter's struct definition and the conversion from `Param`.
+//! Firstly, we define the SGD parameter's struct and the conversion from `Param`.
 //!
 //! ```
 //! use neuronika::Param;

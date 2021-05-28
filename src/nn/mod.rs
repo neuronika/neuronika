@@ -202,7 +202,7 @@
 //!
 //! You can notice how, if we give in input to the multilayer perceptron the result of an
 //! addition operation, in which one of the operands is a differentiable variable, and then
-//! request the *mlp*'s output differentiable ancestors, we are given a vector containing 7
+//! request the *mlp* output's differentiable ancestors, we are given a vector containing 7
 //! [`Param`](struct@Param).
 //!
 //! By doing some quick math: 7 = 2 * 3 + 1, and by noticing that each of the three linear layers
@@ -246,8 +246,7 @@
 //! ```
 //!
 //! Let's verify that the number of registered parameters for the new version of our multilayer
-//! perceptron is indeed 6. Do also note that the implementation of the `.forward()` method has not
-//! changed at all.
+//! perceptron is indeed 6.
 //!
 //! ```
 //! # use neuronika::Param;
@@ -278,6 +277,8 @@
 //! let model = MLP::new();
 //! assert_eq!(model.parameters().len(), 6);
 //! ```
+//! Do also note that in spite of the introduction of `ModelStatus`, the implementation of the
+//! `.forward()` method has not changed at all.
 //!
 //! # Train and Eval
 //!
