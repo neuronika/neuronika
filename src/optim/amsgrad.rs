@@ -1,5 +1,4 @@
-use super::{Optimizer, Penalty};
-use crate::variable::Param;
+use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
@@ -11,7 +10,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 /// It is a variant of the *Adam* algorithm from the paper
 /// [On the Convergence of Adam and Beyond](https://openreview.net/forum?id=ryQu7f-RZ).
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct AMSGrad<'a, T> {
+pub struct AMSGrad<'a, T: Penalty> {
     params: Vec<AMSGradParam<'a>>,
     lr: f32,
     penalty: T,
@@ -19,7 +18,7 @@ pub struct AMSGrad<'a, T> {
     eps: f32,
 }
 
-impl<'a, T> AMSGrad<'a, T> {
+impl<'a, T: Penalty> AMSGrad<'a, T> {
     /// Creates a new *AMSGrad* optimizer.
     ///
     /// # Arguments
@@ -35,13 +34,7 @@ impl<'a, T> AMSGrad<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, penalty: T, betas: (f32, f32), eps: f32) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(AMSGradParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -55,7 +48,7 @@ impl<'a, T> AMSGrad<'a, T> {
 
 /// A parameter used by the *AMSGrad* optmizier.
 #[allow(clippy::clippy::upper_case_acronyms)]
-struct AMSGradParam<'a> {
+pub struct AMSGradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -87,7 +80,9 @@ impl<'a> From<Param> for AMSGradParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<AMSGradParam<'a>> for AMSGrad<'a, T> {
+impl<'a, T: Penalty> Optimizer for AMSGrad<'a, T> {
+    type ParamRepr = AMSGradParam<'a>;
+
     fn step(&mut self) {
         let (lr, penalty, params, (beta1, beta2), eps) = (
             &self.lr,

@@ -1,5 +1,4 @@
-use super::{Optimizer, Penalty};
-use crate::variable::Param;
+use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
@@ -19,7 +18,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 /// *learning rate* is thus *lr' / (v.sqrt() + eps)* where *lr'* is the scheduled
 /// learning rate and *v* is the weighted moving average of the square gradient.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSProp<'a, T> {
+pub struct RMSProp<'a, T: Penalty> {
     params: Vec<RMSPropParam<'a>>,
     lr: f32,
     alpha: f32,
@@ -27,7 +26,7 @@ pub struct RMSProp<'a, T> {
     eps: f32,
 }
 
-impl<'a, T> RMSProp<'a, T> {
+impl<'a, T: Penalty> RMSProp<'a, T> {
     /// Creates a *RMSProp* optimizer.
     ///
     /// # Arguments
@@ -42,13 +41,7 @@ impl<'a, T> RMSProp<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(RMSPropParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -134,7 +127,7 @@ impl<'a, T> RMSProp<'a, T> {
 
 /// A parameter used by the *RMSProp* optimizer.
 #[allow(clippy::clippy::upper_case_acronyms)]
-struct RMSPropParam<'a> {
+pub struct RMSPropParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -156,7 +149,9 @@ impl<'a> From<Param> for RMSPropParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<RMSPropParam<'a>> for RMSProp<'a, T> {
+impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
+    type ParamRepr = RMSPropParam<'a>;
+
     fn step(&mut self) {
         let (params, lr, alpha, penalty, eps) = (
             &mut self.params,
@@ -207,7 +202,7 @@ impl<'a, T: Penalty> Optimizer<RMSPropParam<'a>> for RMSProp<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *RMSProp* optimizer with *momentum*.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSPropWithMomentum<'a, T> {
+pub struct RMSPropWithMomentum<'a, T: Penalty> {
     params: Vec<RMSPropWithMomentumParam<'a>>,
     lr: f32,
     alpha: f32,
@@ -218,7 +213,7 @@ pub struct RMSPropWithMomentum<'a, T> {
 
 /// A parameter used by the *RMSProp* optimizer with momentum.
 #[allow(clippy::clippy::upper_case_acronyms)]
-struct RMSPropWithMomentumParam<'a> {
+pub struct RMSPropWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -226,7 +221,7 @@ struct RMSPropWithMomentumParam<'a> {
     buffer: ArrayD<f32>,
 }
 
-impl<'a, T> RMSPropWithMomentum<'a, T> {
+impl<'a, T: Penalty> RMSPropWithMomentum<'a, T> {
     /// Creates a *RMSProp* optimizer with *momentum*.
     ///
     /// # Arguments
@@ -250,13 +245,7 @@ impl<'a, T> RMSPropWithMomentum<'a, T> {
         penalty: T,
         eps: f32,
     ) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(RMSPropWithMomentumParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -321,7 +310,9 @@ impl<'a> From<RMSPropParam<'a>> for RMSPropWithMomentumParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<RMSPropWithMomentumParam<'a>> for RMSPropWithMomentum<'a, T> {
+impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
+    type ParamRepr = RMSPropWithMomentumParam<'a>;
+
     fn step(&mut self) {
         let (params, lr, alpha, penalty, eps, momentum) = (
             &mut self.params,
@@ -378,7 +369,7 @@ impl<'a, T: Penalty> Optimizer<RMSPropWithMomentumParam<'a>> for RMSPropWithMome
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *RMSProp* optimizer in its *centered* variant.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSPropCentered<'a, T> {
+pub struct RMSPropCentered<'a, T: Penalty> {
     params: Vec<RMSPropCenteredParam<'a>>,
     lr: f32,
     alpha: f32,
@@ -386,7 +377,7 @@ pub struct RMSPropCentered<'a, T> {
     eps: f32,
 }
 
-impl<'a, T> RMSPropCentered<'a, T> {
+impl<'a, T: Penalty> RMSPropCentered<'a, T> {
     /// Creates a *centered RMSProp* optimizer.
     ///
     /// # Arguments
@@ -401,13 +392,7 @@ impl<'a, T> RMSPropCentered<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(RMSPropCenteredParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -446,7 +431,7 @@ impl<'a, T> RMSPropCentered<'a, T> {
 
 /// A parameter used by the *centered RMSProp* optimizer.
 #[allow(clippy::clippy::upper_case_acronyms)]
-struct RMSPropCenteredParam<'a> {
+pub struct RMSPropCenteredParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -485,7 +470,9 @@ impl<'a> From<RMSPropParam<'a>> for RMSPropCenteredParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<RMSPropCenteredParam<'a>> for RMSPropCentered<'a, T> {
+impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
+    type ParamRepr = RMSPropCenteredParam<'a>;
+
     fn step(&mut self) {
         let (params, lr, alpha, penalty, eps) = (
             &mut self.params,
@@ -547,7 +534,7 @@ impl<'a, T: Penalty> Optimizer<RMSPropCenteredParam<'a>> for RMSPropCentered<'a,
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *centered RMSProp* optimizer with *momentum*.
 #[allow(clippy::clippy::upper_case_acronyms)]
-pub struct RMSPropCenteredWithMomentum<'a, T> {
+pub struct RMSPropCenteredWithMomentum<'a, T: Penalty> {
     params: Vec<RMSPropCenteredWithMomentumParam<'a>>,
     lr: f32,
     alpha: f32,
@@ -556,7 +543,7 @@ pub struct RMSPropCenteredWithMomentum<'a, T> {
     momentum: f32,
 }
 
-impl<'a, T> RMSPropCenteredWithMomentum<'a, T> {
+impl<'a, T: Penalty> RMSPropCenteredWithMomentum<'a, T> {
     /// Creates a *centered RMSProp* optimizer with *momentum*.
     ///
     /// # Arguments
@@ -580,13 +567,7 @@ impl<'a, T> RMSPropCenteredWithMomentum<'a, T> {
         penalty: T,
         eps: f32,
     ) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(RMSPropCenteredWithMomentumParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -601,7 +582,7 @@ impl<'a, T> RMSPropCenteredWithMomentum<'a, T> {
 
 /// A parameter used by the *centered RMSProp* optimizer with *momentum*.
 #[allow(clippy::clippy::upper_case_acronyms)]
-struct RMSPropCenteredWithMomentumParam<'a> {
+pub struct RMSPropCenteredWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -690,9 +671,8 @@ impl<'a> From<RMSPropWithMomentumParam<'a>> for RMSPropCenteredWithMomentumParam
     }
 }
 
-impl<'a, T: Penalty> Optimizer<RMSPropCenteredWithMomentumParam<'a>>
-    for RMSPropCenteredWithMomentum<'a, T>
-{
+impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
+    type ParamRepr = RMSPropCenteredWithMomentumParam<'a>;
     fn step(&mut self) {
         let (params, lr, alpha, penalty, eps, momentum) = (
             &mut self.params,

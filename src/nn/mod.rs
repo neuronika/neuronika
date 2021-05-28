@@ -143,7 +143,7 @@
 //! out.forward(); // Always remember to call forward() !
 //! # assert_eq!(out.data().shape(), &[200, 5]);
 //! ```
-//! # Tracking parameters with ModelRegistry
+//! # Tracking parameters with ModelStatus
 //!
 //! In some circumstances you may find useful to group the parameters of a model. Consider for
 //! instance the following scenario.
@@ -211,36 +211,36 @@
 //! between `fictitious_data` and `some_other_variable`.
 //!
 //! If you need to distinguish between the parameters of a model and another differentiable variable
-//! or between the parameters of several different models, you can use [`ModelRegistry`].
+//! or between the parameters of several different models, you can use [`ModelStatus`].
 //!
-//! With `ModelRegistry` you can build the exact same multilayer perceptron only varying the
+//! With `ModelStatus` you can build the exact same multilayer perceptron only varying the
 //! implementation so slightly.
 //!
 //! ```
 //!  use neuronika::Param;
-//!  use neuronika::nn::{ModelRegistry, Linear};
+//!  use neuronika::nn::{ModelStatus, Linear};
 //!
-//!  struct RegistryMLP {
+//!  struct MLP {
 //!     lin1: Linear,
 //!     lin2: Linear,
 //!     lin3: Linear,
-//!     registry: ModelRegistry,     
+//!     status: ModelStatus,     
 //!  }
 //!
-//!  impl RegistryMLP {
+//!  impl MLP {
 //!      fn new() -> Self {
-//!          let mut registry = ModelRegistry::default();
+//!          let mut status = ModelStatus::default();
 //!
 //!          Self {
-//!              lin1: registry.register(Linear::new(25, 30)),
-//!              lin2: registry.register(Linear::new(30, 35)),
-//!              lin3: registry.register(Linear::new(35, 5)),
-//!              registry,
+//!              lin1: status.register(Linear::new(25, 30)),
+//!              lin2: status.register(Linear::new(30, 35)),
+//!              lin3: status.register(Linear::new(35, 5)),
+//!              status,
 //!          }
 //!      }
 //!
 //!      fn parameters(&self) -> Vec<Param> {
-//!          self.registry.parameters()
+//!          self.status.parameters()
 //!      }
 //!  }
 //! ```
@@ -250,34 +250,89 @@
 //! changed at all.
 //!
 //! ```
-//! # use ndarray::Ix2;
-//! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff, Param};
-//! # use neuronika::nn::{ModelRegistry, Linear, Learnable};
-//! # struct RegistryMLP {
+//! # use neuronika::Param;
+//! # use neuronika::nn::{ModelStatus, Linear, Learnable};
+//! # struct MLP {
 //! #     lin1: Linear,
 //! #     lin2: Linear,
 //! #     lin3: Linear,
-//! #     registry: ModelRegistry,     
+//! #     status: ModelStatus,     
 //! # }
-//! # impl RegistryMLP {
+//! # impl MLP {
 //! #     // Basic constructor.
 //! #     fn new() -> Self {
-//! #         let mut registry = ModelRegistry::default();
+//! #         let mut status = ModelStatus::default();
 //! #
 //! #         Self {
-//! #            lin1: registry.register(Linear::new(25, 30)),
-//! #            lin2: registry.register(Linear::new(30, 35)),
-//! #            lin3: registry.register(Linear::new(35, 5)),
-//! #            registry,
+//! #            lin1: status.register(Linear::new(25, 30)),
+//! #            lin2: status.register(Linear::new(30, 35)),
+//! #            lin3: status.register(Linear::new(35, 5)),
+//! #            status,
 //! #         }
 //! #     }
 //! #
 //! #     fn parameters(&self) -> Vec<Param> {
-//! #        self.registry.parameters()
+//! #        self.status.parameters()
 //! #     }
 //! # }
-//! let model = RegistryMLP::new();
+//! let model = MLP::new();
 //! assert_eq!(model.parameters().len(), 6);
+//! ```
+//!
+//! # Train and Eval
+//!
+//! The status of a model determines the behaviour of its components. Certain building blocks, such
+//! as the [`Dropout`], are turned on and off depending on wheter the model is running in *training
+//! mode* or in *inference mode*.
+//!
+//! You can set a network in training mode or in inference mode either by calling [`.train()`] and
+//! [`.eval()`] directly on its output or by using `ModelStatus`.
+//!
+//! The former approach is preferrable, as when multiple models are pipelined, calling `.train()`
+//! and `.eval()` directly on the final outputs will switch the statuses of all the models.
+//! Do also note that switching the status by using `ModelStatus` is the only way that allows for
+//! selectively training and evaluating multiple models.
+//!
+//! Let's picture it with simple example.
+//!
+//! [`.eval()`]: VarDiff::eval()
+//! [`.train()`]: VarDiff::train()
+//!
+//! ```
+//!  use neuronika::Param;
+//!  use neuronika::nn::{ModelStatus, Linear, Dropout};
+//!
+//!  struct MLP {
+//!     lin1: Linear,
+//!     drop: Dropout,
+//!     lin2: Linear,
+//!     status: ModelStatus,     
+//!  }
+//!
+//!  impl MLP {
+//!      fn new() -> Self {
+//!          let mut status = ModelStatus::default();
+//!
+//!          Self {
+//!              lin1: status.register(Linear::new(25, 35)),
+//!              drop: status.register(Dropout::new(0.5)),
+//!              lin2: status.register(Linear::new(35, 5)),
+//!              status,
+//!          }
+//!      }
+//!
+//!      fn parameters(&self) -> Vec<Param> {
+//!          self.status.parameters()
+//!      }
+//!
+//!      fn train(&self) {
+//!          self.status.train()
+//!      }
+//!
+//!      fn eval(&self) {
+//!          self.status.eval()
+//!      }
+//!  }
 //! ```
 //!
 //! # Layers
@@ -339,7 +394,7 @@ pub mod loss;
 /// A generic parameter of a neural component.
 pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 
-/// A model's components registry.
+/// A model's components status.
 ///
 /// This struct should be used when you are interested in keeping track of the statuses and the
 /// parameters of the components that are part of a neural network. There are many circumstances in
@@ -347,12 +402,12 @@ pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 ///
 /// This struct stores all the [`Learnable`] associated to a given model and the model's status. It
 /// is suggested to perform the registration of the layers at the model construction.
-pub struct ModelRegistry {
+pub struct ModelStatus {
     params: Vec<Param>,
     train: Rc<Cell<bool>>,
 }
 
-impl ModelRegistry {
+impl ModelStatus {
     /// Returns a vector of [`Param`] linked to the learnable weights associated to a neural
     /// network.
     ///
@@ -360,7 +415,7 @@ impl ModelRegistry {
     /// called on the differentiable variable outputted by the network. The key difference lies in
     /// the fact that, while the differentiable variable's `.parameters()` method would return *all*
     /// the differentiable leaves that took part in the computation of the output, possibly also
-    /// the weights of another network, `ModelRegistry`'s `.parameters()` method returns *only* the
+    /// the weights of another network, `ModelStatus`'s `.parameters()` method returns *only* the
     /// leaves that have been associated with it at the model's instantiation.
     ///
     /// Usually the result of this method is passed to an optimizer.
@@ -378,10 +433,20 @@ impl ModelRegistry {
         component.register_status(self.train.clone());
         component
     }
+
+    /// Sets the status in training mode.
+    pub fn train(&self) {
+        <Self as Eval>::train(&self)
+    }
+
+    /// Sets the status in inference mode.
+    pub fn eval(&self) {
+        <Self as Eval>::eval(&self)
+    }
 }
 
-impl Default for ModelRegistry {
-    /// Returns a new `ModelRegistry` with empty parameters and status set to train.
+impl Default for ModelStatus {
+    /// Returns a new `ModelStatus` with empty parameters and status set to train.
     fn default() -> Self {
         Self {
             params: Vec::new(),
@@ -390,7 +455,7 @@ impl Default for ModelRegistry {
     }
 }
 
-impl Eval for ModelRegistry {
+impl Eval for ModelStatus {
     /// Sets the status to train.
     fn train(&self) {
         self.train.set(true)
@@ -547,7 +612,7 @@ impl Linear {
         T: Data<Dim = Ix2>,
         U: Gradient<Dim = Ix2> + Overwrite,
     {
-        input.mm_mul_t(self.weight.clone()).into() + self.bias.clone()
+        input.mm_t(self.weight.clone()).into() + self.bias.clone()
     }
 }
 
@@ -641,9 +706,9 @@ impl LSTMCell {
         U: Gradient<Dim = Ix2> + Overwrite,
     {
         let (cell_state, hidden) = state;
-        let gates = hidden.mm_mul_t(self.weight_hh.clone())
+        let gates = hidden.mm_t(self.weight_hh.clone())
             + self.bias_hh.clone()
-            + input.mm_mul_t(self.weight_ih.clone()).into()
+            + input.mm_t(self.weight_ih.clone()).into()
             + self.bias_ih.clone();
         let gate_shape = {
             let (gates_shape_rows, gates_shape_cols) = gates.data().dim();
@@ -747,8 +812,8 @@ impl GRUCell {
     {
         let (igates, hgates) = {
             (
-                input.mm_mul_t(self.weight_ih.clone()).into() + self.bias_ih.clone(),
-                hidden.clone().mm_mul_t(self.weight_hh.clone()) + self.bias_hh.clone(),
+                input.mm_t(self.weight_ih.clone()).into() + self.bias_ih.clone(),
+                hidden.clone().mm_t(self.weight_hh.clone()) + self.bias_hh.clone(),
             )
         };
         let gate_shape = {

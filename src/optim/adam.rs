@@ -1,5 +1,4 @@
-use super::{Optimizer, Penalty};
-use crate::variable::Param;
+use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
@@ -10,7 +9,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 ///
 /// It has been proposed in
 /// [Adam: A Method for Stochastic Optimization](https://arxiv.org/abs/1412.6980).
-pub struct Adam<'a, T> {
+pub struct Adam<'a, T: Penalty> {
     params: Vec<AdamParam<'a>>,
     lr: f32,
     penalty: T,
@@ -18,7 +17,7 @@ pub struct Adam<'a, T> {
     eps: f32,
 }
 
-impl<'a, T> Adam<'a, T> {
+impl<'a, T: Penalty> Adam<'a, T> {
     /// Creates a new *Adam* optimizer.
     ///
     /// # Arguments
@@ -34,13 +33,7 @@ impl<'a, T> Adam<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(params.len());
-            for param in params {
-                vec.push(AdamParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(params);
 
         Self {
             params,
@@ -53,7 +46,7 @@ impl<'a, T> Adam<'a, T> {
 }
 
 /// A Parameter used by the *Adam* optimizer.
-struct AdamParam<'a> {
+pub struct AdamParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     step: usize,
@@ -77,7 +70,9 @@ impl<'a> From<Param> for AdamParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<AdamParam<'a>> for Adam<'a, T> {
+impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
+    type ParamRepr = AdamParam<'a>;
+
     fn step(&mut self) {
         let (lr, penalty, params, (beta1, beta2), eps) = (
             &self.lr,

@@ -153,10 +153,10 @@ impl DiffVarHistory {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// A builder of mutable views over a differentiable variable's data and gradient.
 ///
-/// See also [`.parameters()`] and [`ModelRegistry`] for more informations.
+/// See also [`.parameters()`] and [`ModelStatus`] for more informations.
 ///
 /// [`.parameters()`]: VarDiff::parameters()
-/// [`ModelRegistry`]: crate::nn::ModelRegistry
+/// [`ModelStatus`]: crate::nn::ModelStatus
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Param {
     data: *mut f32,
@@ -204,7 +204,7 @@ pub trait MatMatMul<Rhs> {
     type Output;
 
     /// Computes the matrix-matrix multiplication between `self` and `other`.
-    fn mm_mul(self, other: Rhs) -> Self::Output;
+    fn mm(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -221,7 +221,7 @@ pub trait MatMatMulT<Rhs> {
     type Output;
 
     /// Computes the matrix-matrix multiplication between `self` and transposed `other`.
-    fn mm_mul_t(self, other: Rhs) -> Self::Output;
+    fn mm_t(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -235,7 +235,7 @@ pub trait MatVecMul<Rhs> {
     type Output;
 
     /// Computes the matrix-vector multiplication between `self` and `other`.
-    fn mv_mul(self, other: Rhs) -> Self::Output;
+    fn mv(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -249,7 +249,7 @@ pub trait VecMatMul<Rhs> {
     type Output;
 
     /// Computes the vector-matrix multiplication between `self` and `other`.
-    fn vm_mul(self, other: Rhs) -> Self::Output;
+    fn vm(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -263,7 +263,7 @@ pub trait VecVecMul<Rhs> {
     type Output;
 
     /// Computes the dot product between `self` and `other`.
-    fn vv_mul(self, other: Rhs) -> Self::Output;
+    fn vv(self, other: Rhs) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -476,7 +476,35 @@ impl<T: Data + Forward + 'static> Var<T> {
     ///    
     /// See also [`.dropout()`].
     ///
-    ///  [`.dropout()`]: Var::dropout()    
+    /// [`.dropout()`]: Var::dropout()
+    ///
+    /// # Examples
+    ///
+    /// The following snippet pictures the effect of several calls placed at different locations
+    /// inside the program. The last call switches all the dropout variables in training mode.
+    ///
+    /// ```
+    /// use neuronika;
+    ///
+    /// let a = neuronika::rand(5);
+    /// let b = neuronika::rand(5);
+    /// let c = neuronika::rand(5);
+    ///
+    /// let d = a + b;
+    /// let e = d.dropout(0.5);          // --+--+---+
+    ///                                  //   |  |   |
+    /// e.train();                       // --+  |   |- Affects only e
+    ///                                  //      |   |
+    /// let f = c + e;                   //      |   |
+    /// let g = f.dropout(0.5);          //      |   |
+    ///                                  //      |   |
+    /// g.train();                       // -----+   |- Affects e and g
+    ///                                  //          |
+    /// let h = g + neuronika::ones(1);  //          |
+    /// let i = h.dropout(0.5);          //          |
+    ///                                  //          |
+    /// i.train();                       // ---------+- Affects i, g, and e.
+    /// ```    
     pub fn train(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -490,7 +518,35 @@ impl<T: Data + Forward + 'static> Var<T> {
     ///    
     /// See also [`.dropout()`].
     ///
-    ///  [`.dropout()`]: Var::dropout()   
+    /// [`.dropout()`]: Var::dropout()
+    ///
+    /// # Examples
+    ///
+    /// The following snippet pictures the effect of several calls placed at different locations
+    /// inside the program. The last call switches all the dropout variables in evaluation mode.
+    ///
+    /// ```
+    /// use neuronika;
+    ///
+    /// let a = neuronika::rand(5);
+    /// let b = neuronika::rand(5);
+    /// let c = neuronika::rand(5);
+    ///
+    /// let d = a + b;
+    /// let e = d.dropout(0.5);          // --+--+---+
+    ///                                  //   |  |   |
+    /// e.eval();                        // --+  |   |- Affects only e
+    ///                                  //      |   |
+    /// let f = c + e;                   //      |   |
+    /// let g = f.dropout(0.5);          //      |   |
+    ///                                  //      |   |
+    /// g.eval();                        // -----+   |- Affects e and g
+    ///                                  //          |
+    /// let h = g + neuronika::ones(1);  //          |
+    /// let i = h.dropout(0.5);          //          |
+    ///                                  //          |
+    /// i.eval();                        // ---------+- Affects i, g, and e.
+    /// ```       
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
             unsafe {
@@ -515,32 +571,32 @@ impl<T: Data<Dim = Ix1> + 'static> Var<T> {
     /// variable `rhs`.
     ///
     /// If `self` is *n* and `rhs` is *(n, m)* the output will be *m*.
-    pub fn vm_mul<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
+    pub fn vm<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
     where
         Self: VecMatMul<Rhs>,
     {
-        VecMatMul::vm_mul(self, rhs)
+        VecMatMul::vm(self, rhs)
     }
 
     /// Vector-vector product, a.k.a. *scalar product* or *inner product*.
     ///
     /// Performs the scalar product between the two vector variables `self` and `rhs`.
-    pub fn vv_mul<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
+    pub fn vv<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
     where
         Self: VecVecMul<Rhs>,
     {
-        VecVecMul::vv_mul(self, rhs)
+        VecVecMul::vv(self, rhs)
     }
 }
 
 impl<T: Data<Dim = Ix2> + 'static> Var<T> {
     /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
     /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
-    pub fn mm_mul<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
+    pub fn mm<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
     where
         Self: MatMatMul<Rhs>,
     {
-        MatMatMul::mm_mul(self, rhs)
+        MatMatMul::mm(self, rhs)
     }
 
     /// Performs a matrix multiplication between the matrix variables `self` and `rhs`.
@@ -549,22 +605,22 @@ impl<T: Data<Dim = Ix2> + 'static> Var<T> {
     /// separately.
     ///
     /// If `self` is  *(n, m)* and `rhs` is *(o, m)* the output will be *(n, o)*.
-    pub fn mm_mul_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
+    pub fn mm_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
     where
         Self: MatMatMulT<Rhs>,
     {
-        MatMatMulT::mm_mul_t(self, rhs)
+        MatMatMulT::mm_t(self, rhs)
     }
 
     /// Performs a matrix-vector multiplication between the matrix variable `self` and the vector
     /// variable `rhs`.
     ///
     /// If `self` is *(n, m)* and `rhs` is *m* the output will be *n*.
-    pub fn mv_mul<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
+    pub fn mv<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
     where
         Self: MatVecMul<Rhs>,
     {
-        MatVecMul::mv_mul(self, rhs)
+        MatVecMul::mv(self, rhs)
     }
 }
 
@@ -924,7 +980,35 @@ where
     ///    
     /// See also [`.dropout()`].
     ///
-    ///  [`.dropout()`]: VarDiff::dropout()
+    /// [`.dropout()`]: VarDiff::dropout()
+    ///
+    /// # Examples
+    ///
+    /// The following snippet pictures the effect of several calls placed at different locations
+    /// inside the program. The last call switches all the dropout variables in training mode.
+    ///
+    /// ```
+    /// use neuronika;
+    ///
+    /// let a = neuronika::rand(5).requires_grad();
+    /// let b = neuronika::rand(5).requires_grad();
+    /// let c = neuronika::rand(5).requires_grad();
+    ///
+    /// let d = a + b;
+    /// let e = d.dropout(0.5);          // --+--+---+
+    ///                                  //   |  |   |
+    /// e.train();                       // --+  |   |- Affects only e
+    ///                                  //      |   |
+    /// let f = c + e;                   //      |   |
+    /// let g = f.dropout(0.5);          //      |   |
+    ///                                  //      |   |
+    /// g.train();                       // -----+   |- Affects e and g
+    ///                                  //          |
+    /// let h = g + neuronika::ones(1);  //          |
+    /// let i = h.dropout(0.5);          //          |
+    ///                                  //          |
+    /// i.train();                       // ---------+- Affects i, g, and e.
+    /// ```       
     pub fn train(&self) {
         for changeable in &self.var.past.changeables {
             unsafe {
@@ -938,7 +1022,35 @@ where
     ///    
     /// See also [`.dropout()`].
     ///
-    ///  [`.dropout()`]: VarDiff::dropout()
+    /// [`.dropout()`]: VarDiff::dropout()
+    ///
+    /// # Examples
+    ///
+    /// The following snippet pictures the effect of several calls placed at different locations
+    /// inside the program. The last call switches all the dropout variables in evaluation mode.
+    ///
+    /// ```
+    /// use neuronika;
+    ///
+    /// let a = neuronika::rand(5).requires_grad();
+    /// let b = neuronika::rand(5).requires_grad();
+    /// let c = neuronika::rand(5).requires_grad();
+    ///
+    /// let d = a + b;
+    /// let e = d.dropout(0.5);          // --+--+---+
+    ///                                  //   |  |   |
+    /// e.eval();                        // --+  |   |- Affects only e
+    ///                                  //      |   |
+    /// let f = c + e;                   //      |   |
+    /// let g = f.dropout(0.5);          //      |   |
+    ///                                  //      |   |
+    /// g.eval();                        // -----+   |- Affects e and g
+    ///                                  //          |
+    /// let h = g + neuronika::ones(1);  //          |
+    /// let i = h.dropout(0.5);          //          |
+    ///                                  //          |
+    /// i.eval();                        // ---------+- Affects i, g, and e.
+    /// ```       
     pub fn eval(&self) {
         self.var.eval()
     }
@@ -953,21 +1065,21 @@ where
     /// variable `rhs`.
     ///
     /// If `self` is *n* and `rhs` is *(n, m)* the output will be *m*.
-    pub fn vm_mul<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
+    pub fn vm<Rhs>(self, rhs: Rhs) -> <Self as VecMatMul<Rhs>>::Output
     where
         Self: VecMatMul<Rhs>,
     {
-        VecMatMul::vm_mul(self, rhs)
+        VecMatMul::vm(self, rhs)
     }
 
     /// Vector-vector product, a.k.a. *scalar product* or *inner product*.
     ///
     /// Performs the scalar product between the two vector variables `self` and `rhs`.
-    pub fn vv_mul<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
+    pub fn vv<Rhs>(self, rhs: Rhs) -> <Self as VecVecMul<Rhs>>::Output
     where
         Self: VecVecMul<Rhs>,
     {
-        VecVecMul::vv_mul(self, rhs)
+        VecVecMul::vv(self, rhs)
     }
 }
 
@@ -978,11 +1090,11 @@ where
 {
     /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
     /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
-    pub fn mm_mul<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
+    pub fn mm<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
     where
         Self: MatMatMul<Rhs>,
     {
-        MatMatMul::mm_mul(self, rhs)
+        MatMatMul::mm(self, rhs)
     }
 
     /// Performs a matrix multiplication between the matrix variables `self` and `rhs`.
@@ -991,22 +1103,22 @@ where
     /// separately.
     ///
     /// If `self` is  *(n, m)* and `rhs` is *(o, m)* the output will be *(n, o)*.
-    pub fn mm_mul_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
+    pub fn mm_t<Rhs>(self, rhs: Rhs) -> <Self as MatMatMulT<Rhs>>::Output
     where
         Self: MatMatMulT<Rhs>,
     {
-        MatMatMulT::mm_mul_t(self, rhs)
+        MatMatMulT::mm_t(self, rhs)
     }
 
     /// Performs a matrix-vector multiplication between the matrix variable `self` and the vector
     /// variable `rhs`.
     ///
     /// If `self` is *(n, m)* and `rhs` is *m* the output will be *n*.
-    pub fn mv_mul<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
+    pub fn mv<Rhs>(self, rhs: Rhs) -> <Self as MatVecMul<Rhs>>::Output
     where
         Self: MatVecMul<Rhs>,
     {
-        MatVecMul::mv_mul(self, rhs)
+        MatVecMul::mv(self, rhs)
     }
 }
 
@@ -1577,7 +1689,7 @@ where
 {
     type Output = Var<MatrixMatrixMul<F1, F2>>;
 
-    fn mm_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn mm(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(MatrixMatrixMul::new(self.node, rhs.node), self.past)
     }
@@ -1591,9 +1703,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardRight<F1, B2>>;
 
-    fn mm_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = MatrixMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mm_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.mm(rhs.var))
     }
 }
 
@@ -1605,9 +1717,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardLeft<B1, F2>>;
 
-    fn mm_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn mm(self, rhs: Var<F2>) -> Self::Output {
         let node = MatrixMatrixMulBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.mm_mul(rhs))
+        VarDiff::from(node, self.past, self.var.mm(rhs))
     }
 }
 
@@ -1620,7 +1732,7 @@ where
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackward<F1, B1, F2, B2>>;
 
-    fn mm_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = MatrixMatrixMulBackward::new(
             self.var.node.clone(),
@@ -1628,7 +1740,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.mm_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.mm(rhs.var))
     }
 }
 
@@ -1641,7 +1753,7 @@ where
 {
     type Output = Var<MatrixMatrixMulT<F1, F2>>;
 
-    fn mm_mul_t(mut self, rhs: Var<F2>) -> Self::Output {
+    fn mm_t(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(MatrixMatrixMulT::new(self.node, rhs.node), self.past)
     }
@@ -1655,9 +1767,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardRight<F1, B2>>;
 
-    fn mm_mul_t(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm_t(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = MatrixMatrixMulTBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mm_mul_t(rhs.var))
+        VarDiff::from(node, rhs.past, self.mm_t(rhs.var))
     }
 }
 
@@ -1669,9 +1781,9 @@ where
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardLeft<B1, F2>>;
 
-    fn mm_mul_t(self, rhs: Var<F2>) -> Self::Output {
+    fn mm_t(self, rhs: Var<F2>) -> Self::Output {
         let node = MatrixMatrixMulTBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.mm_mul_t(rhs))
+        VarDiff::from(node, self.past, self.var.mm_t(rhs))
     }
 }
 
@@ -1684,7 +1796,7 @@ where
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackward<F1, B1, F2, B2>>;
 
-    fn mm_mul_t(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mm_t(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = MatrixMatrixMulTBackward::new(
             self.var.node.clone(),
@@ -1692,7 +1804,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.mm_mul_t(rhs.var))
+        VarDiff::from(node, self.past, self.var.mm_t(rhs.var))
     }
 }
 
@@ -1705,7 +1817,7 @@ where
 {
     type Output = Var<MatrixVectorMul<F1, F2>>;
 
-    fn mv_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn mv(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(MatrixVectorMul::new(self.node, rhs.node), self.past)
     }
@@ -1719,9 +1831,9 @@ where
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardRight<F1, B2>>;
 
-    fn mv_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mv(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = MatrixVectorMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mv_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.mv(rhs.var))
     }
 }
 
@@ -1733,9 +1845,9 @@ where
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardLeft<B1, F2>>;
 
-    fn mv_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn mv(self, rhs: Var<F2>) -> Self::Output {
         let node = MatrixVectorMulBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.mv_mul(rhs))
+        VarDiff::from(node, self.past, self.var.mv(rhs))
     }
 }
 
@@ -1748,7 +1860,7 @@ where
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackward<F1, B1, F2, B2>>;
 
-    fn mv_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn mv(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = MatrixVectorMulBackward::new(
             self.var.node.clone(),
@@ -1756,7 +1868,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.mv_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.mv(rhs.var))
     }
 }
 
@@ -1769,7 +1881,7 @@ where
 {
     type Output = Var<VectorMatrixMul<F1, F2>>;
 
-    fn vm_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn vm(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(VectorMatrixMul::new(self.node, rhs.node), self.past)
     }
@@ -1783,9 +1895,9 @@ where
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardRight<F1, B2>>;
 
-    fn vm_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vm(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = VectorMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.vm_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.vm(rhs.var))
     }
 }
 
@@ -1797,9 +1909,9 @@ where
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardLeft<B1, F2>>;
 
-    fn vm_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn vm(self, rhs: Var<F2>) -> Self::Output {
         let node = VectorMatrixMulBackwardLeft::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.vm_mul(rhs))
+        VarDiff::from(node, self.past, self.var.vm(rhs))
     }
 }
 
@@ -1812,7 +1924,7 @@ where
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackward<F1, B1, F2, B2>>;
 
-    fn vm_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vm(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = VectorMatrixMulBackward::new(
             self.var.node.clone(),
@@ -1820,7 +1932,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.vm_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.vm(rhs.var))
     }
 }
 
@@ -1833,7 +1945,7 @@ where
 {
     type Output = Var<VectorVectorMul<F1, F2>>;
 
-    fn vv_mul(mut self, rhs: Var<F2>) -> Self::Output {
+    fn vv(mut self, rhs: Var<F2>) -> Self::Output {
         self.past.merge(rhs.past);
         Var::from(VectorVectorMul::new(self.node, rhs.node), self.past)
     }
@@ -1847,9 +1959,9 @@ where
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B2, F1>>;
 
-    fn vv_mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vv(self, rhs: VarDiff<F2, B2>) -> Self::Output {
         let node = VectorVectorMulBackwardUnary::new(rhs.node, self.node.clone());
-        VarDiff::from(node, rhs.past, self.vv_mul(rhs.var))
+        VarDiff::from(node, rhs.past, self.vv(rhs.var))
     }
 }
 
@@ -1861,9 +1973,9 @@ where
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B1, F2>>;
 
-    fn vv_mul(self, rhs: Var<F2>) -> Self::Output {
+    fn vv(self, rhs: Var<F2>) -> Self::Output {
         let node = VectorVectorMulBackwardUnary::new(self.node, rhs.node.clone());
-        VarDiff::from(node, self.past, self.var.vv_mul(rhs))
+        VarDiff::from(node, self.past, self.var.vv(rhs))
     }
 }
 
@@ -1876,7 +1988,7 @@ where
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackward<F1, B1, F2, B2>>;
 
-    fn vv_mul(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
+    fn vv(mut self, rhs: VarDiff<F2, B2>) -> Self::Output {
         self.past.merge(rhs.past);
         let node = VectorVectorMulBackward::new(
             self.var.node.clone(),
@@ -1884,7 +1996,7 @@ where
             rhs.var.node.clone(),
             rhs.node,
         );
-        VarDiff::from(node, self.past, self.var.vv_mul(rhs.var))
+        VarDiff::from(node, self.past, self.var.vv(rhs.var))
     }
 }
 

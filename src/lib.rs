@@ -93,7 +93,7 @@
 //!let x = neuronika::rand(5);                 //----+
 //!let q = neuronika::rand((5, 5));            //    | Those lines just build
 //!                                            //    | the graph.
-//!let mut y = x.clone().vm_mul(q).vv_mul(x);  //----+
+//!let mut y = x.clone().vm(q).vv(x);          //----+
 //!                                            //
 //!y.forward();                                // After .forward() is called y
 //!                                            // contains the result.
@@ -114,7 +114,7 @@
 //!let x = neuronika::rand((10, 3));                //                  |-- Leaves are created
 //!                                                 //                  |
 //!{                                                // ---+             |
-//!     let mut h = x.mm_mul(w.t()) + b;            //    | w's and b's |
+//!     let mut h = x.mm(w.t()) + b;                //    | w's and b's |
 //!     h.forward();                                //    | grads are   |
 //!     h.backward(1.0);                            //    | accumulated |
 //!}                                                // ---+             |-- Graph is freed and

@@ -1,5 +1,4 @@
-use super::{Optimizer, Penalty};
-use crate::variable::Param;
+use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
@@ -17,7 +16,7 @@ pub struct SGD<'a, T> {
 
 #[allow(clippy::clippy::upper_case_acronyms)]
 /// A parameter used by the *SDG* optimizer.
-struct SGDParam<'a> {
+pub struct SGDParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
 }
@@ -29,7 +28,9 @@ impl<'a> From<Param> for SGDParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<SGDParam<'a>> for SGD<'a, T> {
+impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
+    type ParamRepr = SGDParam<'a>;
+
     fn step(&mut self) {
         let (lr, penalty, params) = (&self.lr, &self.penalty, &mut self.params);
         params.par_iter_mut().for_each(|param| {
@@ -59,13 +60,7 @@ impl<'a, T: Penalty> SGD<'a, T> {
     ///
     /// * `penalty` - penalty regularization.
     pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
-        let params = {
-            let mut vec = Vec::with_capacity(parameters.len());
-            for param in parameters {
-                vec.push(SGDParam::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(parameters);
         Self {
             params,
             lr,
@@ -95,7 +90,7 @@ impl<'a, T: Penalty> SGD<'a, T> {
             let parameters = self.params;
             let mut vec = Vec::with_capacity(parameters.len());
             for param in parameters {
-                vec.push(SGDParamWithMomentum::from(param));
+                vec.push(SGDWithMomentumParam::from(param));
             }
             vec
         };
@@ -117,7 +112,7 @@ impl<'a, T: Penalty> SGD<'a, T> {
 #[allow(clippy::clippy::upper_case_acronyms)]
 /// The momentum variant of the *Stochastic Gradient Descent* optimizer.
 pub struct SGDWithMomentum<'a, T> {
-    params: Vec<SGDParamWithMomentum<'a>>,
+    params: Vec<SGDWithMomentumParam<'a>>,
     lr: f32,
     penalty: T,
     momentum: f32,
@@ -127,13 +122,13 @@ pub struct SGDWithMomentum<'a, T> {
 
 #[allow(clippy::clippy::upper_case_acronyms)]
 /// A parameter used by the *SDG* with momentum optimizer.
-struct SGDParamWithMomentum<'a> {
+pub struct SGDWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
     buffer: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for SGDParamWithMomentum<'a> {
+impl<'a> From<Param> for SGDWithMomentumParam<'a> {
     fn from(param: Param) -> Self {
         let (data, grad) = param.get();
         let buffer = ArrayD::zeros(grad.raw_dim());
@@ -141,7 +136,7 @@ impl<'a> From<Param> for SGDParamWithMomentum<'a> {
     }
 }
 
-impl<'a> From<SGDParam<'a>> for SGDParamWithMomentum<'a> {
+impl<'a> From<SGDParam<'a>> for SGDWithMomentumParam<'a> {
     fn from(param: SGDParam<'a>) -> Self {
         let (data, grad) = (param.data, param.grad);
         let buffer = ArrayD::zeros(grad.raw_dim());
@@ -149,7 +144,9 @@ impl<'a> From<SGDParam<'a>> for SGDParamWithMomentum<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer<SGDParamWithMomentum<'a>> for SGDWithMomentum<'a, T> {
+impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
+    type ParamRepr = SGDWithMomentumParam<'a>;
+
     fn step(&mut self) {
         let (lr, penalty, momentum, dampening, nesterov, params) = (
             &self.lr,
@@ -215,13 +212,7 @@ impl<'a, T: Penalty> SGDWithMomentum<'a, T> {
         dampening: f32,
         nesterov: bool,
     ) -> Self {
-        let params = {
-            let mut vec = Vec::new();
-            for param in parameters {
-                vec.push(SGDParamWithMomentum::from(param));
-            }
-            vec
-        };
+        let params = Self::build_params(parameters);
         Self {
             params,
             lr,
