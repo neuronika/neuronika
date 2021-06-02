@@ -692,7 +692,7 @@ impl<T: Data + 'static> Var<T> {
 
     /// Creates a new variable with a status. This method is used in the `Dropout` component of the
     /// `nn` module.
-    pub fn dropout_with_status(self, p: f64, status: Rc<Cell<bool>>) -> Var<Dropout<T>> {
+    pub(crate) fn dropout_with_status(self, p: f64, status: Rc<Cell<bool>>) -> Var<Dropout<T>> {
         Var::from_changeable(Dropout::new(self.node, p, status), self.past)
     }
 
