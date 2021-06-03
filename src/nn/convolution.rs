@@ -3608,6 +3608,17 @@ mod tests {
     }
 
     #[test]
+    fn conv_groups_args_ok() {
+        super::check_groups_args(&[3, 3, 10, 10], &[3, 3, 3, 3], 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn conv_groups_args_panic() {
+        super::check_groups_args(&[3, 3, 10, 10], &[3, 3, 3, 3], 5);
+    }
+
+    #[test]
     fn conv1d() {
         use ndarray::prelude::*;
 

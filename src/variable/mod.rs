@@ -2674,4 +2674,93 @@ mod tests {
         assert_eq!(mm_t.past.len(), 1);
         assert_eq!(mm_t.past.parameters.len(), 2);
     }
+
+    #[test]
+    fn convolve() {
+        use crate::Convolve;
+
+        let kernel = crate::zeros((2, 2, 2, 2));
+        let input = crate::ones((4, 2, 6, 6));
+        let convolve =
+            super::Var::convolve(input, kernel, &[1, 1], &[1, 1], &[0, 0], crate::nn::Zero);
+
+        assert_eq!(convolve.past.len(), 1);
+        assert!(convolve.past.changeables.is_empty());
+    }
+
+    #[test]
+    fn convolve_diff() {
+        use crate::Convolve;
+
+        let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+        let input = crate::ones((4, 2, 6, 6));
+        let convolve =
+            super::Var::convolve(input, kernel, &[1, 1], &[1, 1], &[0, 0], crate::nn::Zero);
+
+        assert_eq!(convolve.past.len(), 1);
+        assert_eq!(convolve.past.parameters.len(), 1);
+
+        let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+        let input = crate::ones((4, 2, 6, 6)).requires_grad();
+        let convolve =
+            super::VarDiff::convolve(input, kernel, &[1, 1], &[1, 1], &[0, 0], crate::nn::Zero);
+
+        assert_eq!(convolve.past.len(), 1);
+        assert_eq!(convolve.past.parameters.len(), 2);
+    }
+
+    #[test]
+    fn convolve_groups() {
+        use crate::ConvolveWithGroups;
+
+        let kernel = crate::zeros((2, 2, 2, 2));
+        let input = crate::ones((4, 2, 6, 6));
+        let convolve = super::Var::convolve_with_groups(
+            input,
+            kernel,
+            &[1, 1],
+            &[1, 1],
+            &[0, 0],
+            crate::nn::Zero,
+            2,
+        );
+
+        assert_eq!(convolve.past.len(), 1);
+        assert!(convolve.past.changeables.is_empty());
+    }
+
+    #[test]
+    fn convolve_groups_diff() {
+        use crate::ConvolveWithGroups;
+
+        let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+        let input = crate::ones((4, 2, 6, 6));
+        let convolve = super::Var::convolve_with_groups(
+            input,
+            kernel,
+            &[1, 1],
+            &[1, 1],
+            &[0, 0],
+            crate::nn::Zero,
+            2,
+        );
+
+        assert_eq!(convolve.past.len(), 1);
+        assert_eq!(convolve.past.parameters.len(), 1);
+
+        let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+        let input = crate::ones((4, 2, 6, 6)).requires_grad();
+        let convolve = super::VarDiff::convolve_with_groups(
+            input,
+            kernel,
+            &[1, 1],
+            &[1, 1],
+            &[0, 0],
+            crate::nn::Zero,
+            2,
+        );
+
+        assert_eq!(convolve.past.len(), 1);
+        assert_eq!(convolve.past.parameters.len(), 2);
+    }
 }
