@@ -2719,6 +2719,70 @@ impl<T: Gradient + Overwrite> Backward for SumBackward<T> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MeanBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct MeanBackward<T: Gradient + Overwrite> {
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
+    operand: Rc<T>,
+}
+
+impl<T: Gradient + Overwrite> MeanBackward<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        Self {
+            operand,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            overwrite: Cell::new(true),
+        }
+    }
+}
+
+impl<T: Gradient + Overwrite> Gradient for MeanBackward<T> {
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T: Gradient + Overwrite> Overwrite for MeanBackward<T> {
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T: Gradient + Overwrite> Backward for MeanBackward<T> {
+    fn backward(&self) {
+        let numel = self.operand.gradient().len() as f32;
+        let mut op_grad = self.operand.gradient_mut();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and_broadcast(&*grad);
+        if self.operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el / numel);
+            self.operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el / numel);
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LognBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct LognBackward<T, U>
@@ -6618,6 +6682,80 @@ mod tests {
             diff.set_overwrite(true);
             node.backward();
             assert_almost_equals(&*diff.gradient(), &new_tensor((10, 10), vec![1.; 100]));
+        }
+    }
+
+    mod backward_mean {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let node = MeanBackward::new(new_backward_input((10, 10), vec![0.; 100]));
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(1, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(1, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input((10, 10), vec![0.; 100]);
+            let node = MeanBackward::new(diff.clone());
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward() {
+            let diff = new_backward_input((10, 10), vec![0.; 100]);
+            let node = MeanBackward::new(diff.clone());
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(1, vec![1.]);
+            assert_almost_equals(&*node.gradient(), &new_tensor(1, vec![1.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((10, 10), vec![0.01; 100]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((10, 10), vec![0.02; 100]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor((10, 10), vec![0.01; 100]));
         }
     }
 

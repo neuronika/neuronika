@@ -97,9 +97,9 @@
 //! Being a basic optimizer, the `SGDParam` struct will only contain the gradient and the data for
 //! each of the parameters to optimize.
 //!
-//! Nevertheless, do note that an optimizer's parameter acts as a container for the additional
-//! informations, such as adaptive learning rates and moments of any kind, that may be needed for
-//! the learning steps of more complex algorithms.
+//! Nevertheless, do note that an optimizer's parameter representation acts as a container for the
+//! additional informations, such as adaptive learning rates and moments of any kind, that may be
+//! needed for the learning steps of more complex algorithms.
 //!
 //! Then, we define the SGD's struct.
 //!
@@ -154,7 +154,7 @@
 //!             let (data, grad) = (&mut param.data, &param.grad);
 //!
 //!             Zip::from(data).and(grad).for_each(|data_el, grad_el| {
-//!                 *data_el += -(grad_el + penalty.penalise(grad_el)) * lr
+//!                 *data_el += -(grad_el + penalty.penalise(data_el)) * lr
 //!             });
 //!         });
 //!     }

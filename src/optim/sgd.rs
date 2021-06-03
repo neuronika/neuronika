@@ -36,7 +36,7 @@ impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
         params.par_iter_mut().for_each(|param| {
             let (data, grad) = (&mut param.data, &param.grad);
             Zip::from(data).and(grad).for_each(|data_el, grad_el| {
-                *data_el += -(grad_el + penalty.penalise(grad_el)) * lr
+                *data_el += -(grad_el + penalty.penalise(data_el)) * lr
             });
         });
     }
@@ -150,7 +150,10 @@ impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
             &mut self.params,
         );
         params.par_iter_mut().for_each(|param| {
-            let p_grad = param.grad.map(|el| el + penalty.penalise(el));
+            let mut p_grad = param.grad.to_owned();
+            Zip::from(&mut p_grad)
+                .and(&param.data)
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
 
             Zip::from(&mut param.buffer)
                 .and(&p_grad)
@@ -161,7 +164,7 @@ impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
             let zip = Zip::from(&mut param.data).and(&param.buffer);
             if *nesterov {
                 zip.and(&p_grad).for_each(|data_el, buffer_el, p_grad_el| {
-                    *data_el += -p_grad_el * lr + *buffer_el * *momentum
+                    *data_el += -(p_grad_el + *buffer_el * *momentum) * lr
                 });
             } else {
                 zip.for_each(|data_el, buffer_el| *data_el += -*buffer_el * *lr);

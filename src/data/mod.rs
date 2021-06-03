@@ -63,8 +63,12 @@
 //!     },
 //! );
 //! ```
+
 use csv::{ReaderBuilder, StringRecord};
-use ndarray::{Array, ArrayView, Axis, Dimension, IntoDimension, RemoveAxis};
+use ndarray::{
+    iter::AxisChunksIter, Array, ArrayView, Axis, Dimension, IntoDimension, RemoveAxis, Zip,
+};
+use rand::Rng;
 use serde::de::DeserializeOwned;
 use std::{fs::File, io::Read};
 
@@ -99,12 +103,24 @@ impl<D: RemoveAxis> Dataset<D> {
         &self.records
     }
 
+    /// Returns the number of records stored in the dataset.
+    pub fn len(&self) -> usize {
+        self.records.len_of(Axis(0))
+    }
+
+    /// Checks whether the dataset is empty or not.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Constructs a K-Fold iterator from the dataset.
     ///
     /// The dataset is split *without shuffling* into k consecutive folds.
     ///
     /// Items returned by the [`KFold`] iterator are splits of the dataset. Each fold is used
     /// exactly once as a validation set, while the remaining k - 1 form the training set.
+    ///
+    /// Returned items are of the form `(Dataset, Dataset)`.
     ///
     /// # Arguments
     ///
@@ -115,6 +131,36 @@ impl<D: RemoveAxis> Dataset<D> {
     /// If `k < 2`.
     pub fn kfold(&self, k: usize) -> KFold<D> {
         KFold::new(self.records.view(), k)
+    }
+
+    /// Divides the dataset into batches of size `batch_size`.
+    ///
+    /// # Arguments
+    ///
+    /// `batch_size` - size of a single batch.
+    pub fn batch(&self, batch_size: usize) -> Batch<D> {
+        Batch::new(&self.records, batch_size)
+    }
+
+    /// Randomly shuffles the dataset.
+    pub fn shuffle(&mut self) -> &mut Self {
+        let len = self.records.len_of(Axis(0));
+        assert_ne!(len, 0, "empty dataset");
+
+        let mut rng = rand::thread_rng();
+        for i in 0..len - 1 {
+            // Since `iter.nth(pos)` consumes all the elements in `[0, pos]`
+            // j will be in the interval `[pos + 1, len - 1]`, that contains `len - pos - 1`
+            // elements
+            let j = rng.gen_range(0..len - i - 1);
+
+            let mut iter = self.records.outer_iter_mut();
+            Zip::from(iter.nth(i).unwrap())
+                .and(iter.nth(j).unwrap())
+                .for_each(std::mem::swap);
+        }
+
+        self
     }
 }
 
@@ -162,7 +208,7 @@ impl DataLoader {
     /// # Arguments
     ///
     /// * `src` - path of the source file.
-    /// * `shape` - shape of a single records.
+    /// * `shape` - shape of a single record.
     ///
     /// # Panics
     ///
@@ -245,7 +291,7 @@ impl DataLoader {
     {
         let shape = shape.into_dimension();
         if shape.size() == 0 {
-            panic!("cannot handle empty records")
+            panic!("error: cannot handle empty records.")
         }
 
         let mut records = Vec::new();
@@ -301,13 +347,13 @@ impl LabeledDataLoader {
 
     fn new(builder: DataLoader, labels: &[usize]) -> Self {
         if labels.is_empty() {
-            panic!("labels not provided");
+            panic!("error: labels were not provided.");
         }
 
         let mut labels = labels.to_vec();
         labels.sort_unstable();
         if labels.windows(2).any(|w| w[0] == w[1]) {
-            panic!("duplicated labels");
+            panic!("error: duplicated labels.");
         }
 
         Self {
@@ -341,24 +387,24 @@ impl LabeledDataLoader {
     /// # Arguments
     ///
     /// * `src` - path of the source file.
-    /// * `sh1` - shape of a single records.
-    /// * `sh2` - shape of a single label.
+    /// * `record_shape` - shape of a single record.
+    /// * `label_shape` - shape of a single label.
     ///
     /// # Panics
     ///
-    /// In the case of I/O errors or if `sh1` generates an empty record or `sh2` generates an empty
-    /// label.
+    /// In the case of I/O errors or if `record_shape` generates an empty record or `label_shape`
+    /// generates an empty label.
     pub fn from_csv<S1, S2>(
         &mut self,
         src: &str,
-        sh1: S1,
-        sh2: S2,
+        record_shape: S1,
+        label_shape: S2,
     ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
     where
         S1: IntoDimension,
         S2: IntoDimension,
     {
-        self.from_reader_fn(File::open(src).unwrap(), sh1, sh2, |r| r)
+        self.from_reader_fn(File::open(src).unwrap(), record_shape, label_shape, |r| r)
     }
 
     /// Builds a data collection by loading the content of the specified source reader applying the
@@ -367,25 +413,25 @@ impl LabeledDataLoader {
     /// # Arguments
     ///
     /// * `src` - reader from which to load the data.
-    /// * `sh1` - shape of a single record.
-    /// * `sh2` - shape of a single label.
+    /// * `record_shape` - shape of a single record.
+    /// * `label_shape` - shape of a single label.
     ///
     /// # Panics
     ///
-    /// In the event of a deserialization error or if `sh1` generates an empty record or `sh2`
-    /// generates an empty label.
+    /// In the event of a deserialization error or if `record_shape` generates an empty record or
+    /// `label_shape` generates an empty label.
     pub fn from_reader<R, S1, S2>(
         &mut self,
         src: R,
-        sh1: S1,
-        sh2: S2,
+        record_shape: S1,
+        label_shape: S2,
     ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
     where
         R: Read,
         S1: IntoDimension,
         S2: IntoDimension,
     {
-        self.from_reader_fn(src, sh1, sh2, |r| r)
+        self.from_reader_fn(src, record_shape, label_shape, |r| r)
     }
 
     /// Builds a data collection by loading the content of the specified `.csv` file applying the
@@ -394,19 +440,19 @@ impl LabeledDataLoader {
     /// # Arguments
     ///
     /// * `src` - reader from which to load the data.
-    /// * `sh1` - shape of a single record.
-    /// * `sh2` - shape of a single label.    
+    /// * `record_shape` - shape of a single record.
+    /// * `label_shape` - shape of a single label.    
     /// * `fn` - closure to be applied to records and labels.
     ///
     /// # Panics
     ///
-    /// In the event of a deserialization error or if `sh1` generates an empty record or `sh2`
-    /// generates an empty label.
+    /// In the event of a deserialization error or if `record_shape` generates an empty record or
+    /// `label_shape` generates an empty label.
     pub fn from_csv_fn<S1, S2, T, U, F>(
         &mut self,
         src: &str,
-        sh1: S1,
-        sh2: S2,
+        record_shape: S1,
+        label_shape: S2,
         f: F,
     ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
     where
@@ -416,7 +462,7 @@ impl LabeledDataLoader {
         U: DeserializeOwned,
         F: Fn((T, U)) -> (Vec<f32>, Vec<f32>),
     {
-        self.from_reader_fn(File::open(src).unwrap(), sh1, sh2, f)
+        self.from_reader_fn(File::open(src).unwrap(), record_shape, label_shape, f)
     }
 
     /// Builds a data collection by loading the content of the specified source reader applying the
@@ -425,19 +471,19 @@ impl LabeledDataLoader {
     /// # Arguments
     ///
     /// * `src` - reader from which to load the data.
-    /// * `sh1` - shape of a single record.
-    /// * `sh2` - shape of a single label.    
+    /// * `record_shape` - shape of a single record.
+    /// * `label_shape` - shape of a single label.    
     /// * `fn` - closure to be applied to records and labels.
     ///
     /// # Panics
     ///
-    /// In the event of a deserialization error if `sh1` generates an empty record or `sh2`
-    /// generates an empty label.
+    /// In the event of a deserialization error if `record_shape` generates an empty record or
+    /// `label_shape` generates an empty label.
     pub fn from_reader_fn<R, S1, S2, T, U, F>(
         &mut self,
         src: R,
-        sh1: S1,
-        sh2: S2,
+        record_shape: S1,
+        label_shape: S2,
         f: F,
     ) -> LabeledDataset<<S1::Dim as Dimension>::Larger, <S2::Dim as Dimension>::Larger>
     where
@@ -448,10 +494,10 @@ impl LabeledDataLoader {
         U: DeserializeOwned,
         F: Fn((T, U)) -> (Vec<f32>, Vec<f32>),
     {
-        let sh1 = sh1.into_dimension();
-        let sh2 = sh2.into_dimension();
-        if sh1.size() == 0 || sh2.size() == 0 {
-            panic!("cannot handle empty records")
+        let record_shape = record_shape.into_dimension();
+        let label_shape = label_shape.into_dimension();
+        if record_shape.size() == 0 || label_shape.size() == 0 {
+            panic!("error: cannot handle empty records")
         }
 
         let mut records = Vec::new();
@@ -465,8 +511,8 @@ impl LabeledDataLoader {
         }
 
         LabeledDataset::new(
-            Array::from_shape_vec(stacked_shape(rows, sh1), records).unwrap(),
-            Array::from_shape_vec(stacked_shape(rows, sh2), labels).unwrap(),
+            Array::from_shape_vec(stacked_shape(rows, record_shape), records).unwrap(),
+            Array::from_shape_vec(stacked_shape(rows, label_shape), labels).unwrap(),
         )
     }
 }
@@ -504,6 +550,16 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
         &self.labels
     }
 
+    /// Returns the number of records stored in the labeled dataset.
+    pub fn len(&self) -> usize {
+        self.records.len_of(Axis(0))
+    }
+
+    /// Check whether the labeled dataset is empty or not.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Constructs a K-Fold iterator from the labeled dataset.
     ///
     /// The dataset is split *without shuffling* into k consecutive folds.
@@ -511,6 +567,8 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
     /// Items returned by the [`LabeledKFold`] iterator are splits of the dataset, both records and
     /// labels. Each fold is used exactly once as a validation set, while the remaining k - 1 form
     /// the training set.
+    ///
+    /// Returned items are of the form `(LabeledDataset, LabeledDataset)`.
     ///
     /// # Arguments
     ///
@@ -521,6 +579,61 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
     /// If `k < 2`.
     pub fn kfold(&self, k: usize) -> LabeledKFold<D1, D2> {
         LabeledKFold::new(self.records.view(), self.labels.view(), k)
+    }
+
+    /// Divides the labeled dataset into batches of size `batch_size`.
+    ///
+    /// # Arguments
+    ///
+    /// `batch_size` - size of a single batch.
+    pub fn batch(&self, size: usize) -> LabeledBatch<D1, D2> {
+        LabeledBatch::new(&self.records, &self.labels, size)
+    }
+
+    /// Randomly shuffles the labeled dataset.
+    pub fn shuffle(&mut self) -> &mut Self {
+        let len = self.records.len_of(Axis(0));
+        assert_ne!(len, 0, "empty dataset");
+
+        let mut rng = rand::thread_rng();
+        for i in 0..len - 1 {
+            // Since `iter.nth(pos)` consumes all the elements in `[0, pos]`
+            // j will be in the interval `[pos + 1, len - 1]`, that contains `len - pos - 1`
+            // elements
+            let j = rng.gen_range(0..len - i - 1);
+
+            let mut iter = self.records.outer_iter_mut();
+            Zip::from(iter.nth(i).unwrap())
+                .and(iter.nth(j).unwrap())
+                .for_each(std::mem::swap);
+
+            let mut iter = self.labels.outer_iter_mut();
+            Zip::from(iter.nth(i).unwrap())
+                .and(iter.nth(j).unwrap())
+                .for_each(std::mem::swap);
+        }
+
+        self
+    }
+}
+
+pub struct Batch<'a, D> {
+    iter: AxisChunksIter<'a, f32, D>,
+}
+
+impl<'a, D: RemoveAxis> Batch<'a, D> {
+    fn new(source: &'a Array<f32, D>, size: usize) -> Self {
+        Self {
+            iter: source.axis_chunks_iter(Axis(0), size),
+        }
+    }
+}
+
+impl<'a, D: RemoveAxis> Iterator for Batch<'a, D> {
+    type Item = <AxisChunksIter<'a, f32, D> as Iterator>::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
     }
 }
 
@@ -533,7 +646,7 @@ struct SetKFold<'a, D> {
 impl<'a, D: RemoveAxis> SetKFold<'a, D> {
     pub fn new(source: ArrayView<'a, f32, D>, k: usize) -> Self {
         if k < 2 {
-            panic!("meaningless fold number");
+            panic!("error: folds must be > 2.");
         }
 
         let axis_len = source.len_of(Axis(0));
@@ -590,21 +703,51 @@ where
     D1: RemoveAxis,
     D2: RemoveAxis,
 {
-    type Item = (
-        (Array<f32, D1>, Array<f32, D1>),
-        (Array<f32, D2>, Array<f32, D2>),
-    );
+    type Item = (LabeledDataset<D1, D2>, LabeledDataset<D1, D2>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.iteration >= self.k {
             return None;
         }
 
-        let training_part = self.records.compute_fold(self.iteration);
-        let test_part = self.labels.compute_fold(self.iteration);
+        let (train_in, test_in) = self.records.compute_fold(self.iteration);
+        let (train_out, test_out) = self.labels.compute_fold(self.iteration);
         self.iteration += 1;
 
-        Some((training_part, test_part))
+        Some((
+            LabeledDataset::new(train_in, train_out),
+            LabeledDataset::new(test_in, test_out),
+        ))
+    }
+}
+
+pub struct LabeledBatch<'a, D1, D2> {
+    records: Batch<'a, D1>,
+    labels: Batch<'a, D2>,
+}
+
+impl<'a, D1: RemoveAxis, D2: RemoveAxis> LabeledBatch<'a, D1, D2> {
+    fn new(records: &'a Array<f32, D1>, labels: &'a Array<f32, D2>, size: usize) -> Self {
+        assert_eq!(records.len_of(Axis(0)), labels.len_of(Axis(0)));
+
+        Self {
+            records: Batch::new(records, size),
+            labels: Batch::new(labels, size),
+        }
+    }
+}
+
+impl<'a, D1: RemoveAxis, D2: RemoveAxis> Iterator for LabeledBatch<'a, D1, D2> {
+    type Item = (
+        <Batch<'a, D1> as Iterator>::Item,
+        <Batch<'a, D2> as Iterator>::Item,
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.records.next() {
+            Some(records) => Some((records, self.labels.next().unwrap())),
+            None => None,
+        }
     }
 }
 
@@ -626,7 +769,7 @@ impl<'a, D: RemoveAxis> KFold<'a, D> {
 }
 
 impl<'a, D: RemoveAxis> Iterator for KFold<'a, D> {
-    type Item = (Array<f32, D>, Array<f32, D>);
+    type Item = (Dataset<D>, Dataset<D>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.iteration >= self.k {
@@ -636,7 +779,7 @@ impl<'a, D: RemoveAxis> Iterator for KFold<'a, D> {
         let (records_in, records_out) = self.records.compute_fold(self.iteration);
         self.iteration += 1;
 
-        Some((records_in, records_out))
+        Some((Dataset::new(records_in), Dataset::new(records_out)))
     }
 }
 
@@ -684,7 +827,7 @@ mod tests {
 
             let (train, test) = kfold.next().unwrap();
             assert_eq!(
-                train,
+                train.records(),
                 Array::from_shape_vec(
                     (2, 10),
                     vec![
@@ -695,7 +838,7 @@ mod tests {
                 .unwrap()
             );
             assert_eq!(
-                test,
+                test.records(),
                 Array::from_shape_vec(
                     (3, 10),
                     vec![
@@ -708,7 +851,7 @@ mod tests {
 
             let (train, test) = kfold.next().unwrap();
             assert_eq!(
-                train,
+                train.records(),
                 Array::from_shape_vec(
                     (3, 10),
                     vec![
@@ -719,7 +862,7 @@ mod tests {
                 .unwrap()
             );
             assert_eq!(
-                test,
+                test.records(),
                 Array::from_shape_vec(
                     (2, 10),
                     vec![
@@ -730,7 +873,63 @@ mod tests {
                 .unwrap()
             );
 
-            assert_eq!(kfold.next(), None);
+            assert_eq!(kfold.next().is_none(), true);
+        }
+
+        #[test]
+        fn batch() {
+            let dataset = DataLoader::default()
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10);
+
+            let mut batch = dataset.batch(3);
+            assert_eq!(
+                batch.next().unwrap(),
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+
+            assert_eq!(
+                batch.next().unwrap(),
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8.,
+                        9.,
+                    ]
+                )
+                .unwrap()
+            );
+
+            assert_eq!(batch.next().is_none(), true);
+        }
+
+        #[test]
+        fn shuffle() {
+            let mut dataset = DataLoader::default()
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10);
+
+            dataset.shuffle();
+
+            assert_ne!(
+                dataset.records(),
+                Array::from_shape_vec(
+                    (5, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2.,
+                        1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
         }
     }
 
@@ -780,9 +979,9 @@ mod tests {
                 .from_reader(DATASET.as_bytes(), 10, 2);
             let mut kfold = dataset.kfold(2);
 
-            let ((train_in, train_out), (test_in, test_out)) = kfold.next().unwrap();
+            let (train, test) = kfold.next().unwrap();
             assert_eq!(
-                train_in,
+                train.records(),
                 Array::from_shape_vec(
                     (2, 10),
                     vec![
@@ -793,28 +992,11 @@ mod tests {
                 .unwrap()
             );
             assert_eq!(
-                train_out,
-                Array::from_shape_vec(
-                    (3, 10),
-                    vec![
-                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
-                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
-                    ]
-                )
-                .unwrap()
-            );
-            assert_eq!(
-                test_in,
+                train.labels(),
                 Array::from_shape_vec((2, 2), vec![0., 1., 1., 0.]).unwrap()
             );
             assert_eq!(
-                test_out,
-                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
-            );
-
-            let ((train_in, train_out), (test_in, test_out)) = kfold.next().unwrap();
-            assert_eq!(
-                train_in,
+                test.records(),
                 Array::from_shape_vec(
                     (3, 10),
                     vec![
@@ -825,7 +1007,28 @@ mod tests {
                 .unwrap()
             );
             assert_eq!(
-                train_out,
+                test.labels(),
+                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
+            );
+
+            let (train, test) = kfold.next().unwrap();
+            assert_eq!(
+                train.records(),
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                train.labels(),
+                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
+            );
+            assert_eq!(
+                test.records(),
                 Array::from_shape_vec(
                     (2, 10),
                     vec![
@@ -836,15 +1039,78 @@ mod tests {
                 .unwrap()
             );
             assert_eq!(
-                test_in,
-                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
-            );
-            assert_eq!(
-                test_out,
+                test.labels(),
                 Array::from_shape_vec((2, 2), vec![0., 1., 1., 0.]).unwrap()
             );
 
-            assert_eq!(kfold.next(), None);
+            assert_eq!(kfold.next().is_none(), true);
+        }
+
+        #[test]
+        fn batch() {
+            let dataset = DataLoader::default()
+                .with_labels(&[3, 8])
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2);
+            let mut batch = dataset.batch(3);
+
+            let (records, labels) = batch.next().unwrap();
+            assert_eq!(
+                records,
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                labels,
+                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
+            );
+
+            let (records, labels) = batch.next().unwrap();
+            assert_eq!(
+                records,
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8.,
+                        9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                labels,
+                Array::from_shape_vec((2, 2), vec![0., 1., 1., 0.]).unwrap()
+            );
+
+            assert_eq!(batch.next().is_none(), true);
+        }
+
+        #[test]
+        fn shuffle() {
+            let mut dataset = DataLoader::default()
+                .with_labels(&[3, 8])
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2);
+            dataset.shuffle();
+
+            assert_ne!(
+                dataset.records(),
+                Array::from_shape_vec(
+                    (5, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2.,
+                        1., 0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
         }
     }
 }

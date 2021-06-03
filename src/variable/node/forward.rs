@@ -901,6 +901,53 @@ impl<T: Data> Data for Sum<T> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+pub struct Mean<T: Data> {
+    operand: Rc<T>,
+    data: RefCell<Tensor<Ix1>>,
+    computed: Cell<bool>,
+}
+
+impl<T: Data> Mean<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(1));
+
+        Self {
+            operand,
+            data,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T: Data> Forward for Mean<T> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        self.data.borrow_mut()[0] = self.operand.data().mean().unwrap();
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: Data> Data for Mean<T> {
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Logn ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct Logn<T: Data> {
@@ -2803,6 +2850,65 @@ mod tests {
             node.reset_computation();
             node.forward();
             assert_almost_equals(&*node.data(), &new_tensor(1, vec![54.]));
+        }
+    }
+
+    mod mean {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Mean::new(input);
+
+            assert_eq!(*node.data(), Tensor::from_elem(1, 0.));
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Mean::new(input);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Mean::new(input.clone());
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(1, vec![5.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
+            );
+
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(1, vec![5.]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(&*node.data(), &new_tensor(1, vec![6.]));
         }
     }
 

@@ -78,26 +78,26 @@ impl<'a, T: Penalty> Optimizer for Adagrad<'a, T> {
         );
 
         params.par_iter_mut().for_each(|param| {
-            let (data, grad, step, grad_sq) = (
-                &mut param.data,
-                &param.grad,
-                &mut param.step,
-                &mut param.grad_sq,
-            );
+            let (step, grad_sq) = (&mut param.step, &mut param.grad_sq);
 
             *step += 1;
             let clr = *lr / (1. + (*step - 1) as f32 * lr_decay);
-            let p_grad = grad.map(|el| el + penalty.penalise(el));
+
+            let mut p_grad = param.grad.to_owned();
+            Zip::from(&mut p_grad)
+                .and(&param.data)
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
 
             Zip::from(grad_sq)
                 .and(&p_grad)
                 .for_each(|grad_sq_el, p_grad_el| *grad_sq_el += p_grad_el * p_grad_el);
 
-            Zip::from(data).and(&p_grad).and(&param.grad_sq).for_each(
-                |data_el, p_grad_el, grad_sq_el| {
+            Zip::from(&mut param.data)
+                .and(&p_grad)
+                .and(&param.grad_sq)
+                .for_each(|data_el, p_grad_el, grad_sq_el| {
                     *data_el += -p_grad_el / (grad_sq_el.sqrt() + eps) * clr
-                },
-            );
+                });
         });
     }
 

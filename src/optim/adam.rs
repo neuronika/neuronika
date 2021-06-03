@@ -83,18 +83,16 @@ impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
         );
 
         params.par_iter_mut().for_each(|param| {
-            let (data, grad, step, exp_avg, exp_avg_sq) = (
-                &mut param.data,
-                &param.grad,
-                &mut param.step,
-                &mut param.exp_avg,
-                &mut param.exp_avg_sq,
-            );
+            let (step, exp_avg, exp_avg_sq) =
+                (&mut param.step, &mut param.exp_avg, &mut param.exp_avg_sq);
 
             *step += 1;
             let bias_correction1 = 1. - beta1.powi(*step as i32);
             let bias_correction2 = 1. - beta2.powi(*step as i32);
-            let p_grad = grad.map(|el| el + penalty.penalise(el));
+            let mut p_grad = param.grad.to_owned();
+            Zip::from(&mut p_grad)
+                .and(&param.data)
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
 
             Zip::from(exp_avg)
                 .and(&p_grad)
@@ -108,7 +106,7 @@ impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
                     *exp_avg_sq_el = *exp_avg_sq_el * beta2 + p_grad_el * p_grad_el * (1. - beta2)
                 });
 
-            Zip::from(data)
+            Zip::from(&mut param.data)
                 .and(&param.exp_avg)
                 .and(&param.exp_avg_sq)
                 .for_each(|data_el, exp_avg_el, exp_avg_sq_el| {

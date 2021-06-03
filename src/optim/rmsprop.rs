@@ -144,15 +144,14 @@ impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
         );
 
         params.par_iter_mut().for_each(|param| {
-            let (data, grad, step, square_avg) = (
-                &mut param.data,
-                &param.grad,
-                &mut param.step,
-                &mut param.square_avg,
-            );
+            let (step, square_avg) = (&mut param.step, &mut param.square_avg);
 
             *step += 1;
-            let p_grad = grad.map(|el| el + penalty.penalise(el));
+
+            let mut p_grad = param.grad.to_owned();
+            Zip::from(&mut p_grad)
+                .and(&param.data)
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -160,7 +159,7 @@ impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
                     *square_avg_el += *square_avg_el * *alpha + p_grad_el * p_grad_el * (1. - alpha)
                 });
 
-            Zip::from(data)
+            Zip::from(&mut param.data)
                 .and(&p_grad)
                 .and(&param.square_avg)
                 .for_each(|data_el, p_grad_el, square_avg_el| {
@@ -298,16 +297,15 @@ impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
         );
 
         params.par_iter_mut().for_each(|param| {
-            let (data, grad, step, square_avg, buffer) = (
-                &mut param.data,
-                &param.grad,
-                &mut param.step,
-                &mut param.square_avg,
-                &mut param.buffer,
-            );
+            let (step, square_avg, buffer) =
+                (&mut param.step, &mut param.square_avg, &mut param.buffer);
 
             *step += 1;
-            let p_grad = grad.map(|el| el + penalty.penalise(el));
+
+            let mut p_grad = param.grad.to_owned();
+            Zip::from(&mut p_grad)
+                .and(&param.data)
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -322,7 +320,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
                     *buffer_el = *buffer_el * *momentum + p_grad_el / (square_avg_el.sqrt() + eps)
                 });
 
-            Zip::from(data)
+            Zip::from(&mut param.data)
                 .and(&param.buffer)
                 .for_each(|data_el, buffer_el| *data_el += -buffer_el * lr);
         });
@@ -449,16 +447,15 @@ impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
         );
 
         params.par_iter_mut().for_each(|param| {
-            let (data, grad, step, square_avg, grad_avg) = (
-                &mut param.data,
-                &param.grad,
-                &mut param.step,
-                &mut param.square_avg,
-                &mut param.grad_avg,
-            );
+            let (step, square_avg, grad_avg) =
+                (&mut param.step, &mut param.square_avg, &mut param.grad_avg);
 
             *step += 1;
-            let p_grad = grad.map(|el| el + penalty.penalise(el));
+
+            let mut p_grad = param.grad.to_owned();
+            Zip::from(&mut p_grad)
+                .and(&param.data)
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -472,7 +469,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
                     *grad_avg_el = *grad_avg_el * *alpha + p_grad_el * (1. - alpha)
                 });
 
-            Zip::from(data)
+            Zip::from(&mut param.data)
                 .and(&p_grad)
                 .and(&param.square_avg)
                 .and(&param.grad_avg)
@@ -647,9 +644,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
         );
 
         params.par_iter_mut().for_each(|param| {
-            let (data, grad, step, square_avg, grad_avg, buffer) = (
-                &mut param.data,
-                &param.grad,
+            let (step, square_avg, grad_avg, buffer) = (
                 &mut param.step,
                 &mut param.square_avg,
                 &mut param.grad_avg,
@@ -657,7 +652,11 @@ impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
             );
 
             *step += 1;
-            let p_grad = grad.map(|el| el + penalty.penalise(el));
+
+            let mut p_grad = param.grad.to_owned();
+            Zip::from(&mut p_grad)
+                .and(&param.data)
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -680,7 +679,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
                         + p_grad_el / ((square_avg_el + (-grad_avg_el * grad_avg_el)).sqrt() + eps)
                 });
 
-            Zip::from(data)
+            Zip::from(&mut param.data)
                 .and(&param.buffer)
                 .for_each(|data_el, buffer_el| *data_el += -buffer_el * lr);
         });

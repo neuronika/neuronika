@@ -90,13 +90,13 @@
 //!```
 //!use neuronika;
 //!
-//!let x = neuronika::rand(5);                 //----+
-//!let q = neuronika::rand((5, 5));            //    | Those lines just build
-//!                                            //    | the graph.
-//!let mut y = x.clone().vm(q).vv(x);          //----+
-//!                                            //
-//!y.forward();                                // After .forward() is called y
-//!                                            // contains the result.
+//!let x = neuronika::rand(5);          //----+
+//!let q = neuronika::rand((5, 5));     //    |- Those lines build the graph.
+//!                                     //    |
+//!let mut y = x.clone().vm(q).vv(x);   //----+
+//!                                     //
+//!y.forward();                         // After .forward() is called y
+//!                                     // contains the result.
 //!```
 //!
 //! ## Freeing and keeping the graph
@@ -111,15 +111,20 @@
 //!
 //!let w = neuronika::rand((3, 3)).requires_grad(); // -----------------+
 //!let b = neuronika::rand(3).requires_grad();      //                  |
-//!let x = neuronika::rand((10, 3));                //                  |-- Leaves are created
-//!                                                 //                  |
-//!{                                                // ---+             |
-//!     let mut h = x.mm(w.t()) + b;                //    | w's and b's |
-//!     h.forward();                                //    | grads are   |
-//!     h.backward(1.0);                            //    | accumulated |
-//!}                                                // ---+             |-- Graph is freed and
-//!                                                 // -----------------+   only leaves remain
+//!let x = neuronika::rand((10, 3));                // -----------------+- Leaves are created
+//!                                                 //                  
+//!{                                                // ---+             
+//!     let mut h = x.mm(w.t()) + b;                //    | w's and b's
+//!     h.forward();                                //    | grads are   
+//!     h.backward(1.0);                            //    | accumulated
+//!}                                                // ---+             |- Graph is freed and
+//!                                                 // -----------------+  only leaves remain
 //!```
+#![doc(html_logo_url = "https://github.com/neuronika/neuronika/blob/main/misc/neuronika_brain.svg")]
+#![doc(
+    html_favicon_url = "https://github.com/neuronika/neuronika/blob/main/misc/neuronika_brain.ico"
+)]
+
 pub mod data;
 pub mod nn;
 pub mod optim;
