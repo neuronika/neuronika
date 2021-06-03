@@ -1106,7 +1106,7 @@ where
                     }
                 });
             match self.reduction {
-                Reduction::Mean => -total_loss / input_data.len() as f32,
+                Reduction::Mean => -total_loss / input_data.len_of(Axis(0)) as f32,
                 Reduction::Sum => -total_loss,
             }
         };
@@ -1586,6 +1586,94 @@ mod test {
                     1.0000e+00,
                     1.0000e+00,
                     0.0000e+00,
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn nll_loss_mean() {
+        use crate::variable::node::LogSoftmax;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input(3, vec![2., 0., 4.]);
+        let input = Rc::new(LogSoftmax::new(
+            new_input(
+                (3, 5),
+                vec![
+                    0., 0.3, 0.4, 0.2, 0.1, 0., 0.3, 0.4, 0.2, 0.1, 0., 0.3, 0., 0.2, 0.5,
+                ],
+            ),
+            1,
+        ));
+        input.forward();
+
+        let loss = NLLLoss::new(input.clone(), target.clone(), Reduction::Mean);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![1.52222]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        let input_diff = new_backward_input((3, 5), vec![0.; 15]);
+        let loss_backward = NLLLossBackward::new(input_diff.clone(), target, Reduction::Mean);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (3, 5),
+                vec![
+                    0.0000, 0.0000, -0.3333, 0.0000, 0.0000, -0.3333, 0.0000, 0.0000, 0.0000,
+                    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, -0.3333,
+                ],
+            ),
+        );
+    }
+
+    #[test]
+    fn nll_loss_sum() {
+        use crate::variable::node::LogSoftmax;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input(3, vec![2., 0., 4.]);
+        let input = Rc::new(LogSoftmax::new(
+            new_input(
+                (3, 5),
+                vec![
+                    0., 0.3, 0.4, 0.2, 0.1, 0., 0.3, 0.4, 0.2, 0.1, 0., 0.3, 0., 0.2, 0.5,
+                ],
+            ),
+            1,
+        ));
+        input.forward();
+
+        let loss = NLLLoss::new(input.clone(), target.clone(), Reduction::Sum);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![4.56666]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        let input_diff = new_backward_input((3, 5), vec![0.; 15]);
+        let loss_backward = NLLLossBackward::new(input_diff.clone(), target, Reduction::Sum);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (3, 5),
+                vec![
+                    0.0000, 0.0000, -1.0000, 0.0000, 0.0000, -1.0000, 0.0000, 0.0000, 0.0000,
+                    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, -1.0000,
                 ],
             ),
         );
