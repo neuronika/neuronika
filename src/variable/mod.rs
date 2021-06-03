@@ -2035,6 +2035,18 @@ where
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn parameters_test() {
+        let x = crate::rand((2, 2)).requires_grad();
+        let y = crate::rand((2, 2)).requires_grad();
+        let z = crate::rand((1, 1)).requires_grad();
+
+        let w = x.clone() + y + z + x;
+
+        assert_eq!(w.parameters().len(), 3);
+    }
+
     #[test]
     fn sum() {
         let input = crate::ones((2, 2));
