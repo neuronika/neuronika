@@ -245,7 +245,7 @@ impl DataLoader {
     {
         let shape = shape.into_dimension();
         if shape.size() == 0 {
-            panic!("cannot handle empty records")
+            panic!("error: cannot handle empty records.")
         }
 
         let mut records = Vec::new();
@@ -301,13 +301,13 @@ impl LabeledDataLoader {
 
     fn new(builder: DataLoader, labels: &[usize]) -> Self {
         if labels.is_empty() {
-            panic!("labels not provided");
+            panic!("error: labels were not provided.");
         }
 
         let mut labels = labels.to_vec();
         labels.sort_unstable();
         if labels.windows(2).any(|w| w[0] == w[1]) {
-            panic!("duplicated labels");
+            panic!("error: duplicated labels.");
         }
 
         Self {
@@ -451,7 +451,7 @@ impl LabeledDataLoader {
         let sh1 = sh1.into_dimension();
         let sh2 = sh2.into_dimension();
         if sh1.size() == 0 || sh2.size() == 0 {
-            panic!("cannot handle empty records")
+            panic!("error: cannot handle empty records")
         }
 
         let mut records = Vec::new();
@@ -533,7 +533,7 @@ struct SetKFold<'a, D> {
 impl<'a, D: RemoveAxis> SetKFold<'a, D> {
     pub fn new(source: ArrayView<'a, f32, D>, k: usize) -> Self {
         if k < 2 {
-            panic!("meaningless fold number");
+            panic!("error: folds must be > 2.");
         }
 
         let axis_len = source.len_of(Axis(0));
