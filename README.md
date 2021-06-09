@@ -32,3 +32,20 @@ to define dynamically changing neural networks with very low effort and no overh
 
 The Rust language allows for an intuitive, light and easy to use interface while achieving incredible performance.
 There's no need for a FFI, everything happens in front of your eyes.
+
+## Crate Feature Flags
+
+The following crate feature flags are available. They configure the [`ndarray`](https://github.com/rust-ndarray/ndarray) backend.
+
+* `serde` 
+  * Enables serialization support for serde 1.x.
+
+* `blas`
+  * Enables transparent BLAS support for matrix multiplication. Uses `blas-src` for pluggable backend, which needs to be configured separately. See [`here`](https://github.com/rust-ndarray/ndarray#how-to-enable-blas-integration) for more informations.
+
+* `matrixmultiply-threading`
+  * Enables the `threading` feature in the [`matrixmultiply`](https://github.com/bluss/matrixmultiply) package.
+
+## Project Status
+
+Neuronika is very young and rapidly evolving, we are continously developing the project and breaking changes are expected during transitions from version to version. We adopt the newest stable Rust's features if we need them.
