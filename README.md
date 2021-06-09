@@ -38,7 +38,7 @@ There's no need for a FFI, everything happens in front of your eyes.
 The following crate feature flags are available. They configure the [`ndarray`](https://github.com/rust-ndarray/ndarray) backend.
 
 * `serde` 
-  * Enables serialization support for serde 1.x.
+  * Enables serialization support for [`serde`](https://github.com/serde-rs/serde) 1.x.
 
 * `blas`
   * Enables transparent BLAS support for matrix multiplication. Uses `blas-src` for pluggable backend, which needs to be configured separately. See [`here`](https://github.com/rust-ndarray/ndarray#how-to-enable-blas-integration) for more informations.
