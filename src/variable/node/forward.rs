@@ -1841,6 +1841,8 @@ impl<T: Data> Eval for Dropout<T> {
 mod tests {
     use super::*;
     use ndarray::StrideShape;
+    #[cfg(feature = "blas")]
+    extern crate blas_src;
 
     const F16_EPSILON: f32 = 9.77e-04;
 

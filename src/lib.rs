@@ -88,6 +88,8 @@
 //! values. You must use `.forward()` in order to obtain the actual result of the computation.
 //!
 //!```
+//! # #[cfg(feature = "blas")]
+//! # extern crate blas_src;
 //!use neuronika;
 //!
 //!let x = neuronika::rand(5);          //----+
@@ -107,6 +109,8 @@
 //! the scope is reached by your program.
 //!
 //!```
+//! # #[cfg(feature = "blas")]
+//! # extern crate blas_src;
 //!use neuronika;
 //!
 //!let w = neuronika::rand((3, 3)).requires_grad(); // -----------------+

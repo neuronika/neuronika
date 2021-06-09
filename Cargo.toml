@@ -16,6 +16,10 @@ rand_distr = "0.4.0"
 serde = "1.0.126"
 csv = "1.1.6"
 
+[dev-dependencies]
+blas-src = { version = "0.8", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["cblas", "system"] }
+
 [features]
 blas = ["ndarray/blas"]
 matrixmultiply-threading = ["ndarray/matrixmultiply-threading"]

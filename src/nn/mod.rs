@@ -98,6 +98,8 @@
 //! # use ndarray::Ix2;
 //! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
 //! # use neuronika::nn::Learnable;
+//! # #[cfg(feature = "blas")]
+//! # extern crate blas_src;
 //! # struct MLP {
 //! #    lin1: nn::Linear,
 //! #    lin2: nn::Linear,
@@ -153,6 +155,8 @@
 //! # use ndarray::Ix2;
 //! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
 //! # use neuronika::nn::Learnable;
+//! # #[cfg(feature = "blas")]
+//! # extern crate blas_src;
 //! # struct MLP {
 //! #    lin1: nn::Linear,
 //! #    lin2: nn::Linear,

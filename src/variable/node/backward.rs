@@ -11,6 +11,7 @@ use ndarray::{
     s, stack, ArrayBase, ArrayView, Axis, DimMax, Dimension, IntoNdProducer, Ix1, Ix2, NewAxis,
     RemoveAxis, Zip,
 };
+
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::rc::Rc;
 
@@ -4489,6 +4490,8 @@ where
 mod tests {
     use super::*;
     use ndarray::StrideShape;
+    #[cfg(feature = "blas")]
+    extern crate blas_src;
 
     const F16_EPSILON: f32 = 9.77e-04;
 
