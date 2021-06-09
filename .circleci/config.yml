@@ -18,7 +18,7 @@ jobs:
           command: >-
             docker run --security-opt seccomp=unconfined
             -v $PWD:/volume xd009642/tarpaulin
-            apt-get install libopenblas-dev
+            apt-get install libopenblas-dev &&
             cargo tarpaulin --out Xml --all-features --ignore-tests
 
       - codecov/upload:
