@@ -19,4 +19,4 @@ csv = "1.1.6"
 [features]
 blas = ["ndarray/blas"]
 matrixmultiply-threading = ["ndarray/matrixmultiply-threading"]
-serde = ["ndarray/serde"]
+serialize = ["ndarray/serde"]

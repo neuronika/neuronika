@@ -37,7 +37,7 @@ There's no need for a FFI, everything happens in front of your eyes.
 
 The following crate feature flags are available. They configure the [`ndarray`](https://github.com/rust-ndarray/ndarray) backend.
 
-* `serde` 
+* `serialize` 
   * Enables serialization support for [`serde`](https://github.com/serde-rs/serde) 1.x.
 
 * `blas`
