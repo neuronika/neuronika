@@ -1066,9 +1066,10 @@ mod tests {
                 .from_reader(DATASET.as_bytes(), 10);
 
             let datasets = dataset.split_with_seed(&[1, 1, 1, 2], 0);
+
             assert_eq!(
                 datasets[0].records(),
-                Array::from_shape_vec((1, 10), vec![9., 8., 7., 6., 5., 4., 3., 2., 1., 0.,])
+                Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
                     .unwrap()
             );
 
@@ -1089,7 +1090,7 @@ mod tests {
                 Array::from_shape_vec(
                     (2, 10),
                     vec![
-                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
                         0.,
                     ]
                 )
