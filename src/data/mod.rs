@@ -65,6 +65,7 @@
 //! ```
 
 use csv::{ReaderBuilder, StringRecord};
+use itertools::Itertools;
 use ndarray::{
     iter::AxisChunksIter, Array, ArrayView, Axis, Dimension, IntoDimension, RemoveAxis, Zip,
 };
@@ -617,6 +618,7 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
     }
 }
 
+/// Iterator over batches of unlabeled data.
 pub struct Batch<'a, D> {
     iter: AxisChunksIter<'a, f32, D>,
 }
@@ -626,6 +628,21 @@ impl<'a, D: RemoveAxis> Batch<'a, D> {
         Self {
             iter: source.axis_chunks_iter(Axis(0), size),
         }
+    }
+
+    /// Drops the last incomplete batch, if the dataset size is not divisible by the batch size.
+    pub fn drop_last(mut self) -> Self {
+        let mut current = self.iter.clone();
+
+        if let Some(next) = current.next() {
+            if let Some(last) = current.last() {
+                if next.len_of(Axis(0)) != last.len_of(Axis(0)) {
+                    self.iter = self.iter.dropping_back(1);
+                }
+            }
+        }
+
+        self
     }
 }
 
@@ -721,6 +738,7 @@ where
     }
 }
 
+/// Iterator over batches of labeled data.
 pub struct LabeledBatch<'a, D1, D2> {
     records: Batch<'a, D1>,
     labels: Batch<'a, D2>,
@@ -734,6 +752,14 @@ impl<'a, D1: RemoveAxis, D2: RemoveAxis> LabeledBatch<'a, D1, D2> {
             records: Batch::new(records, size),
             labels: Batch::new(labels, size),
         }
+    }
+
+    /// Drops the last incomplete batch, if the dataset size is not divisible by the batch size.
+    pub fn drop_last(mut self) -> Self {
+        self.records = self.records.drop_last();
+        self.labels = self.labels.drop_last();
+
+        self
     }
 }
 
@@ -931,6 +957,29 @@ mod tests {
                 .unwrap()
             );
         }
+
+        #[test]
+        fn drop_last() {
+            let dataset = DataLoader::default()
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10);
+
+            let mut batch = dataset.batch(3).drop_last();
+            assert_eq!(
+                batch.next().unwrap(),
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+
+            assert_eq!(batch.next().is_none(), true);
+            assert_eq!(batch.next().is_none(), true);
+        }
     }
 
     mod labeled_dataset {
@@ -1111,6 +1160,35 @@ mod tests {
                 )
                 .unwrap()
             );
+        }
+
+        #[test]
+        fn drop_last() {
+            let dataset = DataLoader::default()
+                .with_labels(&[3, 8])
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2);
+            let mut batch = dataset.batch(3).drop_last();
+
+            let (records, labels) = batch.next().unwrap();
+            assert_eq!(
+                records,
+                Array::from_shape_vec(
+                    (3, 10),
+                    vec![
+                        0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0., 0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                labels,
+                Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
+            );
+
+            assert_eq!(batch.next().is_none(), true);
+            assert_eq!(batch.next().is_none(), true);
         }
     }
 }
