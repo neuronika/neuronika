@@ -67,9 +67,9 @@
 use csv::{ReaderBuilder, StringRecord};
 use itertools::Itertools;
 use ndarray::{
-    iter::AxisChunksIter, Array, ArrayView, Axis, Dimension, IntoDimension, RemoveAxis, Zip,
+    iter::AxisChunksIter, Array, ArrayView, Axis, Dimension, IntoDimension, Ix, RemoveAxis, Zip,
 };
-use rand::Rng;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::de::DeserializeOwned;
 use std::{fs::File, io::Read};
 
@@ -143,12 +143,70 @@ impl<D: RemoveAxis> Dataset<D> {
         Batch::new(&self.records, batch_size)
     }
 
+    /// Randomly splits a dataset into non-overlapping new datasets of given lengths.
+    ///
+    /// # Arguments
+    ///
+    /// `lengths` -  lengths of splits to be produced.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split(self, lengths: &[usize]) -> Vec<Dataset<D>> {
+        self.split_with_seed(lengths, rand::thread_rng().gen())
+    }
+
+    /// Randomly splits a dataset into non-overlapping new datasets of given lengths. This version
+    /// fixes the generator for results reproducibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `lengths` -  lengths of splits to be produced.
+    ///
+    /// * `seed` - seed used for the random permutation.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split_with_seed(mut self, lengths: &[usize], seed: u64) -> Vec<Dataset<D>> {
+        if self.len() != lengths.iter().sum() {
+            panic!("Input lengths do not cover the whole dataset");
+        }
+
+        self.shuffle_with_seed(seed);
+
+        let mut shape = self.records.raw_dim();
+        let elems: Ix = shape.slice().iter().skip(1).product();
+        let mut records = self.records.into_raw_vec();
+
+        let mut datasets = Vec::with_capacity(lengths.len());
+        for length in lengths {
+            shape[0] = *length;
+
+            datasets.push(Dataset::new(
+                Array::from_shape_vec(shape.clone(), records.drain(..length * elems).collect())
+                    .unwrap(),
+            ));
+        }
+
+        datasets
+    }
+
     /// Randomly shuffles the dataset.
     pub fn shuffle(&mut self) -> &mut Self {
-        let len = self.records.len_of(Axis(0));
-        assert_ne!(len, 0, "empty dataset");
+        self.shuffle_with_seed(0)
+    }
 
-        let mut rng = rand::thread_rng();
+    /// Randomly shuffles the dataset. This version allows for a seed to be specified for results
+    /// reproducibility.
+    pub fn shuffle_with_seed(&mut self, seed: u64) -> &mut Self {
+        let len = self.records.len_of(Axis(0));
+
+        if len == 0 {
+            return self;
+        }
+
+        let mut rng = StdRng::seed_from_u64(seed);
         for i in 0..len - 1 {
             // Since `iter.nth(pos)` consumes all the elements in `[0, pos]`
             // j will be in the interval `[pos + 1, len - 1]`, that contains `len - pos - 1`
@@ -591,12 +649,77 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
         LabeledBatch::new(&self.records, &self.labels, size)
     }
 
+    /// Randomly splits a labeled dataset into non-overlapping new datasets of given lengths.
+    ///
+    /// # Arguments
+    ///
+    /// `lengths` -  lengths of splits to be produced.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split(self, lengths: &[usize]) -> Vec<LabeledDataset<D1, D2>> {
+        self.split_with_seed(lengths, rand::thread_rng().gen())
+    }
+
+    /// Randomly splits a labeled dataset into non-overlapping new datasets of given lengths. This
+    /// version fixes the generator for results reproducibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `lengths` -  lengths of splits to be produced.
+    ///
+    /// * `seed` - seed used for the random permutation.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split_with_seed(mut self, lengths: &[usize], seed: u64) -> Vec<LabeledDataset<D1, D2>> {
+        if self.len() != lengths.iter().sum() {
+            panic!("error: input lengths do not cover the whole dataset.");
+        }
+
+        self.shuffle_with_seed(seed);
+
+        let mut r_shape = self.records.raw_dim();
+        let r_elems: Ix = r_shape.slice().iter().skip(1).product();
+        let mut records = self.records.into_raw_vec();
+
+        let mut l_shape = self.labels.raw_dim();
+        let l_elems: Ix = l_shape.slice().iter().skip(1).product();
+        let mut labels = self.labels.into_raw_vec();
+
+        let mut datasets = Vec::with_capacity(lengths.len());
+        for length in lengths {
+            r_shape[0] = *length;
+            l_shape[0] = *length;
+
+            datasets.push(LabeledDataset::new(
+                Array::from_shape_vec(r_shape.clone(), records.drain(..length * r_elems).collect())
+                    .unwrap(),
+                Array::from_shape_vec(l_shape.clone(), labels.drain(..length * l_elems).collect())
+                    .unwrap(),
+            ));
+        }
+
+        datasets
+    }
+
     /// Randomly shuffles the labeled dataset.
     pub fn shuffle(&mut self) -> &mut Self {
-        let len = self.records.len_of(Axis(0));
-        assert_ne!(len, 0, "empty dataset");
+        self.shuffle_with_seed(0)
+    }
 
-        let mut rng = rand::thread_rng();
+    /// Randomly shuffles the labeled dataset. This version allows for a seed to be specified for
+    /// results reproducibility.
+    pub fn shuffle_with_seed(&mut self, seed: u64) -> &mut Self {
+        let len = self.records.len_of(Axis(0));
+
+        if len == 0 {
+            return self;
+        }
+
+        let mut rng = StdRng::seed_from_u64(seed);
         for i in 0..len - 1 {
             // Since `iter.nth(pos)` consumes all the elements in `[0, pos]`
             // j will be in the interval `[pos + 1, len - 1]`, that contains `len - pos - 1`
@@ -937,6 +1060,45 @@ mod tests {
         }
 
         #[test]
+        fn split() {
+            let dataset = DataLoader::default()
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10);
+
+            let datasets = dataset.split_with_seed(&[1, 1, 1, 2], 0);
+
+            assert_eq!(
+                datasets[0].records(),
+                Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
+                    .unwrap()
+            );
+
+            assert_eq!(
+                datasets[1].records(),
+                Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
+                    .unwrap()
+            );
+
+            assert_eq!(
+                datasets[2].records(),
+                Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
+                    .unwrap()
+            );
+
+            assert_eq!(
+                datasets[3].records(),
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0.,
+                    ]
+                )
+                .unwrap()
+            );
+        }
+
+        #[test]
         fn shuffle() {
             let mut dataset = DataLoader::default()
                 .without_headers()
@@ -1138,6 +1300,61 @@ mod tests {
             );
 
             assert_eq!(batch.next().is_none(), true);
+        }
+
+        #[test]
+        fn split() {
+            let dataset = DataLoader::default()
+                .with_labels(&[3, 8])
+                .without_headers()
+                .from_reader(DATASET.as_bytes(), 10, 2);
+
+            let datasets = dataset.split_with_seed(&[1, 1, 1, 2], 0);
+            assert_eq!(
+                datasets[0].records(),
+                Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
+                    .unwrap()
+            );
+            assert_eq!(
+                datasets[0].labels(),
+                Array::from_shape_vec((1, 2), vec![1., 0.]).unwrap()
+            );
+
+            assert_eq!(
+                datasets[1].records(),
+                Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
+                    .unwrap()
+            );
+            assert_eq!(
+                datasets[1].labels(),
+                Array::from_shape_vec((1, 2), vec![1., 0.]).unwrap()
+            );
+
+            assert_eq!(
+                datasets[2].records(),
+                Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
+                    .unwrap()
+            );
+            assert_eq!(
+                datasets[2].labels(),
+                Array::from_shape_vec((1, 2), vec![1., 0.]).unwrap()
+            );
+
+            assert_eq!(
+                datasets[3].records(),
+                Array::from_shape_vec(
+                    (2, 10),
+                    vec![
+                        9., 8., 7., 6., 5., 4., 3., 2., 1., 0., 9., 8., 7., 6., 5., 4., 3., 2., 1.,
+                        0.,
+                    ]
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                datasets[3].labels(),
+                Array::from_shape_vec((2, 2), vec![0., 1., 0., 1.,]).unwrap()
+            );
         }
 
         #[test]
