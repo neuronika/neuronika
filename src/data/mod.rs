@@ -741,6 +741,7 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
     }
 }
 
+/// Iterator over batches of unlabeled data.
 pub struct Batch<'a, D> {
     iter: AxisChunksIter<'a, f32, D>,
 }
@@ -752,6 +753,7 @@ impl<'a, D: RemoveAxis> Batch<'a, D> {
         }
     }
 
+    /// Drops the last incomplete batch, if the dataset size is not divisible by the batch size.
     pub fn drop_last(mut self) -> Self {
         let mut current = self.iter.clone();
 
@@ -859,6 +861,7 @@ where
     }
 }
 
+/// Iterator over batches of labeled data.
 pub struct LabeledBatch<'a, D1, D2> {
     records: Batch<'a, D1>,
     labels: Batch<'a, D2>,
@@ -874,6 +877,7 @@ impl<'a, D1: RemoveAxis, D2: RemoveAxis> LabeledBatch<'a, D1, D2> {
         }
     }
 
+    /// Drops the last incomplete batch, if the dataset size is not divisible by the batch size.
     pub fn drop_last(mut self) -> Self {
         self.records = self.records.drop_last();
         self.labels = self.labels.drop_last();
