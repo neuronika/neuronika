@@ -143,17 +143,32 @@ impl<D: RemoveAxis> Dataset<D> {
         Batch::new(&self.records, batch_size)
     }
 
-    pub fn split(self, lengths: Vec<usize>) -> Vec<Dataset<D>> {
+    /// Randomly splits a dataset into non-overlapping new datasets of given lengths.
+    ///
+    /// # Arguments
+    ///
+    /// `lengths` -  lengths of splits to be produced.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split(self, lengths: &[usize]) -> Vec<Dataset<D>> {
         self.split_with_seed(lengths, rand::thread_rng().gen())
     }
 
-    pub fn split_with_seed(mut self, lengths: Vec<usize>, seed: u64) -> Vec<Dataset<D>> {
-        if self.len() != lengths.iter().sum() {
-            panic!("Input lengths do not cover the whole dataset");
-        }
-
-        self.shuffle_with_seed(seed);
-
+    /// Randomly splits a dataset into non-overlapping new datasets of given lengths. This version
+    /// fixes the generator for results reproducibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `lengths` -  lengths of splits to be produced.
+    ///
+    /// * `seed` - seed used for the random permutation.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split_with_seed(mut self, lengths: &[usize], seed: u64) -> Vec<Dataset<D>> {
         if self.len() != lengths.iter().sum() {
             panic!("Input lengths do not cover the whole dataset");
         }
@@ -166,7 +181,7 @@ impl<D: RemoveAxis> Dataset<D> {
 
         let mut datasets = Vec::with_capacity(lengths.len());
         for length in lengths {
-            shape[0] = length;
+            shape[0] = *length;
 
             datasets.push(Dataset::new(
                 Array::from_shape_vec(shape.clone(), records.drain(..length * elems).collect())
@@ -182,6 +197,8 @@ impl<D: RemoveAxis> Dataset<D> {
         self.shuffle_with_seed(0)
     }
 
+    /// Randomly shuffles the dataset. This version allows for a seed to be specified for results
+    /// reproducibility.
     pub fn shuffle_with_seed(&mut self, seed: u64) -> &mut Self {
         let len = self.records.len_of(Axis(0));
 
@@ -632,17 +649,34 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
         LabeledBatch::new(&self.records, &self.labels, size)
     }
 
-    pub fn split(self, lengths: Vec<usize>) -> Vec<LabeledDataset<D1, D2>> {
+    /// Randomly splits a labeled dataset into non-overlapping new datasets of given lengths.
+    ///
+    /// # Arguments
+    ///
+    /// `lengths` -  lengths of splits to be produced.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split(self, lengths: &[usize]) -> Vec<LabeledDataset<D1, D2>> {
         self.split_with_seed(lengths, rand::thread_rng().gen())
     }
 
-    pub fn split_with_seed(
-        mut self,
-        lengths: Vec<usize>,
-        seed: u64,
-    ) -> Vec<LabeledDataset<D1, D2>> {
+    /// Randomly splits a labeled dataset into non-overlapping new datasets of given lengths. This
+    /// version fixes the generator for results reproducibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `lengths` -  lengths of splits to be produced.
+    ///
+    /// * `seed` - seed used for the random permutation.
+    ///
+    /// # Panics
+    ///
+    /// If the sum of the input lengths do not cover the whole dataset.
+    pub fn split_with_seed(mut self, lengths: &[usize], seed: u64) -> Vec<LabeledDataset<D1, D2>> {
         if self.len() != lengths.iter().sum() {
-            panic!("Input lengths do not cover the whole dataset");
+            panic!("error: input lengths do not cover the whole dataset.");
         }
 
         self.shuffle_with_seed(seed);
@@ -657,8 +691,8 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
 
         let mut datasets = Vec::with_capacity(lengths.len());
         for length in lengths {
-            r_shape[0] = length;
-            l_shape[0] = length;
+            r_shape[0] = *length;
+            l_shape[0] = *length;
 
             datasets.push(LabeledDataset::new(
                 Array::from_shape_vec(r_shape.clone(), records.drain(..length * r_elems).collect())
@@ -671,12 +705,13 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
         datasets
     }
 
-    /// Randomly shuffles the dataset.
+    /// Randomly shuffles the labeled dataset.
     pub fn shuffle(&mut self) -> &mut Self {
         self.shuffle_with_seed(0)
     }
 
-    /// Randomly shuffles the labeled dataset.
+    /// Randomly shuffles the labeled dataset. This version allows for a seed to be specified for
+    /// results reproducibility.
     pub fn shuffle_with_seed(&mut self, seed: u64) -> &mut Self {
         let len = self.records.len_of(Axis(0));
 
@@ -1026,7 +1061,7 @@ mod tests {
                 .without_headers()
                 .from_reader(DATASET.as_bytes(), 10);
 
-            let datasets = dataset.split_with_seed(vec![1, 1, 1, 2], 0);
+            let datasets = dataset.split_with_seed(&[1, 1, 1, 2], 0);
             assert_eq!(
                 datasets[0].records(),
                 Array::from_shape_vec((1, 10), vec![9., 8., 7., 6., 5., 4., 3., 2., 1., 0.,])
@@ -1269,7 +1304,7 @@ mod tests {
                 .without_headers()
                 .from_reader(DATASET.as_bytes(), 10, 2);
 
-            let datasets = dataset.split_with_seed(vec![1, 1, 1, 2], 0);
+            let datasets = dataset.split_with_seed(&[1, 1, 1, 2], 0);
             assert_eq!(
                 datasets[0].records(),
                 Array::from_shape_vec((1, 10), vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.,])
