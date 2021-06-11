@@ -16,11 +16,12 @@ use node::{
     MatrixVectorMulBackwardRight, Mean, MeanBackward, Multiplication, MultiplicationBackward,
     MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Power, PowerBackward, ReLU,
     ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
-    Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight, Subtraction,
-    SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH,
-    TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
-    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
-    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
+    Sqrt, SqrtBackward, Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight,
+    Subtraction, SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum,
+    SumBackward, TanH, TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward,
+    VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
+    VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackward,
+    VectorVectorMulBackwardUnary,
 };
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
@@ -613,6 +614,11 @@ impl<T: Data + 'static> Var<T> {
         Var::from(Power::new(self.node, exp), self.past)
     }
 
+    /// Takes the square root element-wise and returns a variable with the result.
+    pub fn sqrt(self) -> Var<Sqrt<T>> {
+        Var::from(Sqrt::new(self.node), self.past)
+    }
+
     /// Applies the *rectified linear unit* element-wise and returns a variable with the
     /// result.
     ///
@@ -1086,6 +1092,13 @@ where
     pub fn pow(self, exp: i32) -> VarDiff<Power<T>, PowerBackward<U, T>> {
         let node = PowerBackward::new(self.node, self.var.node.clone(), exp);
         VarDiff::from(node, self.past, self.var.pow(exp))
+    }
+
+    /// Takes the square root element-wise and returns a differentiable variable with the result.
+    pub fn sqrt(self) -> VarDiff<Sqrt<T>, SqrtBackward<U, Sqrt<T>>> {
+        let var = self.var.sqrt();
+        let node = SqrtBackward::new(self.node, var.node.clone());
+        VarDiff::from(node, self.past, var)
     }
 
     /// Applies the *rectified linear unit* element-wise and and returns a differentiable
@@ -2119,6 +2132,24 @@ mod tests {
 
         assert_eq!(pow.past.len(), 1);
         assert_eq!(pow.past.parameters.len(), 1);
+    }
+
+    #[test]
+    fn sqrt() {
+        let input = crate::ones((2, 2));
+        let relu = input.sqrt();
+
+        assert_eq!(relu.past.len(), 1);
+        assert!(relu.past.changeables.is_empty());
+    }
+
+    #[test]
+    fn sqrt_diff() {
+        let input = crate::ones((2, 2)).requires_grad();
+        let relu = input.sqrt();
+
+        assert_eq!(relu.past.len(), 1);
+        assert_eq!(relu.past.parameters.len(), 1);
     }
 
     #[test]
