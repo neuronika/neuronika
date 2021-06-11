@@ -2657,6 +2657,95 @@ where
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SqrtBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct SqrtBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    gradient: RefCell<Option<Tensor<T::Dim>>>,
+    shape: T::Dim,
+    overwrite: Cell<bool>,
+    diff_operand: Rc<T>,
+    no_diff_operand: Rc<U>,
+}
+
+impl<T, U> SqrtBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
+        let shape = diff_operand.gradient().raw_dim();
+
+        Self {
+            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
+            overwrite: Cell::new(true),
+            diff_operand,
+            no_diff_operand,
+        }
+    }
+}
+
+impl<T, U> Gradient for SqrtBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = T::Dim;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U> Overwrite for SqrtBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U> Backward for SqrtBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let mut op_grad = self.diff_operand.gradient_mut();
+        let data = self.no_diff_operand.data();
+        let grad = self.gradient();
+
+        let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
+        if self.diff_operand.can_overwrite() {
+            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el = *grad_el * 0.5 / data_el);
+            self.diff_operand.set_overwrite(false);
+        } else {
+            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el += *grad_el * 0.5 / data_el);
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SumBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct SumBackward<T: Gradient + Overwrite> {
@@ -6611,6 +6700,83 @@ mod tests {
                 &*diff.gradient(),
                 &new_tensor(3, vec![-3., -0.1875, -0.037037]),
             );
+        }
+    }
+
+    mod backward_sqrt {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let node = SqrtBackward::new(
+                new_backward_input(3, vec![0.; 3]),
+                new_input(3, vec![1., 2., 3.]),
+            );
+
+            assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
+            assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
+            assert_eq!(node.can_overwrite(), true);
+        }
+
+        #[test]
+        fn computation_state_transition() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = SqrtBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), false);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            diff.set_overwrite(true);
+            assert_eq!(node.can_overwrite(), true);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.set_overwrite(false);
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), true);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+
+            node.backward();
+            assert_eq!(node.can_overwrite(), false);
+            assert_eq!(diff.can_overwrite(), false);
+        }
+
+        #[test]
+        fn backward() {
+            let diff = new_backward_input(3, vec![0.; 3]);
+            let node = SqrtBackward::new(diff.clone(), new_input(3, vec![1., 1.4142, 1.7321]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
+            assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.5, 0.3536, 0.2887]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![1., 0.7071, 0.5774]));
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            diff.set_overwrite(true);
+            node.backward();
+            assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.5, 0.3536, 0.2887]));
         }
     }
 

@@ -854,6 +854,54 @@ impl<T: Data> Data for Power<T> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Square Root ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct Sqrt<T: Data> {
+    operand: Rc<T>,
+    data: RefCell<Tensor<T::Dim>>,
+    computed: Cell<bool>,
+}
+
+impl<T: Data> Sqrt<T> {
+    pub fn new(operand: Rc<T>) -> Self {
+        let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
+
+        Self {
+            operand,
+            data,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T: Data> Forward for Sqrt<T> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        Zip::from(&mut *self.data.borrow_mut())
+            .and(&*self.operand.data())
+            .for_each(|v, o| *v = o.sqrt());
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: Data> Data for Sqrt<T> {
+    type Dim = T::Dim;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Sum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct Sum<T: Data> {
@@ -2791,6 +2839,90 @@ mod tests {
                 &new_tensor(
                     (3, 3),
                     vec![8., 27., 64., 125., 216., 343., 512., 729., 1_000.],
+                ),
+            );
+        }
+    }
+
+    mod sqrt {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Sqrt::new(input);
+
+            assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Sqrt::new(input);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward() {
+            let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+            let node = Sqrt::new(input.clone());
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        1.0000, 1.4142, 1.7321, 2.0000, 2.2361, 2.4495, 2.6458, 2.8284, 3.0000,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
+            );
+
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        1.0000, 1.4142, 1.7321, 2.0000, 2.2361, 2.4495, 2.6458, 2.8284, 3.0000,
+                    ],
+                ),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*node.data(),
+                &new_tensor(
+                    (3, 3),
+                    vec![
+                        1.4142135, 1.7320508, 2., 2.236068, 2.4494898, 2.6457512, 2.828427, 3.,
+                        3.1622777,
+                    ],
                 ),
             );
         }
