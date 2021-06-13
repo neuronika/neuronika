@@ -124,9 +124,11 @@
 //!}                                                // ---+             |- Graph is freed and
 //!                                                 // -----------------+  only leaves remain
 //!```
-#![doc(html_logo_url = "https://github.com/neuronika/neuronika/blob/main/misc/neuronika_brain.svg")]
 #![doc(
-    html_favicon_url = "https://github.com/neuronika/neuronika/blob/main/misc/neuronika_brain.ico"
+    html_logo_url = "https://raw.githubusercontent.com/neuronika/neuronika/main/misc/neuronika_brain.svg"
+)]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/neuronika/neuronika/main/misc/neuronika_brain.ico"
 )]
 
 pub mod data;

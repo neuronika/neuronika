@@ -16,6 +16,10 @@
 <a href="https://opensource.org/licenses/MPL-2.0">
   <img src="https://img.shields.io/badge/License-MPL%202.0-ff69b4.svg"/>
 </a>
+
+<a href="https://docs.rs/neuronika">
+  <img src="https://img.shields.io/badge/API-reference-brightgreen"/>
+</a>
 </p>
 
 Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
