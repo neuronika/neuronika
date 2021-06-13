@@ -6756,6 +6756,7 @@ mod tests {
             assert_eq!(diff.can_overwrite(), false);
         }
 
+        #[allow(clippy::clippy::approx_constant)]
         #[test]
         fn backward() {
             let diff = new_backward_input(3, vec![0.; 3]);
@@ -6830,6 +6831,7 @@ mod tests {
             assert_eq!(diff.can_overwrite(), false);
         }
 
+        #[allow(clippy::clippy::approx_constant)]
         #[test]
         fn backward() {
             let diff = new_backward_input((10, 10), vec![0.; 100]);

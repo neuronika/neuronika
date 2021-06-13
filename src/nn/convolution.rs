@@ -3384,8 +3384,6 @@ mod tests {
 
         #[test]
         fn replication_pad_1d() {
-            use PaddingMode;
-
             let padding = Replicative;
             let arr = ndarray::Array::range(0., 5., 1.);
             let padded = padding.pad(&arr, [2]);
@@ -3394,8 +3392,6 @@ mod tests {
 
         #[test]
         fn replication_pad_2d() {
-            use PaddingMode;
-
             let padding = Replicative;
             let arr = ndarray::Array::range(0., 25., 1.)
                 .into_shape((5, 5))
@@ -3417,8 +3413,6 @@ mod tests {
 
         #[test]
         fn replication_pad_3d() {
-            use PaddingMode;
-
             let padding = Replicative;
             let arr = ndarray::Array::range(0., 125., 1.)
                 .into_shape((5, 5, 5))
@@ -3510,8 +3504,6 @@ mod tests {
 
         #[test]
         fn reflection_pad_1d() {
-            use PaddingMode;
-
             let padding = Reflective;
             let arr = ndarray::Array::range(0., 5., 1.);
             let padded = padding.pad(&arr, [2]);
@@ -3520,8 +3512,6 @@ mod tests {
 
         #[test]
         fn reflection_pad_2d() {
-            use PaddingMode;
-
             let padding = Reflective;
             let arr = ndarray::Array::range(0., 25., 1.)
                 .into_shape((5, 5))
@@ -3543,8 +3533,6 @@ mod tests {
 
         #[test]
         fn reflection_pad_3d() {
-            use PaddingMode;
-
             let padding = Reflective;
             let arr = ndarray::Array::range(0., 125., 1.)
                 .into_shape((5, 5, 5))
@@ -3837,7 +3825,7 @@ mod tests {
 
         #[test]
         fn conv3d() {
-            let input_elems = Array::<f32, _>::from_iter((0..750).map(|el| el as f32));
+            let input_elems = (0..750).map(|el| el as f32).collect::<Array<f32, _>>();
             let input = input_elems.into_shape((2, 3, 5, 5, 5)).unwrap();
             let kernel = Array::<f32, _>::ones((4, 3, 2, 2, 2));
 
@@ -4185,7 +4173,7 @@ mod tests {
 
         #[test]
         fn conv3d_strided() {
-            let input_elems = Array::<f32, _>::from_iter((0..750).map(|el| el as f32));
+            let input_elems = (0..750).map(|el| el as f32).collect::<Array<f32, _>>();
             let input = input_elems.into_shape((2, 3, 5, 5, 5)).unwrap();
             let kernel = Array::<f32, _>::ones((4, 3, 2, 2, 2));
 
@@ -4485,7 +4473,7 @@ mod tests {
 
         #[test]
         fn conv3d_dilated() {
-            let input_elems = Array::<f32, _>::from_iter((0..750).map(|el| el as f32));
+            let input_elems = (0..750).map(|el| el as f32).collect::<Array<f32, _>>();
             let input = input_elems.into_shape((2, 3, 5, 5, 5)).unwrap();
             let kernel = Array::<f32, _>::ones((4, 3, 2, 2, 2));
 
@@ -4964,7 +4952,7 @@ mod tests {
 
         #[test]
         fn grouped_conv3d() {
-            let input_elems = Array::<f32, _>::from_iter((0..2000).map(|el| el as f32));
+            let input_elems = (0..2_000).map(|el| el as f32).collect::<Array<f32, _>>();
             let input = input_elems.into_shape((2, 8, 5, 5, 5)).unwrap();
             let kernel = Array::<f32, _>::ones((16, 2, 2, 2, 2));
 
