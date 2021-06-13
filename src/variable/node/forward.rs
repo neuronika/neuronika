@@ -2874,6 +2874,7 @@ mod tests {
             assert_eq!(node.was_computed(), false);
         }
 
+        #[allow(clippy::clippy::approx_constant)]
         #[test]
         fn forward() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
