@@ -2730,14 +2730,10 @@ where
 
         let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*data);
         if self.diff_operand.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el, data_el| {
-                *op_grad_el = *grad_el * 0.5 / (data_el + f32::EPSILON)
-            });
+            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el = *grad_el * 0.5 / data_el);
             self.diff_operand.set_overwrite(false);
         } else {
-            zip.for_each(|op_grad_el, grad_el, data_el| {
-                *op_grad_el += *grad_el * 0.5 / (data_el + f32::EPSILON)
-            });
+            zip.for_each(|op_grad_el, grad_el, data_el| *op_grad_el += *grad_el * 0.5 / data_el);
         }
     }
 

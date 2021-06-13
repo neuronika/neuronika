@@ -20,6 +20,9 @@ pub trait Data {
 
     /// Returns an immutable reference to the data inside `self`.
     fn data(&self) -> Ref<Tensor<Self::Dim>>;
+
+    /// Returns a mutable reference to the data inside `self`.
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>>;
 }
 
 /// Forward-propagation behaviour.

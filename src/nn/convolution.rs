@@ -739,6 +739,10 @@ where
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 impl<Inp, Ker, Pad> Forward for Convolution<Inp, Ker, Pad>
@@ -856,6 +860,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
