@@ -2,7 +2,7 @@ pub mod node;
 
 use ndarray::{
     Array, ArrayD, ArrayViewMutD, DimMax, Dimension, IntoDimension, Ix, Ix1, Ix2, RawArrayViewMut,
-    RemoveAxis, Zip,
+    RemoveAxis,
 };
 use node::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Chunk, ChunkBackward, Concatenate,
@@ -15,13 +15,13 @@ use node::{
     MatrixVectorMul, MatrixVectorMulBackward, MatrixVectorMulBackwardLeft,
     MatrixVectorMulBackwardRight, Mean, MeanBackward, Multiplication, MultiplicationBackward,
     MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Power, PowerBackward, ReLU,
-    ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
-    Sqrt, SqrtBackward, Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight,
-    Subtraction, SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum,
-    SumBackward, TanH, TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward,
-    VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
-    VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackward,
-    VectorVectorMulBackwardUnary,
+    ReLUBackward, ScalarAdd, ScalarDiv, ScalarMul, ScalarSub, Sigmoid, SigmoidBackward, SoftPlus,
+    SoftPlusBackward, Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack as StackF, StackBackward,
+    StackBackwardLeft, StackBackwardRight, Subtraction, SubtractionBackward,
+    SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
+    Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, VectorMatrixMul,
+    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
+    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
@@ -480,6 +480,11 @@ impl<T: Data + Forward + 'static> Var<T> {
         Var { node, past }
     }
 
+    pub(crate) fn augment_path<U: Forward + 'static>(&mut self, node: U) {
+        self.past
+            .append_forward(unsafe { OPERATIONS_COUNTER.next() }, Rc::new(node));
+    }
+
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in training mode.
     ///    
@@ -889,7 +894,7 @@ where
 impl<T, U> VarDiff<T, U>
 where
     T: Data + Forward + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + Backward + 'static,
+    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
 {
     /// Propagates the computations forwards and populates all the variables and differetiable
     /// variables from the leaves of the graph to `self`.   
@@ -906,7 +911,13 @@ where
             node.set_overwrite(true);
         }
     }
+}
 
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + Forward + 'static,
+    U: Gradient<Dim = T::Dim> + Overwrite + Backward + 'static,
+{
     /// Back-propagates through the computational graph and populates the gradients of the
     /// differentiable leaves that are ancestors of `self`. Before back-propagating the gradient
     /// of `self` is seeded with `seed`, thus, the leaves' gradients will be scaled accordingly.
@@ -1327,200 +1338,232 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Var - f32 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + 'static> Add<f32> for Var<T> {
+impl<T: Data + Forward + 'static> Add<f32> for Var<T> {
     type Output = Self;
 
-    fn add(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el += rhs);
+    fn add(mut self, rhs: f32) -> Self::Output {
+        let node = self.node.clone();
+        self.augment_path(ScalarAdd::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static> AddAssign<f32> for Var<T> {
+impl<T: Data + Forward + 'static> AddAssign<f32> for Var<T> {
     fn add_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el += rhs);
+        let node = self.node.clone();
+        self.augment_path(ScalarAdd::new(node, rhs));
     }
 }
 
-impl<T: Data + 'static> Sub<f32> for Var<T> {
+impl<T: Data + Forward + 'static> Sub<f32> for Var<T> {
     type Output = Self;
 
-    fn sub(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el -= rhs);
+    fn sub(mut self, rhs: f32) -> Self::Output {
+        let node = self.node.clone();
+        self.augment_path(ScalarSub::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static> SubAssign<f32> for Var<T> {
+impl<T: Data + Forward + 'static> SubAssign<f32> for Var<T> {
     fn sub_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el -= rhs);
+        let node = self.node.clone();
+        self.augment_path(ScalarSub::new(node, rhs));
     }
 }
 
-impl<T: Data + 'static> Mul<f32> for Var<T> {
+impl<T: Data + Forward + 'static> Mul<f32> for Var<T> {
     type Output = Self;
 
-    fn mul(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el *= rhs);
+    fn mul(mut self, rhs: f32) -> Self::Output {
+        let node = self.node.clone();
+        self.augment_path(ScalarMul::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static> MulAssign<f32> for Var<T> {
+impl<T: Data + Forward + 'static> MulAssign<f32> for Var<T> {
     fn mul_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el *= rhs);
+        let node = self.node.clone();
+        self.augment_path(ScalarMul::new(node, rhs));
     }
 }
 
-impl<T: Data + 'static> Div<f32> for Var<T> {
+impl<T: Data + Forward + 'static> Div<f32> for Var<T> {
     type Output = Self;
 
-    fn div(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el /= rhs);
+    fn div(mut self, rhs: f32) -> Self::Output {
+        let node = self.node.clone();
+        self.augment_path(ScalarDiv::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static> DivAssign<f32> for Var<T> {
+impl<T: Data + Forward + 'static> DivAssign<f32> for Var<T> {
     fn div_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el /= rhs);
+        let node = self.node.clone();
+        self.augment_path(ScalarDiv::new(node, rhs));
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ f32 - Var ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + 'static> Add<Var<T>> for f32 {
+impl<T: Data + Forward + 'static> Add<Var<T>> for f32 {
     type Output = Var<T>;
 
-    fn add(self, rhs: Var<T>) -> Self::Output {
-        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el += self);
+    fn add(self, mut rhs: Var<T>) -> Self::Output {
+        let node = rhs.node.clone();
+        rhs.augment_path(ScalarAdd::new(node, self));
         rhs
     }
 }
 
-impl<T: Data + 'static> Sub<Var<T>> for f32 {
+impl<T: Data + Forward + 'static> Sub<Var<T>> for f32 {
     type Output = Var<T>;
 
-    fn sub(self, rhs: Var<T>) -> Self::Output {
-        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el -= self);
+    fn sub(self, mut rhs: Var<T>) -> Self::Output {
+        let node = rhs.node.clone();
+        rhs.augment_path(ScalarSub::new(node, self));
         rhs
     }
 }
 
-impl<T: Data + 'static> Mul<Var<T>> for f32 {
+impl<T: Data + Forward + 'static> Mul<Var<T>> for f32 {
     type Output = Var<T>;
 
-    fn mul(self, rhs: Var<T>) -> Self::Output {
-        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el *= self);
+    fn mul(self, mut rhs: Var<T>) -> Self::Output {
+        let node = rhs.node.clone();
+        rhs.augment_path(ScalarMul::new(node, self));
         rhs
     }
 }
 
-impl<T: Data + 'static> Div<Var<T>> for f32 {
+impl<T: Data + Forward + 'static> Div<Var<T>> for f32 {
     type Output = Var<T>;
 
-    fn div(self, rhs: Var<T>) -> Self::Output {
-        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el /= self);
+    fn div(self, mut rhs: Var<T>) -> Self::Output {
+        let node = rhs.node.clone();
+        rhs.augment_path(ScalarDiv::new(node, self));
         rhs
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VarDiff - f32 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Add<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Add<f32> for VarDiff<T, U> {
     type Output = Self;
 
-    fn add(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el += rhs);
+    fn add(mut self, rhs: f32) -> Self::Output {
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarAdd::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> AddAssign<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> AddAssign<f32>
+    for VarDiff<T, U>
+{
     fn add_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el += rhs);
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarAdd::new(node, rhs));
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Sub<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Sub<f32> for VarDiff<T, U> {
     type Output = Self;
 
-    fn sub(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el -= rhs);
+    fn sub(mut self, rhs: f32) -> Self::Output {
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarSub::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> SubAssign<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> SubAssign<f32>
+    for VarDiff<T, U>
+{
     fn sub_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el -= rhs);
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarSub::new(node, rhs));
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Mul<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Mul<f32> for VarDiff<T, U> {
     type Output = Self;
 
-    fn mul(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el *= rhs);
+    fn mul(mut self, rhs: f32) -> Self::Output {
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarMul::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> MulAssign<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> MulAssign<f32>
+    for VarDiff<T, U>
+{
     fn mul_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el *= rhs);
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarMul::new(node, rhs));
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Div<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Div<f32> for VarDiff<T, U> {
     type Output = Self;
 
-    fn div(self, rhs: f32) -> Self::Output {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el /= rhs);
+    fn div(mut self, rhs: f32) -> Self::Output {
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarDiv::new(node, rhs));
         self
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> DivAssign<f32> for VarDiff<T, U> {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> DivAssign<f32>
+    for VarDiff<T, U>
+{
     fn div_assign(&mut self, rhs: f32) {
-        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el /= rhs);
+        let node = self.var.node.clone();
+        self.var.augment_path(ScalarDiv::new(node, rhs));
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ f32 - VarDiff ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Add<VarDiff<T, U>> for f32 {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Add<VarDiff<T, U>> for f32 {
     type Output = VarDiff<T, U>;
 
-    fn add(self, rhs: VarDiff<T, U>) -> Self::Output {
-        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el += self);
+    fn add(self, mut rhs: VarDiff<T, U>) -> Self::Output {
+        let node = rhs.var.node.clone();
+        rhs.var.augment_path(ScalarAdd::new(node, self));
         rhs
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Sub<VarDiff<T, U>> for f32 {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Sub<VarDiff<T, U>> for f32 {
     type Output = VarDiff<T, U>;
 
-    fn sub(self, rhs: VarDiff<T, U>) -> Self::Output {
-        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el -= self);
+    fn sub(self, mut rhs: VarDiff<T, U>) -> Self::Output {
+        let node = rhs.var.node.clone();
+        rhs.var.augment_path(ScalarSub::new(node, self));
         rhs
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Mul<VarDiff<T, U>> for f32 {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Mul<VarDiff<T, U>> for f32 {
     type Output = VarDiff<T, U>;
 
-    fn mul(self, rhs: VarDiff<T, U>) -> Self::Output {
-        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el *= self);
+    fn mul(self, mut rhs: VarDiff<T, U>) -> Self::Output {
+        let node = rhs.var.node.clone();
+        rhs.var.augment_path(ScalarMul::new(node, self));
         rhs
     }
 }
 
-impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Div<VarDiff<T, U>> for f32 {
+impl<T: Data + Forward + 'static, U: Gradient + Overwrite + 'static> Div<VarDiff<T, U>> for f32 {
     type Output = VarDiff<T, U>;
 
-    fn div(self, rhs: VarDiff<T, U>) -> Self::Output {
-        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el /= self);
+    fn div(self, mut rhs: VarDiff<T, U>) -> Self::Output {
+        let node = rhs.var.node.clone();
+        rhs.var.augment_path(ScalarDiv::new(node, self));
         rhs
     }
 }
@@ -2286,12 +2329,14 @@ mod tests {
     #[test]
     fn add_scalar() {
         let x = crate::ones((2, 2));
-        let y = x + 1.;
+        let mut y = x + 1.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
         let x = crate::ones((2, 2)).requires_grad();
-        let y = x + 1.;
+        let mut y = x + 1.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
     }
@@ -2300,11 +2345,13 @@ mod tests {
     fn add_assign_scalar() {
         let mut x = crate::ones((2, 2));
         x += 1.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
         let mut x = crate::ones((2, 2)).requires_grad();
         x += 1.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
     }
@@ -2312,12 +2359,14 @@ mod tests {
     #[test]
     fn sub_scalar() {
         let x = crate::ones((2, 2));
-        let y = x - 1.;
+        let mut y = x - 1.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
         let x = crate::ones((2, 2)).requires_grad();
-        let y = x - 1.;
+        let mut y = x - 1.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
     }
@@ -2326,11 +2375,13 @@ mod tests {
     fn sub_assign_scalar() {
         let mut x = crate::ones((2, 2));
         x -= 1.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
         let mut x = crate::ones((2, 2)).requires_grad();
         x -= 1.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[0., 0.], [0., 0.]]);
     }
@@ -2338,12 +2389,14 @@ mod tests {
     #[test]
     fn mul_scalar() {
         let x = crate::ones((2, 2));
-        let y = x * 2.;
+        let mut y = x * 2.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
         let x = crate::ones((2, 2)).requires_grad();
-        let y = x * 2.;
+        let mut y = x * 2.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
     }
@@ -2352,11 +2405,13 @@ mod tests {
     fn mul_assign_scalar() {
         let mut x = crate::ones((2, 2));
         x *= 2.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
         let mut x = crate::ones((2, 2)).requires_grad();
         x *= 2.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
     }
@@ -2364,12 +2419,14 @@ mod tests {
     #[test]
     fn div_scalar() {
         let x = crate::full((2, 2), 9.);
-        let y = x / 3.;
+        let mut y = x / 3.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
         let x = crate::full((2, 2), 9.).requires_grad();
-        let y = x / 3.;
+        let mut y = x / 3.;
+        y.forward();
 
         assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
     }
@@ -2378,11 +2435,13 @@ mod tests {
     fn div_assign_scalar() {
         let mut x = crate::full((2, 2), 9.);
         x /= 3.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
         let mut x = crate::full((2, 2), 9.).requires_grad();
         x /= 3.;
+        x.forward();
 
         assert_eq!(*x.data(), ndarray::array![[3., 3.], [3., 3.]]);
     }

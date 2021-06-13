@@ -63,6 +63,143 @@ impl<D: Dimension> Forward for Input<D> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Scalar Operations  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct ScalarAdd<T: Data + Forward> {
+    operand: Rc<T>,
+    computed: Cell<bool>,
+    scalar: f32,
+}
+
+impl<T: Data + Forward> ScalarAdd<T> {
+    pub fn new(operand: Rc<T>, scalar: f32) -> Self {
+        Self {
+            operand,
+            scalar,
+            computed: Cell::new(false),
+        }
+    }
+}
+impl<T: Data + Forward> Forward for ScalarAdd<T> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        Zip::from(&mut *self.operand.data_mut()).for_each(|el| *el += self.scalar);
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+pub struct ScalarSub<T: Data + Forward> {
+    operand: Rc<T>,
+    computed: Cell<bool>,
+    scalar: f32,
+}
+
+impl<T: Data + Forward> ScalarSub<T> {
+    pub fn new(operand: Rc<T>, scalar: f32) -> Self {
+        Self {
+            operand,
+            scalar,
+            computed: Cell::new(false),
+        }
+    }
+}
+impl<T: Data + Forward> Forward for ScalarSub<T> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        Zip::from(&mut *self.operand.data_mut()).for_each(|el| *el -= self.scalar);
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+pub struct ScalarMul<T: Data + Forward> {
+    operand: Rc<T>,
+    computed: Cell<bool>,
+    scalar: f32,
+}
+
+impl<T: Data + Forward> ScalarMul<T> {
+    pub fn new(operand: Rc<T>, scalar: f32) -> Self {
+        Self {
+            operand,
+            scalar,
+            computed: Cell::new(false),
+        }
+    }
+}
+impl<T: Data + Forward> Forward for ScalarMul<T> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        Zip::from(&mut *self.operand.data_mut()).for_each(|el| *el *= self.scalar);
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+pub struct ScalarDiv<T: Data + Forward> {
+    operand: Rc<T>,
+    computed: Cell<bool>,
+    scalar: f32,
+}
+
+impl<T: Data + Forward> ScalarDiv<T> {
+    pub fn new(operand: Rc<T>, scalar: f32) -> Self {
+        Self {
+            operand,
+            scalar,
+            computed: Cell::new(false),
+        }
+    }
+}
+impl<T: Data + Forward> Forward for ScalarDiv<T> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        Zip::from(&mut *self.operand.data_mut()).for_each(|el| *el /= self.scalar);
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct Negation<T: Data> {
@@ -2043,6 +2180,273 @@ mod tests {
         Tensor::from_shape_vec(shape, elems).unwrap()
     }
 
+    mod scalar_add {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarAdd::new(input, 1.);
+
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarAdd::new(input, 1.);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarAdd::new(input.clone(), 1.);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-3., -2., -1., 0., 1., 2., 3., 4., 5.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-2., -1., 0., 1., 2., 3., 4., 5., 6.]),
+            );
+
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-2., -1., 0., 1., 2., 3., 4., 5., 6.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-1., 0., 1., 2., 3., 4., 5., 6., 7.]),
+            );
+        }
+    }
+
+    mod scalar_sub {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarSub::new(input, -1.);
+
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarSub::new(input, -1.);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarSub::new(input.clone(), -1.);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-3., -2., -1., 0., 1., 2., 3., 4., 5.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-2., -1., 0., 1., 2., 3., 4., 5., 6.]),
+            );
+
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-2., -1., 0., 1., 2., 3., 4., 5., 6.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-1., 0., 1., 2., 3., 4., 5., 6., 7.]),
+            );
+        }
+    }
+
+    mod scalar_mul {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarMul::new(input.clone(), -1.);
+
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarMul::new(input.clone(), -1.);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarMul::new(input.clone(), -1.);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![5., 4., 3., 2., 1., 0., -1., -2., -3.]),
+            );
+
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![5., 4., 3., 2., 1., 0., -1., -2., -3.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-5., -4., -3., -2., -1., 0., 1., 2., 3.]),
+            );
+        }
+    }
+
+    mod scalar_div {
+        use super::*;
+
+        #[test]
+        fn creation() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarDiv::new(input.clone(), -1.);
+
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn computation_was_computed_transition() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarDiv::new(input.clone(), -1.);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.forward();
+            assert_eq!(node.was_computed(), true);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+
+            node.reset_computation();
+            assert_eq!(node.was_computed(), false);
+        }
+
+        #[test]
+        fn forward() {
+            let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+            let node = ScalarDiv::new(input.clone(), -1.);
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            {
+                let mut data = input.data_mut();
+                *data = &*data + &Tensor::from_elem(1, 1.);
+            }
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![5., 4., 3., 2., 1., 0., -1., -2., -3.]),
+            );
+
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![5., 4., 3., 2., 1., 0., -1., -2., -3.]),
+            );
+
+            // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            node.reset_computation();
+            node.forward();
+            assert_almost_equals(
+                &*input.data(),
+                &new_tensor((3, 3), vec![-5., -4., -3., -2., -1., 0., 1., 2., 3.]),
+            );
+        }
+    }
     mod negation {
         use super::*;
 
