@@ -425,7 +425,7 @@ impl ModelStatus {
     ///
     /// Usually the result of this method is passed to an optimizer.
     pub fn parameters(&self) -> Vec<Param> {
-        self.params.iter().cloned().collect()
+        self.params.to_vec()
     }
 
     /// Registers a component.

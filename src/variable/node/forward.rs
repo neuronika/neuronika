@@ -43,6 +43,10 @@ impl<D: Dimension> Data for Input<D> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 impl<D: Dimension> Forward for Input<D> {
@@ -106,6 +110,10 @@ impl<T: Data> Data for Negation<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Transpose ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -155,6 +163,10 @@ impl<T: Data> Data for Transpose<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Addition ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -199,6 +211,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -272,6 +288,10 @@ where
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 impl<Lhs, Rhs> Forward for Subtraction<Lhs, Rhs>
@@ -343,6 +363,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -416,6 +440,10 @@ where
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 impl<Lhs, Rhs> Forward for Division<Lhs, Rhs>
@@ -485,6 +513,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -558,6 +590,10 @@ where
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 impl<Lhs, Rhs> Forward for MatrixMatrixMulT<Lhs, Rhs>
@@ -629,6 +665,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -703,6 +743,10 @@ where
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 impl<Lhs, Rhs> Forward for VectorMatrixMul<Lhs, Rhs>
@@ -775,6 +819,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -852,6 +900,10 @@ impl<T: Data> Data for Power<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Square Root ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -900,6 +952,10 @@ impl<T: Data> Data for Sqrt<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Sum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -947,6 +1003,10 @@ impl<T: Data> Data for Sum<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -993,6 +1053,10 @@ impl<T: Data> Data for Mean<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1043,6 +1107,10 @@ impl<T: Data> Data for Logn<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1092,6 +1160,10 @@ impl<T: Data> Data for ReLU<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1145,6 +1217,10 @@ impl<T: Data> Data for LeakyReLU<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SoftPlus ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1193,6 +1269,10 @@ impl<T: Data> Data for SoftPlus<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1243,6 +1323,10 @@ impl<T: Data> Data for Sigmoid<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ TanH ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1292,6 +1376,10 @@ impl<T: Data> Data for TanH<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Exp ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1340,6 +1428,10 @@ impl<T: Data> Data for Exp<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1400,6 +1492,10 @@ impl<T: Data> Data for Softmax<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmax ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1459,6 +1555,10 @@ impl<T: Data> Data for LogSoftmax<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1514,6 +1614,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1606,6 +1710,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1713,6 +1821,10 @@ impl<T: Data> Data for Unsqueeze<T> {
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Chunk ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1774,6 +1886,10 @@ impl<T: Data> Data for Chunk<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1868,6 +1984,10 @@ impl<T: Data> Data for Dropout<T> {
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -2874,6 +2994,7 @@ mod tests {
             assert_eq!(node.was_computed(), false);
         }
 
+        #[allow(clippy::clippy::approx_constant)]
         #[test]
         fn forward() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);

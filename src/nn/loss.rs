@@ -66,6 +66,10 @@ where
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
     }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
 }
 
 impl<T, U> Forward for MSELoss<T, U>
@@ -305,6 +309,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -552,6 +560,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -805,6 +817,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1074,6 +1090,10 @@ where
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
     }
 }
 
@@ -1608,7 +1628,7 @@ mod test {
         ));
         input.forward();
 
-        let loss = NLLLoss::new(input.clone(), target.clone(), Reduction::Mean);
+        let loss = NLLLoss::new(input, target.clone(), Reduction::Mean);
 
         loss.forward();
         assert_almost_equals(&*loss.data(), &new_tensor(1, vec![1.52222]));
@@ -1652,7 +1672,7 @@ mod test {
         ));
         input.forward();
 
-        let loss = NLLLoss::new(input.clone(), target.clone(), Reduction::Sum);
+        let loss = NLLLoss::new(input, target.clone(), Reduction::Sum);
 
         loss.forward();
         assert_almost_equals(&*loss.data(), &new_tensor(1, vec![4.56666]));

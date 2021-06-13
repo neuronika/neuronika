@@ -2,7 +2,7 @@ pub mod node;
 
 use ndarray::{
     Array, ArrayD, ArrayViewMutD, DimMax, Dimension, IntoDimension, Ix, Ix1, Ix2, RawArrayViewMut,
-    RemoveAxis,
+    RemoveAxis, Zip,
 };
 use node::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Chunk, ChunkBackward, Concatenate,
@@ -27,7 +27,7 @@ use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     collections::BTreeMap,
     collections::HashSet,
-    ops::{Add, Div, Mul, Neg, Sub},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     rc::Rc,
 };
 
@@ -598,6 +598,14 @@ impl<T: Data + 'static> Var<T> {
         self.node.data()
     }
 
+    /// Returns a mutable reference to the data inside `self`.
+    ///
+    /// At the variable's creation the data is filled with zeros. You can populate it with a
+    /// call to [`.forward()`](Var::forward()).
+    pub fn data_mut(&self) -> RefMut<Tensor<T::Dim>> {
+        self.node.data_mut()
+    }
+
     /// Returns the sum of all elements in `self`.
     pub fn sum(self) -> Var<Sum<T>> {
         Var::from(Sum::new(self.node), self.past)
@@ -827,24 +835,6 @@ where
     }
 }
 
-impl<D> VarDiff<Input<D>, InputBackward<D>>
-where
-    D: Dimension,
-{
-    /// Returns an immutable reference to the gradient inside `self`.
-    ///
-    /// At the differentiable variable's creation the gradient is filled with zeros. You can
-    /// populate it with a call to [`.backward()`](VarDiff::backward()).
-    pub fn grad(&self) -> Ref<Tensor<D>> {
-        self.node.gradient()
-    }
-
-    /// Returns a mutable reference to the data inside `self`.
-    pub(crate) fn data_mut(&mut self) -> RefMut<Tensor<D>> {
-        self.var.node.data_mut()
-    }
-}
-
 impl<T, U> VarDiff<T, U>
 where
     T: Data + Forward + 'static,
@@ -869,6 +859,30 @@ where
     /// with a call to [`.forward()`](VarDiff::forward()).
     pub fn data(&self) -> Ref<Tensor<T::Dim>> {
         self.var.node.data()
+    }
+
+    /// Returns a mutable reference to the data inside `self`.
+    ///
+    /// At the differentiable variable's creation the data is filled with zeros. You can populate it
+    /// with a call to [`.forward()`](VarDiff::forward()).
+    pub fn data_mut(&self) -> RefMut<Tensor<T::Dim>> {
+        self.var.node.data_mut()
+    }
+
+    /// Returns an immutable reference to the gradient inside `self`.
+    ///
+    /// At the differentiable variable's creation the gradient is filled with zeros. You can
+    /// populate it with a call to [`.backward()`](VarDiff::backward()).
+    pub fn grad(&self) -> Ref<Tensor<U::Dim>> {
+        self.node.gradient()
+    }
+
+    /// Returns a mutable reference to the gradient inside `self`.
+    ///
+    /// At the differentiable variable's creation the gradient is filled with zeros. You can
+    /// populate it with a call to [`.backward()`](VarDiff::backward()).
+    pub fn grad_mut(&mut self) -> RefMut<Tensor<U::Dim>> {
+        self.node.gradient_mut()
     }
 }
 
@@ -1310,6 +1324,206 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Arithmetic Operations Implementation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Var - f32 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + 'static> Add<f32> for Var<T> {
+    type Output = Self;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el += rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static> AddAssign<f32> for Var<T> {
+    fn add_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el += rhs);
+    }
+}
+
+impl<T: Data + 'static> Sub<f32> for Var<T> {
+    type Output = Self;
+
+    fn sub(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el -= rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static> SubAssign<f32> for Var<T> {
+    fn sub_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el -= rhs);
+    }
+}
+
+impl<T: Data + 'static> Mul<f32> for Var<T> {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el *= rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static> MulAssign<f32> for Var<T> {
+    fn mul_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el *= rhs);
+    }
+}
+
+impl<T: Data + 'static> Div<f32> for Var<T> {
+    type Output = Self;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el /= rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static> DivAssign<f32> for Var<T> {
+    fn div_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.node.data_mut()).for_each(|el| *el /= rhs);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ f32 - Var ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + 'static> Add<Var<T>> for f32 {
+    type Output = Var<T>;
+
+    fn add(self, rhs: Var<T>) -> Self::Output {
+        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el += self);
+        rhs
+    }
+}
+
+impl<T: Data + 'static> Sub<Var<T>> for f32 {
+    type Output = Var<T>;
+
+    fn sub(self, rhs: Var<T>) -> Self::Output {
+        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el -= self);
+        rhs
+    }
+}
+
+impl<T: Data + 'static> Mul<Var<T>> for f32 {
+    type Output = Var<T>;
+
+    fn mul(self, rhs: Var<T>) -> Self::Output {
+        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el *= self);
+        rhs
+    }
+}
+
+impl<T: Data + 'static> Div<Var<T>> for f32 {
+    type Output = Var<T>;
+
+    fn div(self, rhs: Var<T>) -> Self::Output {
+        Zip::from(&mut *rhs.node.data_mut()).for_each(|el| *el /= self);
+        rhs
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VarDiff - f32 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Add<f32> for VarDiff<T, U> {
+    type Output = Self;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el += rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> AddAssign<f32> for VarDiff<T, U> {
+    fn add_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el += rhs);
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Sub<f32> for VarDiff<T, U> {
+    type Output = Self;
+
+    fn sub(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el -= rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> SubAssign<f32> for VarDiff<T, U> {
+    fn sub_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el -= rhs);
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Mul<f32> for VarDiff<T, U> {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el *= rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> MulAssign<f32> for VarDiff<T, U> {
+    fn mul_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el *= rhs);
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Div<f32> for VarDiff<T, U> {
+    type Output = Self;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el /= rhs);
+        self
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> DivAssign<f32> for VarDiff<T, U> {
+    fn div_assign(&mut self, rhs: f32) {
+        Zip::from(&mut *self.var.node.data_mut()).for_each(|el| *el /= rhs);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ f32 - VarDiff ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Add<VarDiff<T, U>> for f32 {
+    type Output = VarDiff<T, U>;
+
+    fn add(self, rhs: VarDiff<T, U>) -> Self::Output {
+        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el += self);
+        rhs
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Sub<VarDiff<T, U>> for f32 {
+    type Output = VarDiff<T, U>;
+
+    fn sub(self, rhs: VarDiff<T, U>) -> Self::Output {
+        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el -= self);
+        rhs
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Mul<VarDiff<T, U>> for f32 {
+    type Output = VarDiff<T, U>;
+
+    fn mul(self, rhs: VarDiff<T, U>) -> Self::Output {
+        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el *= self);
+        rhs
+    }
+}
+
+impl<T: Data + 'static, U: Gradient + Overwrite + 'static> Div<VarDiff<T, U>> for f32 {
+    type Output = VarDiff<T, U>;
+
+    fn div(self, rhs: VarDiff<T, U>) -> Self::Output {
+        Zip::from(&mut *rhs.var.node.data_mut()).for_each(|el| *el /= self);
+        rhs
+    }
+}
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -2068,6 +2282,110 @@ where
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn add_scalar() {
+        let x = crate::ones((2, 2));
+        let y = x + 1.;
+
+        assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+        let x = crate::ones((2, 2)).requires_grad();
+        let y = x + 1.;
+
+        assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+    }
+
+    #[test]
+    fn add_assign_scalar() {
+        let mut x = crate::ones((2, 2));
+        x += 1.;
+
+        assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+        let mut x = crate::ones((2, 2)).requires_grad();
+        x += 1.;
+
+        assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
+    }
+
+    #[test]
+    fn sub_scalar() {
+        let x = crate::ones((2, 2));
+        let y = x - 1.;
+
+        assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
+
+        let x = crate::ones((2, 2)).requires_grad();
+        let y = x - 1.;
+
+        assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
+    }
+
+    #[test]
+    fn sub_assign_scalar() {
+        let mut x = crate::ones((2, 2));
+        x -= 1.;
+
+        assert_eq!(*x.data(), ndarray::array![[0., 0.], [0., 0.]]);
+
+        let mut x = crate::ones((2, 2)).requires_grad();
+        x -= 1.;
+
+        assert_eq!(*x.data(), ndarray::array![[0., 0.], [0., 0.]]);
+    }
+
+    #[test]
+    fn mul_scalar() {
+        let x = crate::ones((2, 2));
+        let y = x * 2.;
+
+        assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+        let x = crate::ones((2, 2)).requires_grad();
+        let y = x * 2.;
+
+        assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+    }
+
+    #[test]
+    fn mul_assign_scalar() {
+        let mut x = crate::ones((2, 2));
+        x *= 2.;
+
+        assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+        let mut x = crate::ones((2, 2)).requires_grad();
+        x *= 2.;
+
+        assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
+    }
+
+    #[test]
+    fn div_scalar() {
+        let x = crate::full((2, 2), 9.);
+        let y = x / 3.;
+
+        assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
+
+        let x = crate::full((2, 2), 9.).requires_grad();
+        let y = x / 3.;
+
+        assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
+    }
+
+    #[test]
+    fn div_assign_scalar() {
+        let mut x = crate::full((2, 2), 9.);
+        x /= 3.;
+
+        assert_eq!(*x.data(), ndarray::array![[3., 3.], [3., 3.]]);
+
+        let mut x = crate::full((2, 2), 9.).requires_grad();
+        x /= 3.;
+
+        assert_eq!(*x.data(), ndarray::array![[3., 3.], [3., 3.]]);
+    }
 
     #[test]
     fn parameters_test() {
