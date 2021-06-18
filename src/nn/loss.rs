@@ -18,16 +18,17 @@ use std::{
 };
 
 /// Specifies the reduction to apply to the *loss* output.
-/// * `mean` - the sum of the output will be divided by the batch size.
-/// * `sum` - the output will be summed.
 #[derive(Clone)]
 pub enum Reduction {
+    /// The output will be summed.
     Sum,
+    /// The sum of the output will be divided by the batch size for the [`kl_div_loss`] and the
+    /// [`nll_loss`]. For all other losses the output will be divided by the number of elements.
     Mean,
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Square Erorr Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct MSELoss<T, U>
 where
     T: Data,
@@ -110,7 +111,7 @@ where
     }
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct MSELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
@@ -198,13 +199,29 @@ where
         match self.reduction {
             Reduction::Mean => {
                 let n = input_data.len() as f32;
-                zip.for_each(|op_grad, grad, input, target| {
-                    *op_grad = (2.0 * (input - target)) * grad / n
-                });
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad = (2.0 * (input - target)) * grad / n
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad += (2.0 * (input - target)) * grad / n
+                    });
+                }
             }
-            Reduction::Sum => zip.for_each(|op_grad, grad, input, target| {
-                *op_grad = (2.0 * (input - target)) * grad
-            }),
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad = (2.0 * (input - target)) * grad
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad += (2.0 * (input - target)) * grad
+                    });
+                }
+            }
         }
     }
 
@@ -271,7 +288,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Absolute Error Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct MAELoss<T, U>
 where
     T: Data,
@@ -354,7 +371,7 @@ where
     }
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct MAELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
@@ -443,19 +460,41 @@ where
         match self.reduction {
             Reduction::Mean => {
                 let n = input_data.len() as f32;
-                zip.for_each(|op_grad, grad, input, target| {
-                    let diff = input - target;
-                    *op_grad = if diff != 0. {
-                        diff.signum() * grad / n
-                    } else {
-                        0.
-                    }
-                });
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad = if diff != 0. {
+                            diff.signum() * grad / n
+                        } else {
+                            0.
+                        }
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad += if diff != 0. {
+                            diff.signum() * grad / n
+                        } else {
+                            0.
+                        }
+                    });
+                }
             }
-            Reduction::Sum => zip.for_each(|op_grad, grad, input, target| {
-                let diff = input - target;
-                *op_grad = if diff != 0. { diff.signum() * grad } else { 0. }
-            }),
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad = if diff != 0. { diff.signum() * grad } else { 0. }
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad += if diff != 0. { diff.signum() * grad } else { 0. }
+                    });
+                }
+            }
         }
     }
 
@@ -522,7 +561,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct BCELoss<T, U>
 where
     T: Data,
@@ -610,7 +649,7 @@ where
     }
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct BCELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
@@ -699,14 +738,35 @@ where
         match self.reduction {
             Reduction::Mean => {
                 let n = input_data.len() as f32;
-                zip.for_each(|op_grad, grad, input, target| {
-                    *op_grad =
-                        (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad / n
-                });
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad = (input - target) / ((1. - input) * input).max(std::f32::EPSILON)
+                            * grad
+                            / n
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad += (input - target) / ((1. - input) * input).max(std::f32::EPSILON)
+                            * grad
+                            / n
+                    });
+                }
             }
-            Reduction::Sum => zip.for_each(|op_grad, grad, input, target| {
-                *op_grad = (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
-            }),
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad =
+                            (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad +=
+                            (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
+                    });
+                }
+            }
         }
     }
 
@@ -779,7 +839,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy With Logits Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct BCEWithLogitsLoss<T, U>
 where
     T: Data,
@@ -868,7 +928,7 @@ where
     }
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct BCEWithLogitsLossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
@@ -957,27 +1017,33 @@ where
         match self.reduction {
             Reduction::Mean => {
                 let n = input_data.len() as f32;
-                zip.for_each(|op_grad, grad, input, target| {
-                    let input_sigmoid = if *input >= 15.0 {
-                        1.0
-                    } else if *input <= -15.0 {
-                        0.0
-                    } else {
-                        1.0 / (1.0 + (-input).exp())
-                    };
-                    *op_grad = (input_sigmoid - target) * grad / n
-                });
-            }
-            Reduction::Sum => zip.for_each(|op_grad, grad, input, target| {
-                let input_sigmoid = if *input >= 15.0 {
-                    1.0
-                } else if *input <= -15.0 {
-                    0.0
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad = (input_sigmoid - target) * grad / n
+                    });
+                    self.diff_input.set_overwrite(false);
                 } else {
-                    1.0 / (1.0 + (-input).exp())
-                };
-                *op_grad = (input_sigmoid - target) * grad
-            }),
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad += (input_sigmoid - target) * grad / n
+                    });
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad = (input_sigmoid - target) * grad
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad += (input_sigmoid - target) * grad
+                    });
+                }
+            }
         }
     }
 
@@ -1049,7 +1115,7 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
@@ -1141,7 +1207,7 @@ where
     }
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 struct NLLLossBackward<T, U>
 where
     T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
@@ -1225,21 +1291,45 @@ where
         match self.reduction {
             Reduction::Mean => {
                 let n = target_data.len() as f32;
-                zip.for_each(|idx, op_grad, grad, target| {
-                    if idx.into_dimension().last_elem() == *target as usize {
-                        *op_grad = grad * -1. / n
-                    } else {
-                        *op_grad = 0.;
-                    }
-                });
-            }
-            Reduction::Sum => zip.for_each(|idx, op_grad, grad, target| {
-                if idx.into_dimension().last_elem() == *target as usize {
-                    *op_grad = grad * -1.
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad = grad * -1. / n
+                        } else {
+                            *op_grad = 0.;
+                        }
+                    });
+                    self.diff_input.set_overwrite(false);
                 } else {
-                    *op_grad = 0.
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad += grad * -1. / n
+                        } else {
+                            *op_grad += 0.;
+                        }
+                    });
                 }
-            }),
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad = grad * -1.
+                        } else {
+                            *op_grad = 0.
+                        }
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad += grad * -1.
+                        } else {
+                            *op_grad += 0.
+                        }
+                    });
+                }
+            }
         }
     }
 
@@ -1264,7 +1354,8 @@ where
 /// this is typically achieved by using [`.log_softmax()`]. input has to be a of size either
 /// (minibatch, C) or (minibatch, C, d1, d2, ..., dk) with k >= 1 for the K-dimensional
 /// case. The target that this loss expects should be a class index in the range [0, C) where
-/// C = number of classes.
+/// C = number of classes. When the given reduction is equal to [`Reduction::Mean`] the total
+/// loss is divided by the batch size.
 ///
 /// As mentioned before, this loss can also be used for higher dimensional inputs, such as 2D
 /// images, by providing an input of size (minibatch, C, d1, d2, ..., dk) with k >= 1 where
@@ -1295,6 +1386,260 @@ where
             reduction.clone(),
         )),
         Rc::new(NLLLossBackward::new(input.node, target.node, reduction)),
+    );
+    input
+        .var
+        .past
+        .append_forward(id, forward.clone() as Rc<dyn Forward>);
+    input
+        .past
+        .append_backward(id, backward.clone() as Rc<dyn Backward>);
+
+    VarDiff {
+        var: Var {
+            node: forward,
+            past: input.var.past,
+        },
+
+        node: backward,
+        past: input.past,
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::upper_case_acronyms)]
+struct KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
+    reduction: Reduction,
+    computed: Cell<bool>,
+}
+
+impl<T, U> KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<T, U> Forward for KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+        self.computed.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        loss_data[0] = {
+            let total_loss =
+                Zip::from(&*input_data)
+                    .and(&*target_data)
+                    .fold(0.0, |loss, log, target| {
+                        if *target > 0. {
+                            loss + target * (target.ln() - log)
+                        } else {
+                            loss + 0.
+                        }
+                    });
+            match self.reduction {
+                Reduction::Mean => total_loss / input_data.len_of(Axis(0)) as f32,
+                Reduction::Sum => total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::upper_case_acronyms)]
+struct KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    diff_input: Rc<T>,
+    target: Rc<U>,
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    reduction: Reduction,
+    overwrite: Cell<bool>,
+}
+
+impl<T, U> KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    pub fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            diff_input,
+            target,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            reduction,
+            overwrite: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Gradient for KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U> Overwrite for KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U> Backward for KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let (mut operand_gradient, gradient, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient(),
+                self.target.data(),
+            )
+        };
+        let zip = Zip::from(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and(&*target_data);
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = target_data.len_of(Axis(0)) as f32;
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, target| *op_grad = -target * grad / n);
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, target| *op_grad += -target * grad / n);
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, target| *op_grad = -target * grad);
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, target| *op_grad += -target * grad);
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+    }
+}
+
+/// Computes the Kullback-Leibler divergence.
+///
+/// ```text
+///         n
+/// Lᴏss =  ∑  ʏₙ * (ln(ʏₙ) - xₙ)
+///        i=1
+/// ```
+///
+/// The [Kullback-Leibler divergence](https://en.wikipedia.org/wiki/Kullback–Leibler_divergence) is
+/// a useful distance measure for continuous distributions and is often useful when performing
+/// direct regression over the space of (discretely sampled) continuous output distributions.
+///
+/// The input given is expected to contain log-probabilities and is not restricted to a 2D Tensor,
+/// while the targets are interpreted as probabilities. When the given reduction is equal
+/// to [`Reduction::Mean`] the total loss is divided by the batch size.
+///
+/// This criterion expects a target variable of the same size as the input variable.
+pub fn kl_div_loss<T, U, V>(
+    mut input: VarDiff<T, U>,
+    target: Var<V>,
+    reduction: Reduction,
+) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Overwrite + Backward>
+where
+    T: Data,
+    U: Gradient<Dim = T::Dim> + Overwrite,
+    V: Data<Dim = T::Dim>,
+{
+    input.var.past.merge(target.past);
+
+    let (id, forward, backward) = (
+        unsafe { OPERATIONS_COUNTER.next() },
+        Rc::new(KLDivLoss::new(
+            input.var.node.clone(),
+            target.node.clone(),
+            reduction.clone(),
+        )),
+        Rc::new(KLDivLossBackward::new(input.node, target.node, reduction)),
     );
     input
         .var
@@ -1384,6 +1729,13 @@ mod test {
             &*input_diff.gradient(),
             &new_tensor((3, 3), vec![0.1111; 9]),
         );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor((3, 3), vec![0.2222; 9]),
+        );
     }
 
     #[test]
@@ -1406,6 +1758,10 @@ mod test {
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         loss_backward.backward();
         assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![2.; 9]));
     }
 
     #[test]
@@ -1429,6 +1785,10 @@ mod test {
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         loss_backward.backward();
         assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![2.; 9]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![4.; 9]));
     }
 
     #[test]
@@ -1451,6 +1811,10 @@ mod test {
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         loss_backward.backward();
         assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![18.; 9]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(&*input_diff.gradient(), &new_tensor((3, 3), vec![36.; 9]));
     }
 
     #[test]
@@ -1490,6 +1854,26 @@ mod test {
                 ],
             ),
         );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (3, 3),
+                vec![
+                    -1.1111e+00,
+                    -1.2346e-01,
+                    1.1111e+00,
+                    0.0000e+00,
+                    0.0000e+00,
+                    -9.32067e+05,
+                    5.5556e-01,
+                    0.0000e+00,
+                    -9.32067e+05,
+                ],
+            ) * 2.),
+        );
     }
 
     #[test]
@@ -1512,7 +1896,6 @@ mod test {
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         loss_backward.backward();
-
         assert_almost_equals(
             &*input_diff.gradient(),
             &new_tensor(
@@ -1529,6 +1912,26 @@ mod test {
                     -8.3886e+6,
                 ],
             ),
+        );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (3, 3),
+                vec![
+                    -1.0000e+01,
+                    -1.1111e+00,
+                    1.0000e+01,
+                    0.0000e+00,
+                    0.0000e+00,
+                    -8.3886e+6,
+                    5.0000e+00,
+                    0.0000e+00,
+                    -8.3886e+6,
+                ],
+            ) * 2.),
         );
     }
 
@@ -1557,17 +1960,37 @@ mod test {
             &new_tensor(
                 (3, 3),
                 vec![
-                    -5.0465e-06,
-                    -1.8544e-06,
-                    1.1111e-01,
-                    1.1111e-01,
-                    1.1111e-01,
-                    0.0000e+00,
-                    1.1111e-01,
-                    1.1111e-01,
-                    0.0000e+00,
+                    -0.0000050465264,
+                    -0.0000018543667,
+                    0.11111042,
+                    0.11111086,
+                    0.111111015,
+                    -0.00000003973643,
+                    0.1111111,
+                    0.11111111,
+                    0.,
                 ],
             ),
+        );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (3, 3),
+                vec![
+                    -0.0000050465264,
+                    -0.0000018543667,
+                    0.11111042,
+                    0.11111086,
+                    0.111111015,
+                    -0.00000003973643,
+                    0.1111111,
+                    0.11111111,
+                    0.,
+                ],
+            ) * 2.),
         );
     }
 
@@ -1591,23 +2014,42 @@ mod test {
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         loss_backward.backward();
-
         assert_almost_equals(
             &*input_diff.gradient(),
             &new_tensor(
                 (3, 3),
                 vec![
-                    -4.5419e-05,
-                    -1.6689e-05,
-                    9.9999e-01,
-                    1.0000e+00,
-                    1.0000e+00,
-                    0.0000e+00,
-                    1.0000e+00,
-                    1.0000e+00,
-                    0.0000e+00,
+                    -0.00004541874,
+                    -0.0000166893,
+                    0.9999938,
+                    0.99999774,
+                    0.99999917,
+                    -0.00000035762787,
+                    0.9999999,
+                    1.,
+                    0.,
                 ],
             ),
+        );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (3, 3),
+                vec![
+                    -0.00004541874,
+                    -0.0000166893,
+                    0.9999938,
+                    0.99999774,
+                    0.99999917,
+                    -0.00000035762787,
+                    0.9999999,
+                    1.,
+                    0.,
+                ],
+            ) * 2.),
         );
     }
 
@@ -1653,6 +2095,19 @@ mod test {
                 ],
             ),
         );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (3, 5),
+                vec![
+                    0.0000, 0.0000, -0.3333, 0.0000, 0.0000, -0.3333, 0.0000, 0.0000, 0.0000,
+                    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, -0.3333,
+                ],
+            ) * 2.),
+        );
     }
 
     #[test]
@@ -1696,6 +2151,111 @@ mod test {
                     0.0000, 0.0000, 0.0000, 0.0000, 0.0000, -1.0000,
                 ],
             ),
+        );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (3, 5),
+                vec![
+                    0.0000, 0.0000, -1.0000, 0.0000, 0.0000, -1.0000, 0.0000, 0.0000, 0.0000,
+                    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, -1.0000,
+                ],
+            ) * 2.),
+        );
+    }
+
+    #[test]
+    fn kldiv_loss_mean() {
+        use crate::variable::node::Logn;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((2, 3), vec![0.2, 0.5, 0.3, 0.6, 0.0, 0.4]);
+        let input = Rc::new(Logn::new(new_input(
+            (2, 3),
+            vec![0.4, 0.5, 0.1, 0.6, 0.1, 0.3],
+        )));
+        input.forward();
+
+        let loss = KLDivLoss::new(input, target.clone(), Reduction::Mean);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![0.1530]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        let input_diff = new_backward_input((2, 3), vec![0.; 6]);
+        let loss_backward = KLDivLossBackward::new(input_diff.clone(), target, Reduction::Mean);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (2, 3),
+                vec![-0.1000, -0.2500, -0.1500, -0.3000, 0.0000, -0.2000],
+            ),
+        );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (2, 3),
+                vec![-0.1000, -0.2500, -0.1500, -0.3000, 0.0000, -0.2000],
+            ) * 2.),
+        );
+    }
+
+    #[test]
+    fn kldiv_loss_loss_sum() {
+        use crate::variable::node::Logn;
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        let target = new_input((2, 3), vec![0.2, 0.5, 0.3, 0.6, 0.0, 0.4]);
+        let input = Rc::new(Logn::new(new_input(
+            (2, 3),
+            vec![0.4, 0.5, 0.1, 0.6, 0.1, 0.3],
+        )));
+        input.forward();
+
+        let loss = KLDivLoss::new(input, target.clone(), Reduction::Sum);
+
+        loss.forward();
+        assert_almost_equals(&*loss.data(), &new_tensor(1, vec![0.3060]));
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        let input_diff = new_backward_input((2, 3), vec![0.; 6]);
+        let loss_backward = KLDivLossBackward::new(input_diff.clone(), target, Reduction::Sum);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        *loss_backward.gradient_mut() = new_tensor(1, vec![1.]);
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &new_tensor(
+                (2, 3),
+                vec![-0.2000, -0.5000, -0.3000, -0.6000, 0.0000, -0.4000],
+            ),
+        );
+
+        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        loss_backward.backward();
+        assert_almost_equals(
+            &*input_diff.gradient(),
+            &(&new_tensor(
+                (2, 3),
+                vec![-0.2000, -0.5000, -0.3000, -0.6000, 0.0000, -0.4000],
+            ) * 2.),
         );
     }
 }
