@@ -592,11 +592,11 @@ impl Linear {
     /// The values for both the weight and bias are initialised from *U(-k, k)* where
     /// `k = (1. / in_features as f32).sqrt()`.
     pub fn new(in_features: usize, out_features: usize) -> Self {
-        let mut weight = Input::new(Tensor::zeros((out_features, in_features))).requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_features)).requires_grad();
+        let weight = Input::new(Tensor::zeros((out_features, in_features))).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_features)).requires_grad();
         let k = (1. / (in_features as f32)).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self { weight, bias }
     }
@@ -660,16 +660,16 @@ impl LSTMCell {
                 xhidden_size,
             )
         };
-        let mut weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
-        let mut weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
-        let mut bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
-        let mut bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
+        let weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
+        let bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
 
         let k = 1. / (hidden_size as f32).sqrt();
-        init::uniform(&mut weight_ih, -k, k);
-        init::uniform(&mut weight_hh, -k, k);
-        init::uniform(&mut bias_ih, -k, k);
-        init::uniform(&mut bias_hh, -k, k);
+        init::uniform(&weight_ih, -k, k);
+        init::uniform(&weight_hh, -k, k);
+        init::uniform(&bias_ih, -k, k);
+        init::uniform(&bias_hh, -k, k);
 
         Self {
             weight_ih,
@@ -774,16 +774,16 @@ impl GRUCell {
                 xhidden_size,
             )
         };
-        let mut weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
-        let mut weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
-        let mut bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
-        let mut bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
+        let weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
+        let bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
 
         let k = 1. / (hidden_size as f32).sqrt();
-        init::uniform(&mut weight_ih, -k, k);
-        init::uniform(&mut weight_hh, -k, k);
-        init::uniform(&mut bias_ih, -k, k);
-        init::uniform(&mut bias_hh, -k, k);
+        init::uniform(&weight_ih, -k, k);
+        init::uniform(&weight_hh, -k, k);
+        init::uniform(&bias_ih, -k, k);
+        init::uniform(&bias_hh, -k, k);
 
         Self {
             weight_ih,
@@ -892,13 +892,13 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
         stride: usize,
         dilation: usize,
     ) -> Self {
-        let mut weight =
+        let weight =
             Input::new(Tensor::zeros((out_channels, in_channels, kernel_size))).requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_size) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1016,17 +1016,17 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
         dilation: usize,
         groups: usize,
     ) -> Self {
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels / groups,
             kernel_size,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (groups as f32 / (in_channels * kernel_size) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1135,18 +1135,18 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
         dilation: (usize, usize),
     ) -> Self {
         let (kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_h,
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1270,18 +1270,18 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
         groups: usize,
     ) -> Self {
         let (kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_h,
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (groups as f32 / (in_channels * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1396,7 +1396,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
         dilation: (usize, usize, usize),
     ) -> Self {
         let (kernel_d, kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_d,
@@ -1404,11 +1404,11 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1535,7 +1535,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
         groups: usize,
     ) -> Self {
         let (kernel_d, kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_d,
@@ -1543,11 +1543,11 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
