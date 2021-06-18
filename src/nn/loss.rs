@@ -22,12 +22,12 @@ use std::{
 pub enum Reduction {
     /// The output will be summed.
     Sum,
-    /// The sum of the output will be divided by the batch size for the [`kl_div_loss`] and the
+    /// The sum of the output will be divided by the batch size for the [`kldiv_loss`] and the
     /// [`nll_loss`]. For all other losses the output will be divided by the number of elements.
     Mean,
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Square Erorr Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Square Error Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
 struct MSELoss<T, U>
 where
@@ -1620,7 +1620,7 @@ where
 /// to [`Reduction::Mean`] the total loss is divided by the batch size.
 ///
 /// This criterion expects a target variable of the same size as the input variable.
-pub fn kl_div_loss<T, U, V>(
+pub fn kldiv_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
