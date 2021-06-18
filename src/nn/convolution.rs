@@ -2180,14 +2180,13 @@ fn assign_to_output_map<D: Dimension, S: DataMut<Elem = f32>>(
     let mut sample_size = out_map.raw_dim();
     sample_size[0] = 1;
 
-    let convolved_samples = flat_result
-        .axis_chunks_iter(Axis(1), flat_result.len_of(Axis(1)) / batch_size)
-        .into_par_iter();
-    let samples = out_map.axis_chunks_iter_mut(Axis(0), 1).into_par_iter();
+    let convolved_samples =
+        flat_result.axis_chunks_iter(Axis(1), flat_result.len_of(Axis(1)) / batch_size);
+    let samples = out_map.axis_chunks_iter_mut(Axis(0), 1);
 
     samples
-        .zip(convolved_samples)
         .into_par_iter()
+        .zip(convolved_samples)
         .for_each(|(mut sample, incoming_result)| {
             Zip::from(&mut sample)
                 .and(
