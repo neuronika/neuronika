@@ -1,14 +1,14 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-//! Layers' parameters initialisation functions.
+//! Layers' parameters initialization functions.
 //!
 //! These initializers define a way to set the initial random weights of neuronika's layers.
 //!
-//! # Using an initialiser
+//! # Using an initializer
 //!
 //! You can freely access any learnable component of any layer, as their visibility is public,
-//! and pass them, via a mutable reference, to the initialisation function of your choice.
+//! and pass them, via a mutable reference, to the initialization function of your choice.
 //!
 //! ```
 //! use neuronika::nn;
@@ -85,7 +85,7 @@ pub fn calculate_fan_in_fan_out<D: Dimension>(param: &Learnable<D>) -> (f32, f32
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `value` - value to fill the variable with.
 pub fn constant<D: Dimension>(param: &Learnable<D>, value: f32) {
@@ -96,7 +96,7 @@ pub fn constant<D: Dimension>(param: &Learnable<D>, value: f32) {
 ///
 /// # Arguments
 ///
-/// `param` - differentiable variable to initialise.
+/// `param` - differentiable variable to initialize.
 pub fn zeros<D: Dimension>(param: &Learnable<D>) {
     param.data_mut().map_inplace(|el| *el = 0.);
 }
@@ -105,7 +105,7 @@ pub fn zeros<D: Dimension>(param: &Learnable<D>) {
 ///
 /// # Arguments
 ///
-/// `param` - differentiable variable to initialise.
+/// `param` - differentiable variable to initialize.
 pub fn ones<D: Dimension>(param: &Learnable<D>) {
     param.data_mut().map_inplace(|el| *el = 1.0);
 }
@@ -117,7 +117,7 @@ pub fn ones<D: Dimension>(param: &Learnable<D>) {
 ///
 /// # Arguments
 ///
-/// `param` - differentiable variable to initialise.
+/// `param` - differentiable variable to initialize.
 pub fn eye(param: &Learnable<Ix2>) {
     for ((x, y), el) in param.data_mut().indexed_iter_mut() {
         if x == y {
@@ -136,7 +136,7 @@ pub fn eye(param: &Learnable<Ix2>) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `groups` - number of groups.
 ///
@@ -182,7 +182,7 @@ pub fn dirac<D: Dimension>(param: &Learnable<D>, groups: usize) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `low` - lower bound of the uniform distribution.
 ///
@@ -204,7 +204,7 @@ pub fn uniform<D: Dimension>(param: &Learnable<D>, low: f32, high: f32) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `mean` - mean of the normal distribution.
 ///
@@ -224,7 +224,7 @@ pub fn normal<D: Dimension>(param: &Learnable<D>, mean: f32, std: f32) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
 pub fn xavier_uniform<D: Dimension>(param: &Learnable<D>, gain: f32) {
@@ -247,7 +247,7 @@ pub fn xavier_uniform<D: Dimension>(param: &Learnable<D>, gain: f32) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
 pub fn xavier_normal<D: Dimension>(param: &Learnable<D>, gain: f32) {

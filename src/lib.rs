@@ -21,7 +21,7 @@
 //!
 //! Both differentiable and non-differentiable variables can be understood as *tensors*, you
 //! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
-//! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
+//! Refer to [`Var`] and [`VarDiff`] for a complete list of the available operations.
 //!
 //! It is important to note that cloning variables is extremely memory efficient as only a shallow
 //! copy is returned. Cloning a variable is thus the way to go if you need to use it several times.
@@ -83,7 +83,7 @@
 //! with respect to some of the differentiable leaves, thus populating their gradients, by using
 //! [`.backward()`](VarDiff::backward()).
 //!
-//! It is important to note that the computational grap is *lazily* evalutated, this means that
+//! It is important to note that the computational graph is *lazily* evaluated, this means that
 //! neuronika decouples the construction of the graph from the actual computation of the nodes'
 //! values. You must use `.forward()` in order to obtain the actual result of the computation.
 //!

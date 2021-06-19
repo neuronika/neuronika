@@ -4,7 +4,7 @@
 //! combine them into a bigger architecture. Feel free to take a look at the
 //! [complete list](#layers).
 //!
-//! You can also customise the initialisation of the parameters of such components, and that of any
+//! You can also customize the initialization of the parameters of such components, and that of any
 //! other differentiable variable, by picking the function that best fits your needs from the
 //! [`nn::init`](module@init) module.
 //!
@@ -12,16 +12,16 @@
 //!
 //! # Assembling a neural network
 //!
-//! The suggested way of bulding a model using neuronika's building blocks is to define a struct
+//! The suggested way of building a model using neuronika's building blocks is to define a struct
 //! encapsulating its components.
 //!
-//! The behaviour of the model should be defined by including an appropriate method in its struct
+//! The behavior of the model should be defined by including an appropriate method in its struct
 //! implementation. Such method must specify how the components interact.
 //!
 //! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
 //! layers for a multivariate regression task, let's see what it would look like in neuronika.
 //!
-//! We begin by definining its struct using the provided components.
+//! We begin by defining its struct using the provided components.
 //!
 //! ```
 //! use neuronika::nn;
@@ -173,7 +173,7 @@
 //! #     }
 //! # }
 //! # impl MLP {
-//! #     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//! #     // MLP behavior. Notice the presence of the ReLU non-linearity.
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
@@ -197,7 +197,7 @@
 //!
 //! let some_other_variable = neuronika::rand((1, 25)).requires_grad();
 //!
-//! // Random perturbated data.
+//! // Random perturbed data.
 //! let fictitious_data = neuronika::rand((200, 25)) + some_other_variable;
 //!
 //! let out = model.forward(fictitious_data);
@@ -286,14 +286,14 @@
 //!
 //! # Train and Eval
 //!
-//! The status of a model determines the behaviour of its components. Certain building blocks, such
-//! as the [`Dropout`], are turned on and off depending on wheter the model is running in *training
+//! The status of a model determines the behavior of its components. Certain building blocks, such
+//! as the [`Dropout`], are turned on and off depending on whether the model is running in *training
 //! mode* or in *inference mode*.
 //!
 //! You can set a network in training mode or in inference mode either by calling [`.train()`] and
 //! [`.eval()`] directly on its output or by using `ModelStatus`.
 //!
-//! The former approach is preferrable, as when multiple models are pipelined, calling `.train()`
+//! The former approach is preferable, as when multiple models are pipelined, calling `.train()`
 //! and `.eval()` directly on the final outputs will switch the statuses of all the models.
 //! Do also note that switching the status by using `ModelStatus` is the only way that allows for
 //! selectively training and evaluating multiple models.
