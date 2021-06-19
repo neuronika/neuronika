@@ -962,7 +962,7 @@ where
     KerG: Gradient<Dim = KerD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         input_grad: Rc<InpG>,
         kernel_grad: Rc<KerG>,
@@ -1305,7 +1305,7 @@ where
     KerG: Gradient<Dim = KerD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         input_grad: Rc<InpG>,
         kernel_grad: Rc<KerG>,
@@ -1498,7 +1498,7 @@ where
     KerG: Gradient<Dim = KerD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         kernel_grad: Rc<KerG>,
         input: Rc<InpD>,
@@ -2559,7 +2559,7 @@ fn convolution_with_groups_backward<D: Dimension>(
 ///
 /// This function should be used in those circumstances in which the kernel is the only
 /// differentiable variable, such as the first layer of a CNN module.
-#[allow(clippy::clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn convolution_with_groups_unary_backward<D: Dimension>(
     kernel_grad: &mut Array<f32, D>,
     grad: &Array<f32, D>,
@@ -5208,7 +5208,7 @@ mod tests {
                 let outshape: ndarray::Ix4 =
                     conv_out_shape(&[4, 4, 6, 6], &[4, 4, 2, 2], &[0, 0], &[1, 1], &[1, 1]);
                 assert_eq!(*node.data(), Tensor::from_elem(outshape, 0.));
-                assert_eq!(node.was_computed(), false);
+                assert!(!node.was_computed());
             }
 
             #[test]
@@ -5218,16 +5218,16 @@ mod tests {
                 let node = Convolution::new(input, kernel, &[1, 1], &[1, 1], &[0, 0], Zero);
 
                 node.forward();
-                assert_eq!(node.was_computed(), true);
+                assert!(node.was_computed());
 
                 node.forward();
-                assert_eq!(node.was_computed(), true);
+                assert!(node.was_computed());
 
                 node.reset_computation();
-                assert_eq!(node.was_computed(), false);
+                assert!(!node.was_computed());
 
                 node.reset_computation();
-                assert_eq!(node.was_computed(), false);
+                assert!(!node.was_computed());
             }
         }
 
@@ -5244,7 +5244,7 @@ mod tests {
                 let outshape: ndarray::Ix4 =
                     conv_out_shape(&[4, 4, 6, 6], &[4, 4, 2, 2], &[0, 0], &[1, 1], &[1, 1]);
                 assert_eq!(*node.data(), Tensor::from_elem(outshape, 0.));
-                assert_eq!(node.was_computed(), false);
+                assert!(!node.was_computed());
             }
 
             #[test]
@@ -5255,16 +5255,16 @@ mod tests {
                     GroupedConvolution::new(input, kernel, &[1, 1], &[1, 1], &[0, 0], Zero, 2);
 
                 node.forward();
-                assert_eq!(node.was_computed(), true);
+                assert!(node.was_computed());
 
                 node.forward();
-                assert_eq!(node.was_computed(), true);
+                assert!(node.was_computed());
 
                 node.reset_computation();
-                assert_eq!(node.was_computed(), false);
+                assert!(!node.was_computed());
 
                 node.reset_computation();
-                assert_eq!(node.was_computed(), false);
+                assert!(!node.was_computed());
             }
         }
 
@@ -5288,7 +5288,7 @@ mod tests {
 
                 assert_eq!(*node.gradient(), Tensor::from_elem(outshape, 0.));
                 assert_eq!(*node.gradient_mut(), Tensor::from_elem(outshape, 0.));
-                assert_eq!(node.can_overwrite(), true);
+                assert!(node.can_overwrite());
             }
 
             #[test]
@@ -5308,54 +5308,54 @@ mod tests {
                 );
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 input_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 input_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 kernel_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 kernel_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 node.set_overwrite(false);
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(!node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 node.set_overwrite(false);
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(!node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(!node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(!node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
             }
         }
 
@@ -5380,7 +5380,7 @@ mod tests {
 
                 assert_eq!(*node.gradient(), Tensor::from_elem(outshape, 0.));
                 assert_eq!(*node.gradient_mut(), Tensor::from_elem(outshape, 0.));
-                assert_eq!(node.can_overwrite(), true);
+                assert!(node.can_overwrite());
             }
 
             #[test]
@@ -5401,54 +5401,54 @@ mod tests {
                 );
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 input_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 input_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 kernel_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 kernel_grad.set_overwrite(true);
-                assert_eq!(node.can_overwrite(), true);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 node.set_overwrite(false);
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(!node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 node.set_overwrite(false);
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), true);
-                assert_eq!(kernel_grad.can_overwrite(), true);
+                assert!(!node.can_overwrite());
+                assert!(input_grad.can_overwrite());
+                assert!(kernel_grad.can_overwrite());
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(!node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
 
                 node.backward();
-                assert_eq!(node.can_overwrite(), false);
-                assert_eq!(input_grad.can_overwrite(), false);
-                assert_eq!(kernel_grad.can_overwrite(), false);
+                assert!(!node.can_overwrite());
+                assert!(!input_grad.can_overwrite());
+                assert!(!kernel_grad.can_overwrite());
             }
         }
     }

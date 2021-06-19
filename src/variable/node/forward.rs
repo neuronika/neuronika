@@ -1115,7 +1115,7 @@ impl<T: Data> Data for Logn<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct ReLU<T: Data> {
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
@@ -1169,7 +1169,7 @@ impl<T: Data> Data for ReLU<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct LeakyReLU<T: Data> {
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
@@ -2052,7 +2052,7 @@ mod tests {
             let node = Negation::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2061,16 +2061,16 @@ mod tests {
             let node = Negation::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2120,7 +2120,7 @@ mod tests {
             let node = Transpose::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2129,16 +2129,16 @@ mod tests {
             let node = Transpose::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2189,7 +2189,7 @@ mod tests {
             let node = Addition::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2199,16 +2199,16 @@ mod tests {
             let node = Addition::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2294,7 +2294,7 @@ mod tests {
             let node = Subtraction::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2304,16 +2304,16 @@ mod tests {
             let node = Subtraction::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2399,7 +2399,7 @@ mod tests {
             let node = Multiplication::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2409,16 +2409,16 @@ mod tests {
             let node = Multiplication::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2498,7 +2498,7 @@ mod tests {
             let node = Division::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2508,16 +2508,16 @@ mod tests {
             let node = Division::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2602,7 +2602,7 @@ mod tests {
             let node = MatrixMatrixMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2612,16 +2612,16 @@ mod tests {
             let node = MatrixMatrixMul::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2670,7 +2670,7 @@ mod tests {
             let node = MatrixMatrixMulT::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 2), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2680,16 +2680,16 @@ mod tests {
             let node = MatrixMatrixMulT::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2735,7 +2735,7 @@ mod tests {
             let node = MatrixVectorMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2745,16 +2745,16 @@ mod tests {
             let node = MatrixVectorMul::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2791,7 +2791,7 @@ mod tests {
             let node = VectorMatrixMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2801,16 +2801,16 @@ mod tests {
             let node = VectorMatrixMul::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2847,7 +2847,7 @@ mod tests {
             let node = VectorVectorMul::new(left, right);
 
             assert_eq!(*node.data(), Tensor::from_elem(1, 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2857,16 +2857,16 @@ mod tests {
             let node = VectorVectorMul::new(left, right);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2902,7 +2902,7 @@ mod tests {
             let node = Power::new(input, 2);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2911,16 +2911,16 @@ mod tests {
             let node = Power::new(input, 2);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2973,7 +2973,7 @@ mod tests {
             let node = Sqrt::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -2982,19 +2982,19 @@ mod tests {
             let node = Sqrt::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
-        #[allow(clippy::clippy::approx_constant)]
+        #[allow(clippy::approx_constant)]
         #[test]
         fn forward() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
@@ -3058,7 +3058,7 @@ mod tests {
             let node = Sum::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem(1, 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3067,16 +3067,16 @@ mod tests {
             let node = Sum::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3117,7 +3117,7 @@ mod tests {
             let node = Mean::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem(1, 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3126,16 +3126,16 @@ mod tests {
             let node = Mean::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3176,7 +3176,7 @@ mod tests {
             let node = Logn::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3185,19 +3185,19 @@ mod tests {
             let node = Logn::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
-        #[allow(clippy::clippy::clippy::approx_constant)]
+        #[allow(clippy::approx_constant)]
         #[test]
         fn forward() {
             let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
@@ -3260,7 +3260,7 @@ mod tests {
             let node = ReLU::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3269,16 +3269,16 @@ mod tests {
             let node = ReLU::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3328,7 +3328,7 @@ mod tests {
             let node = LeakyReLU::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3337,16 +3337,16 @@ mod tests {
             let node = LeakyReLU::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3396,7 +3396,7 @@ mod tests {
             let node = SoftPlus::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3405,19 +3405,19 @@ mod tests {
             let node = SoftPlus::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
-        #[allow(clippy::clippy::clippy::approx_constant)]
+        #[allow(clippy::approx_constant)]
         #[test]
         fn forward() {
             let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
@@ -3483,7 +3483,7 @@ mod tests {
             let node = Sigmoid::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3492,16 +3492,16 @@ mod tests {
             let node = Sigmoid::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3566,7 +3566,7 @@ mod tests {
             let node = TanH::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3575,16 +3575,16 @@ mod tests {
             let node = TanH::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3652,7 +3652,7 @@ mod tests {
             let node = Exp::new(input);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3661,16 +3661,16 @@ mod tests {
             let node = Exp::new(input);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3759,7 +3759,7 @@ mod tests {
             let node = Softmax::new(input, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3768,16 +3768,16 @@ mod tests {
             let node = Softmax::new(input, 0);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3900,7 +3900,7 @@ mod tests {
             let node = LogSoftmax::new(input, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -3909,16 +3909,16 @@ mod tests {
             let node = LogSoftmax::new(input, 0);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4042,7 +4042,7 @@ mod tests {
             let node = Concatenate::new(left, right, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((5, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4052,16 +4052,16 @@ mod tests {
             let node = Concatenate::new(left, right, 0);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4201,7 +4201,7 @@ mod tests {
             let node = Stack::new(left, right, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((2, 3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4211,16 +4211,16 @@ mod tests {
             let node = Stack::new(left, right, 0);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4359,7 +4359,7 @@ mod tests {
             let node = Unsqueeze::new(input, 0);
 
             assert_eq!(*node.data(), Tensor::from_elem((1, 3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4368,16 +4368,16 @@ mod tests {
             let node = Unsqueeze::new(input, 0);
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4510,7 +4510,7 @@ mod tests {
             let node = Dropout::new(input, 0.5, Rc::new(Cell::new(true)));
 
             assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]
@@ -4528,16 +4528,16 @@ mod tests {
             let node = Dropout::new(input, 0.5, Rc::new(Cell::new(true)));
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.forward();
-            assert_eq!(node.was_computed(), true);
+            assert!(node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
 
             node.reset_computation();
-            assert_eq!(node.was_computed(), false);
+            assert!(!node.was_computed());
         }
 
         #[test]

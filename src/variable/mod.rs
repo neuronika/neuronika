@@ -405,11 +405,7 @@ impl<D: Dimension> Var<Input<D>> {
     /// let x_diff = x.requires_grad();
     ///```
     pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
-        debug_assert_eq!(
-            self.past.is_empty(),
-            true,
-            "error: the variable is not a leaf."
-        );
+        debug_assert!(self.past.is_empty(), "error: the variable is not a leaf.");
         let node = Rc::new(self.node.differentiable());
         let mut gradient = node.gradient_mut();
         let mut parameters = HashSet::new();
@@ -925,7 +921,7 @@ where
     ///
     ///  [`.parameters()`]: VarDiff::parameters()
     pub fn backward(&mut self, seed: f32) {
-        debug_assert_eq!(self.past.is_empty(), false);
+        debug_assert!(!self.past.is_empty());
 
         self.node.gradient_mut().fill(seed);
         self.past.prepare_buffer();
@@ -934,8 +930,6 @@ where
             node.backward();
         }
 
-        // TODO: remove this comments
-        // ! We are sure that the forward computation must have be already done
         debug_assert_eq!(self.var.past.len(), self.var.past.buffer().len());
         for node in self.var.past.buffer() {
             // Todo: This can be done more efficently by looking for the first node

@@ -6,7 +6,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 /// The **Stochastic Gradient Descent** optimizer.
 pub struct SGD<'a, T> {
     params: Vec<SGDParam<'a>>,
@@ -14,7 +14,7 @@ pub struct SGD<'a, T> {
     penalty: T,
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 /// A parameter used by the *SDG* optimizer.
 pub struct SGDParam<'a> {
     data: ArrayViewMutD<'a, f32>,
@@ -102,7 +102,7 @@ impl<'a, T: Penalty> SGD<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent with Momentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 /// The momentum variant of the *Stochastic Gradient Descent* optimizer.
 pub struct SGDWithMomentum<'a, T> {
     params: Vec<SGDWithMomentumParam<'a>>,
@@ -113,7 +113,7 @@ pub struct SGDWithMomentum<'a, T> {
     nesterov: bool,
 }
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 /// A parameter used by the *SDG* with momentum optimizer.
 pub struct SGDWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,

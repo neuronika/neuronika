@@ -2965,7 +2965,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ReLUBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct ReLUBackward<T, U>
 where
     T: Gradient + Overwrite,
@@ -3060,7 +3060,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLUBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct LeakyReLUBackward<T, U>
 where
     T: Gradient + Overwrite,
@@ -4629,7 +4629,7 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
             assert_eq!(*input.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*input.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(input.can_overwrite(), true);
+            assert!(input.can_overwrite());
         }
 
         #[test]
@@ -4637,16 +4637,16 @@ mod tests {
             let input = new_backward_input((3, 3), vec![0.; 9]);
 
             input.set_overwrite(true);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(input.can_overwrite());
 
             input.set_overwrite(true);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(input.can_overwrite());
 
             input.set_overwrite(false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!input.can_overwrite());
 
             input.set_overwrite(false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!input.can_overwrite());
         }
     }
 
@@ -4659,7 +4659,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -4668,44 +4668,44 @@ mod tests {
             let node = NegationBackward::new(input.clone());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             input.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(input.can_overwrite());
 
             input.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(input.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(input.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(input.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             input.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             input.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
         }
 
         #[test]
@@ -4744,7 +4744,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -4754,54 +4754,54 @@ mod tests {
             let node = AdditionBackward::new(lhs.clone(), rhs.clone());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -4949,7 +4949,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -4959,54 +4959,54 @@ mod tests {
             let node = SubtractionBackward::new(lhs.clone(), rhs.clone());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -5200,7 +5200,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -5215,54 +5215,54 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -5427,7 +5427,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -5442,54 +5442,54 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -5706,7 +5706,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -5721,54 +5721,54 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -5907,7 +5907,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 2), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 2), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -5922,54 +5922,54 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -6108,7 +6108,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6123,54 +6123,54 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -6289,7 +6289,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6304,54 +6304,54 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -6470,7 +6470,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(1, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(1, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6485,54 +6485,54 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -6606,7 +6606,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6615,36 +6615,36 @@ mod tests {
             let node = PowerBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]), 3);
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -6715,7 +6715,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6724,39 +6724,39 @@ mod tests {
             let node = SqrtBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
-        #[allow(clippy::clippy::approx_constant)]
+        #[allow(clippy::approx_constant)]
         #[test]
         fn backward() {
             let diff = new_backward_input(3, vec![0.; 3]);
@@ -6790,7 +6790,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(1, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(1, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6799,39 +6799,39 @@ mod tests {
             let node = SumBackward::new(diff.clone());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
-        #[allow(clippy::clippy::approx_constant)]
+        #[allow(clippy::approx_constant)]
         #[test]
         fn backward() {
             let diff = new_backward_input((10, 10), vec![0.; 100]);
@@ -6865,7 +6865,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(1, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(1, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6874,36 +6874,36 @@ mod tests {
             let node = MeanBackward::new(diff.clone());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -6942,7 +6942,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -6951,36 +6951,36 @@ mod tests {
             let node = LognBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7020,7 +7020,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7029,36 +7029,36 @@ mod tests {
             let node = ReLUBackward::new(diff.clone(), new_input(3, vec![-1., 2., -3.]));
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7097,7 +7097,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7106,36 +7106,36 @@ mod tests {
             let node = LeakyReLUBackward::new(diff.clone(), new_input(3, vec![-1., 2., -3.]));
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7174,7 +7174,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7183,36 +7183,36 @@ mod tests {
             let node = SoftPlusBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7261,7 +7261,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7273,36 +7273,36 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7353,7 +7353,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7365,36 +7365,36 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7445,7 +7445,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7457,39 +7457,39 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
-        #[allow(clippy::clippy::approx_constant)]
+        #[allow(clippy::approx_constant)]
         #[test]
         fn backward() {
             let diff = new_backward_input(3, vec![0.; 3]);
@@ -7543,7 +7543,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7560,36 +7560,36 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7729,7 +7729,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7746,36 +7746,36 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7901,7 +7901,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 4), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 4), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7910,36 +7910,36 @@ mod tests {
             let node = TransposeBackward::new(diff.clone());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -7979,7 +7979,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((1, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((1, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -7988,36 +7988,36 @@ mod tests {
             let node = ChunkBackward::new(diff.clone(), Tensor::zeros((1, 3)), 0);
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -8131,7 +8131,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((1, 4, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((1, 4, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -8140,36 +8140,36 @@ mod tests {
             let node = UnsqueezeBackward::new(diff.clone(), 0);
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             diff.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(diff.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!diff.can_overwrite());
         }
 
         #[test]
@@ -8255,7 +8255,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((4, 5), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((4, 5), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -8265,54 +8265,54 @@ mod tests {
             let node = ConcatenateBackward::new(lhs.clone(), rhs.clone(), 1);
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -8479,7 +8479,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((2, 4, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((2, 4, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -8489,54 +8489,54 @@ mod tests {
             let node = StackBackward::new(lhs.clone(), rhs.clone(), 0);
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             lhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             rhs.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), true);
-            assert_eq!(rhs.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(lhs.can_overwrite());
+            assert!(rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(lhs.can_overwrite(), false);
-            assert_eq!(rhs.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!lhs.can_overwrite());
+            assert!(!rhs.can_overwrite());
         }
 
         #[test]
@@ -8706,7 +8706,7 @@ mod tests {
 
             assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
             assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-            assert_eq!(node.can_overwrite(), true);
+            assert!(node.can_overwrite());
         }
 
         #[test]
@@ -8724,44 +8724,44 @@ mod tests {
             );
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             input.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(input.can_overwrite());
 
             input.set_overwrite(true);
-            assert_eq!(node.can_overwrite(), true);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(node.can_overwrite());
+            assert!(input.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(input.can_overwrite());
 
             node.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), true);
+            assert!(!node.can_overwrite());
+            assert!(input.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             node.backward();
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             input.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
 
             input.set_overwrite(false);
-            assert_eq!(node.can_overwrite(), false);
-            assert_eq!(input.can_overwrite(), false);
+            assert!(!node.can_overwrite());
+            assert!(!input.can_overwrite());
         }
 
         #[test]

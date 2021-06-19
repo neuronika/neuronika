@@ -9,7 +9,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 ///
 /// It is a variant of the *Adam* algorithm from the paper
 /// [On the Convergence of Adam and Beyond](https://openreview.net/forum?id=ryQu7f-RZ).
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct AMSGrad<'a, T: Penalty> {
     params: Vec<AMSGradParam<'a>>,
     lr: f32,
@@ -47,7 +47,7 @@ impl<'a, T: Penalty> AMSGrad<'a, T> {
 }
 
 /// A parameter used by the *AMSGrad* optmizier.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct AMSGradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,

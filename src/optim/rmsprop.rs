@@ -17,7 +17,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 /// *epsilon*. Do note that TensorFlow interchanges these two operations. The effective
 /// *learning rate* is thus *lr' / (v.sqrt() + eps)* where *lr'* is the scheduled
 /// learning rate and *v* is the weighted moving average of the square gradient.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSProp<'a, T: Penalty> {
     params: Vec<RMSPropParam<'a>>,
     lr: f32,
@@ -108,7 +108,7 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
 }
 
 /// A parameter used by the *RMSProp* optimizer.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -180,7 +180,7 @@ impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropWithMomentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *RMSProp* optimizer with *momentum*.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropWithMomentum<'a, T: Penalty> {
     params: Vec<RMSPropWithMomentumParam<'a>>,
     lr: f32,
@@ -191,7 +191,7 @@ pub struct RMSPropWithMomentum<'a, T: Penalty> {
 }
 
 /// A parameter used by the *RMSProp* optimizer with momentum.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -338,7 +338,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropCentered ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *RMSProp* optimizer in its *centered* variant.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCentered<'a, T: Penalty> {
     params: Vec<RMSPropCenteredParam<'a>>,
     lr: f32,
@@ -394,7 +394,7 @@ impl<'a, T: Penalty> RMSPropCentered<'a, T> {
 }
 
 /// A parameter used by the *centered RMSProp* optimizer.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCenteredParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -493,7 +493,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropCenteredWithMomentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *centered RMSProp* optimizer with *momentum*.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCenteredWithMomentum<'a, T: Penalty> {
     params: Vec<RMSPropCenteredWithMomentumParam<'a>>,
     lr: f32,
@@ -541,7 +541,7 @@ impl<'a, T: Penalty> RMSPropCenteredWithMomentum<'a, T> {
 }
 
 /// A parameter used by the *centered RMSProp* optimizer with *momentum*.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCenteredWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,

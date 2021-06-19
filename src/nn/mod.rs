@@ -632,7 +632,7 @@ impl Register for Linear {
 }
 
 /// A **long short-term memory (LSTM)** cell.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct LSTMCell {
     pub weight_ih: Learnable<Ix2>,
     pub weight_hh: Learnable<Ix2>,
@@ -746,7 +746,7 @@ impl Register for LSTMCell {
 }
 
 /// A **gated recurrent unit (GRU)** cell.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct GRUCell {
     pub weight_ih: Learnable<Ix2>,
     pub weight_hh: Learnable<Ix2>,
@@ -1005,7 +1005,7 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     ///
     /// The weight and the bias of the layer are initialised from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_size) as f32).sqrt()`.
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
@@ -1258,7 +1258,7 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     ///
     /// The weight and the bias of the layer are initialised from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_h * kernel_w) as f32).sqrt()`.
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
