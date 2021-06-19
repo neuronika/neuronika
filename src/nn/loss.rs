@@ -8,7 +8,7 @@
 //!
 //! All losses are provided via function handles.
 use super::{
-    variable::{expect_tensor, expect_tensor_mut, node::Overwrite, OPERATIONS_COUNTER},
+    variable::{expect_tensor, expect_tensor_mut, node::Overwrite},
     Backward, Data, Forward, Gradient, Tensor, Var, VarDiff,
 };
 use ndarray::{Axis, Dimension, IntoDimension, Ix1, Zip};
@@ -29,7 +29,7 @@ pub enum Reduction {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Square Error Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-struct MSELoss<T, U>
+pub struct MSELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -112,7 +112,7 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-struct MSELossBackward<T, U, V>
+pub struct MSELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -246,50 +246,27 @@ pub fn mse_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Overwrite + Backward>
+) -> VarDiff<MSELoss<T, V>, MSELossBackward<U, T, V>>
 where
     T: Data,
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
-
-    let (id, forward, backward) = (
-        unsafe { OPERATIONS_COUNTER.next() },
-        Rc::new(MSELoss::new(
-            input.var.node.clone(),
-            target.node.clone(),
-            reduction.clone(),
-        )),
-        Rc::new(MSELossBackward::new(
-            input.node,
-            input.var.node,
-            target.node,
-            reduction,
-        )),
+    let forward_node = MSELoss::new(
+        input.var.node.clone(),
+        target.node.clone(),
+        reduction.clone(),
     );
-    input
-        .var
-        .past
-        .append_forward(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .past
-        .append_backward(id, backward.clone() as Rc<dyn Backward>);
+    let var = Var::from(forward_node, input.var.past);
 
-    VarDiff {
-        var: Var {
-            node: forward,
-            past: input.var.past,
-        },
-
-        node: backward,
-        past: input.past,
-    }
+    let backward_node = MSELossBackward::new(input.node, input.var.node, target.node, reduction);
+    VarDiff::from(backward_node, input.past, var)
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean Absolute Error Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-struct MAELoss<T, U>
+pub struct MAELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -372,7 +349,7 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-struct MAELossBackward<T, U, V>
+pub struct MAELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -518,51 +495,28 @@ pub fn mae_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Overwrite + Backward>
+) -> VarDiff<MAELoss<T, V>, MAELossBackward<U, T, V>>
 where
     T: Data,
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
-
-    let (id, forward, backward) = (
-        unsafe { OPERATIONS_COUNTER.next() },
-        Rc::new(MAELoss::new(
-            input.var.node.clone(),
-            target.node.clone(),
-            reduction.clone(),
-        )),
-        Rc::new(MAELossBackward::new(
-            input.node,
-            input.var.node,
-            target.node,
-            reduction,
-        )),
+    let forward_node = MAELoss::new(
+        input.var.node.clone(),
+        target.node.clone(),
+        reduction.clone(),
     );
-    input
-        .var
-        .past
-        .append_forward(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .past
-        .append_backward(id, backward.clone() as Rc<dyn Backward>);
+    let var = Var::from(forward_node, input.var.past);
 
-    VarDiff {
-        var: Var {
-            node: forward,
-            past: input.var.past,
-        },
-
-        node: backward,
-        past: input.past,
-    }
+    let backward_node = MAELossBackward::new(input.node, input.var.node, target.node, reduction);
+    VarDiff::from(backward_node, input.past, var)
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[allow(clippy::upper_case_acronyms)]
-struct BCELoss<T, U>
+pub struct BCELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -650,7 +604,7 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-struct BCELossBackward<T, U, V>
+pub struct BCELossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -797,50 +751,27 @@ pub fn bce_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Overwrite + Backward>
+) -> VarDiff<BCELoss<T, V>, BCELossBackward<U, T, V>>
 where
     T: Data,
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
-
-    let (id, forward, backward) = (
-        unsafe { OPERATIONS_COUNTER.next() },
-        Rc::new(BCELoss::new(
-            input.var.node.clone(),
-            target.node.clone(),
-            reduction.clone(),
-        )),
-        Rc::new(BCELossBackward::new(
-            input.node,
-            input.var.node,
-            target.node,
-            reduction,
-        )),
+    let forward_node = BCELoss::new(
+        input.var.node.clone(),
+        target.node.clone(),
+        reduction.clone(),
     );
-    input
-        .var
-        .past
-        .append_forward(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .past
-        .append_backward(id, backward.clone() as Rc<dyn Backward>);
+    let var = Var::from(forward_node, input.var.past);
 
-    VarDiff {
-        var: Var {
-            node: forward,
-            past: input.var.past,
-        },
-
-        node: backward,
-        past: input.past,
-    }
+    let backward_node = BCELossBackward::new(input.node, input.var.node, target.node, reduction);
+    VarDiff::from(backward_node, input.past, var)
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Binary Cross Entropy With Logits Loss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-struct BCEWithLogitsLoss<T, U>
+pub struct BCEWithLogitsLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -929,7 +860,7 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-struct BCEWithLogitsLossBackward<T, U, V>
+pub struct BCEWithLogitsLossBackward<T, U, V>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -1073,50 +1004,28 @@ pub fn bce_with_logits_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Overwrite + Backward>
+) -> VarDiff<BCEWithLogitsLoss<T, V>, BCEWithLogitsLossBackward<U, T, V>>
 where
     T: Data,
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
-
-    let (id, forward, backward) = (
-        unsafe { OPERATIONS_COUNTER.next() },
-        Rc::new(BCEWithLogitsLoss::new(
-            input.var.node.clone(),
-            target.node.clone(),
-            reduction.clone(),
-        )),
-        Rc::new(BCEWithLogitsLossBackward::new(
-            input.node,
-            input.var.node,
-            target.node,
-            reduction,
-        )),
+    let forward_node = BCEWithLogitsLoss::new(
+        input.var.node.clone(),
+        target.node.clone(),
+        reduction.clone(),
     );
-    input
-        .var
-        .past
-        .append_forward(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .past
-        .append_backward(id, backward.clone() as Rc<dyn Backward>);
+    let var = Var::from(forward_node, input.var.past);
 
-    VarDiff {
-        var: Var {
-            node: forward,
-            past: input.var.past,
-        },
-
-        node: backward,
-        past: input.past,
-    }
+    let backward_node =
+        BCEWithLogitsLossBackward::new(input.node, input.var.node, target.node, reduction);
+    VarDiff::from(backward_node, input.past, var)
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-struct NLLLoss<T, U>
+pub struct NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -1208,7 +1117,7 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-struct NLLLossBackward<T, U>
+pub struct NLLLossBackward<T, U>
 where
     T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
     U: Data,
@@ -1369,7 +1278,7 @@ pub fn nll_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Overwrite + Backward>
+) -> VarDiff<NLLLoss<T, V>, NLLLossBackward<U, V>>
 where
     T: Data<Dim = <V::Dim as Dimension>::Larger>,
     U: Gradient<Dim = T::Dim> + Overwrite,
@@ -1377,38 +1286,20 @@ where
     T::Dim: Copy,
 {
     input.var.past.merge(target.past);
-
-    let (id, forward, backward) = (
-        unsafe { OPERATIONS_COUNTER.next() },
-        Rc::new(NLLLoss::new(
-            input.var.node.clone(),
-            target.node.clone(),
-            reduction.clone(),
-        )),
-        Rc::new(NLLLossBackward::new(input.node, target.node, reduction)),
+    let forward_node = NLLLoss::new(
+        input.var.node.clone(),
+        target.node.clone(),
+        reduction.clone(),
     );
-    input
-        .var
-        .past
-        .append_forward(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .past
-        .append_backward(id, backward.clone() as Rc<dyn Backward>);
+    let var = Var::from(forward_node, input.var.past);
 
-    VarDiff {
-        var: Var {
-            node: forward,
-            past: input.var.past,
-        },
-
-        node: backward,
-        past: input.past,
-    }
+    let backward_node = NLLLossBackward::new(input.node, target.node, reduction);
+    VarDiff::from(backward_node, input.past, var)
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-struct KLDivLoss<T, U>
+pub struct KLDivLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -1498,7 +1389,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-struct KLDivLossBackward<T, U>
+pub struct KLDivLossBackward<T, U>
 where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
@@ -1624,40 +1515,22 @@ pub fn kldiv_loss<T, U, V>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
-) -> VarDiff<impl Data<Dim = Ix1> + Forward, impl Gradient<Dim = Ix1> + Overwrite + Backward>
+) -> VarDiff<KLDivLoss<T, V>, KLDivLossBackward<U, V>>
 where
     T: Data,
     U: Gradient<Dim = T::Dim> + Overwrite,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
-
-    let (id, forward, backward) = (
-        unsafe { OPERATIONS_COUNTER.next() },
-        Rc::new(KLDivLoss::new(
-            input.var.node.clone(),
-            target.node.clone(),
-            reduction.clone(),
-        )),
-        Rc::new(KLDivLossBackward::new(input.node, target.node, reduction)),
+    let forward_node = KLDivLoss::new(
+        input.var.node.clone(),
+        target.node.clone(),
+        reduction.clone(),
     );
-    input
-        .var
-        .past
-        .append_forward(id, forward.clone() as Rc<dyn Forward>);
-    input
-        .past
-        .append_backward(id, backward.clone() as Rc<dyn Backward>);
+    let var = Var::from(forward_node, input.var.past);
 
-    VarDiff {
-        var: Var {
-            node: forward,
-            past: input.var.past,
-        },
-
-        node: backward,
-        past: input.past,
-    }
+    let backward_node = KLDivLossBackward::new(input.node, target.node, reduction);
+    VarDiff::from(backward_node, input.past, var)
 }
 
 #[cfg(test)]
