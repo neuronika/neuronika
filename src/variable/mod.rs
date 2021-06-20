@@ -3133,3 +3133,274 @@ mod tests {
         assert_eq!(convolve.past.parameters.len(), 2);
     }
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  Multicat experimentation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[test]
+fn multicat_simple_test() {
+    let a = crate::ones((3, 3)).requires_grad();
+    let b = crate::full((3, 2), 4.).requires_grad();
+    let c = crate::full((3, 4), 3.).requires_grad();
+
+    let d = a.clone().mm(b.clone());
+    let e = c.clone() + 1.;
+    let mut d = a.clone().multi_cat(&[Box::new(d), Box::new(e)], 1);
+
+    d.forward();
+    println!("{}", d.data());
+    d.backward(1.);
+    println!("a: {} b: {} c:{}", a.grad(), b.grad(), c.grad())
+}
+
+/// The union of the Data and Forward traits.
+pub trait ForwardComponent<D>: Data<Dim = D> {}
+/// The union of the Gradient, Overwrite and Backward traits.
+pub trait BackwardComponent<D>: Gradient<Dim = D> + Overwrite {}
+
+/// Blanket implementations
+impl<D: Dimension, T> ForwardComponent<D> for T where T: Data<Dim = D> {}
+impl<D: Dimension, T> BackwardComponent<D> for T where T: Gradient<Dim = D> + Overwrite {}
+
+/// This trait is implemented by Var only. Defines the interface required to build computational
+/// graph's leaves using a dynamically typed variable.
+trait VarTrait<D: Dimension> {
+    fn get_node(&self) -> Rc<dyn ForwardComponent<D>>;
+    fn get_past(&self) -> VarHistory;
+}
+
+impl<T: ForwardComponent<D>, D: Dimension> VarTrait<D> for Var<T> {
+    fn get_node(&self) -> Rc<dyn ForwardComponent<D>> {
+        self.node.clone()
+    }
+
+    fn get_past(&self) -> VarHistory {
+        self.past.clone()
+    }
+}
+/// This trait is implemented by VarDiff only. Defines the interface required to build computational
+/// graph's leaves using a dynamically typed differentiable variable.
+trait VarDiffTrait<D: Dimension> {
+    fn get_var(&self) -> Box<dyn VarTrait<D>>;
+    fn get_node(&self) -> Rc<dyn BackwardComponent<D>>;
+    fn get_past(&self) -> DiffVarHistory;
+}
+
+impl<T: ForwardComponent<D>, U: BackwardComponent<D>, D: Dimension> VarDiffTrait<D>
+    for VarDiff<T, U>
+{
+    fn get_var(&self) -> Box<dyn VarTrait<D>> {
+        Box::new(self.var.clone())
+    }
+
+    fn get_node(&self) -> Rc<dyn BackwardComponent<D>> {
+        self.node.clone()
+    }
+
+    fn get_past(&self) -> DiffVarHistory {
+        self.past.clone()
+    }
+}
+
+impl<D: Dimension, T: Data<Dim = D> + Forward + ForwardComponent<D>> Var<T> {
+    fn multi_cat(
+        mut self,
+        variables: &[Box<dyn VarTrait<T::Dim>>],
+        axis: usize,
+    ) -> Var<MultiConcatenate<D>> {
+        let len = variables.len() + 1;
+        let (mut operands, mut shapes): (Vec<Rc<dyn ForwardComponent<T::Dim>>>, _) =
+            (Vec::with_capacity(len), Vec::with_capacity(len));
+
+        operands.push(self.node.clone());
+        shapes.push(self.node.data().raw_dim());
+        let mut shape = shapes[0].clone();
+
+        for variable in variables {
+            self.past.merge(variable.get_past());
+
+            let node = variable.get_node();
+            {
+                let data = node.data();
+                shape.slice_mut()[axis] += data.raw_dim().slice()[axis];
+            }
+            operands.push(node);
+        }
+
+        Var::from(MultiConcatenate::new(operands, axis, shape), self.past)
+    }
+}
+
+impl<
+        D: Dimension,
+        T: Data<Dim = D> + Forward + ForwardComponent<D>,
+        U: Gradient<Dim = D> + Overwrite + BackwardComponent<D>,
+    > VarDiff<T, U>
+{
+    fn multi_cat(
+        mut self,
+        variables: &[Box<dyn VarDiffTrait<T::Dim>>],
+        axis: usize,
+    ) -> VarDiff<MultiConcatenate<D>, MultiConcatenateBackward<D>> {
+        let vars: Vec<Box<dyn VarTrait<D>>> = variables.iter().map(|el| el.get_var()).collect();
+        let var = self.var.multi_cat(&vars, axis);
+        let shape = var.data().raw_dim();
+
+        let mut operands: Vec<Rc<dyn BackwardComponent<D>>> =
+            Vec::with_capacity(variables.len() + 1);
+        operands.push(self.node);
+
+        for variable in variables {
+            self.past.merge(variable.get_past());
+            operands.push(variable.get_node());
+        }
+
+        VarDiff::from(
+            MultiConcatenateBackward::new(operands, axis, shape),
+            self.past,
+            var,
+        )
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiConcatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct MultiConcatenate<D: Dimension + 'static> {
+    operands: Vec<Rc<dyn ForwardComponent<D>>>,
+    axis: usize,
+    data: RefCell<Tensor<D>>,
+    computed: Cell<bool>,
+}
+
+impl<D: Dimension + 'static> MultiConcatenate<D> {
+    pub(crate) fn new(operands: Vec<Rc<dyn ForwardComponent<D>>>, axis: usize, shape: D) -> Self {
+        let (data, computed) = (RefCell::new(Tensor::zeros(shape)), Cell::new(false));
+
+        Self {
+            operands,
+            axis,
+            data,
+            computed,
+        }
+    }
+}
+
+impl<D: Dimension> Data for MultiConcatenate<D> {
+    type Dim = D;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<D: Dimension> Forward for MultiConcatenate<D> {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        let (axis, mut offset, mut data) = (self.axis, 0, self.data.borrow_mut());
+
+        for operand in &self.operands {
+            let operand_data = operand.data();
+            let axis_len = operand_data.len_of(ndarray::Axis(axis));
+            let slice = ndarray::Slice::from(offset..axis_len + offset);
+
+            let view_mut = data.slice_axis_mut(ndarray::Axis(axis), slice);
+            ndarray::Zip::from(view_mut)
+                .and(&*operand_data)
+                .for_each(|view_el, op_data_el| *view_el = *op_data_el);
+            offset += axis_len;
+        }
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiConcatenateBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub struct MultiConcatenateBackward<D: Dimension> {
+    gradient: RefCell<Option<Tensor<D>>>,
+    shape: D,
+    overwrite: Cell<bool>,
+    operands: Vec<Rc<dyn BackwardComponent<D>>>,
+    axis: usize,
+}
+
+impl<D: Dimension> MultiConcatenateBackward<D> {
+    pub(crate) fn new(operands: Vec<Rc<dyn BackwardComponent<D>>>, axis: usize, shape: D) -> Self {
+        let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
+        let overwrite = Cell::new(true);
+
+        Self {
+            gradient,
+            shape,
+            overwrite,
+            operands,
+            axis,
+        }
+    }
+}
+
+impl<D: Dimension> Gradient for MultiConcatenateBackward<D> {
+    type Dim = D;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<D: Dimension> Overwrite for MultiConcatenateBackward<D> {
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<D: Dimension> Backward for MultiConcatenateBackward<D> {
+    fn backward(&self) {
+        let (axis, grad, mut offset) = (self.axis, &self.gradient.borrow(), 0);
+        for operand in &self.operands {
+            let mut operand_grad = operand.gradient_mut();
+            let axis_len = operand_grad.len_of(ndarray::Axis(axis));
+            let slice = ndarray::Slice::from(offset..axis_len + offset);
+            let grad_view = grad
+                .as_ref()
+                .unwrap()
+                .slice_axis(ndarray::Axis(axis), slice);
+            let zip = ndarray::Zip::from(&mut *operand_grad).and(grad_view);
+            if operand.can_overwrite() {
+                zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
+                operand.set_overwrite(false);
+            } else {
+                zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
+            }
+            offset += axis_len;
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
