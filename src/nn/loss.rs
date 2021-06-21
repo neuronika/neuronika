@@ -1,12 +1,31 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ losses module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-//! Loss functions.
+//! # Loss functions.
 //!
 //! The purpose of a loss function is to compute the quantity that a model should seek to minimize
 //! during training.
 //!
 //! All losses are provided via function handles.
+//!
+//! ## Regression losses
+//!
+//! * [`mse_loss`] - Measures the mean squared error between each element in the input and the
+//! target.
+//!
+//! * [`mae_loss`] - Measures the mean absolute error between each element in the input and the
+//! target.
+//!
+//! ## Probabilistic losses
+//!
+//! * [`bce_loss`] - Measures the binary cross entropy between the target and the input.
+//!
+//! * [`bce_with_logits_loss`] - Measures the binary cross entropy with logits between the target
+//! and the input.
+//!
+//! * [`nll_loss`] -  Measures the negative log likelihood between the target and the input.
+//!
+//! * [`kldiv_loss`] -  Measures the Kullback-Leibler divergence between the target and the input.
 use super::{
     variable::{expect_tensor, expect_tensor_mut, node::Overwrite},
     Backward, Data, Forward, Gradient, Tensor, Var, VarDiff,
@@ -46,7 +65,7 @@ where
     T: Data,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             input,
             target,
@@ -132,7 +151,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = U::Dim>,
 {
-    pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
         Self {
             diff_input,
             input,
@@ -283,7 +307,7 @@ where
     T: Data,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             input,
             target,
@@ -369,7 +393,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
-    pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
         Self {
             diff_input,
             input,
@@ -533,7 +562,7 @@ where
     T: Data,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             input,
             target,
@@ -624,7 +653,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
-    pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
         Self {
             diff_input,
             input,
@@ -788,7 +822,7 @@ where
     T: Data,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             input,
             target,
@@ -880,7 +914,12 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
-    pub fn new(diff_input: Rc<T>, input: Rc<U>, target: Rc<V>, reduction: Reduction) -> Self {
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
         Self {
             diff_input,
             input,
@@ -1044,7 +1083,7 @@ where
     T::Dim: Copy,
     U: Data,
 {
-    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             input,
             target,
@@ -1136,7 +1175,7 @@ where
     U: Data,
     T::Dim: Copy,
 {
-    pub fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             diff_input,
             target,
@@ -1316,7 +1355,7 @@ where
     T: Data,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             input,
             target,
@@ -1406,7 +1445,7 @@ where
     T: Gradient + Overwrite,
     U: Data<Dim = T::Dim>,
 {
-    pub fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+    pub(crate) fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
         Self {
             diff_input,
             target,
@@ -1494,7 +1533,7 @@ where
     }
 }
 
-/// Computes the Kullback-Leibler divergence.
+/// Computes the **Kullback-Leibler** divergence between the target and the input.
 ///
 /// ```text
 ///         n

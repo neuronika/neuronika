@@ -1,6 +1,7 @@
 use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use std::cell::{Cell, RefCell};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -9,8 +10,8 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 #[allow(clippy::upper_case_acronyms)]
 /// The **Stochastic Gradient Descent** optimizer.
 pub struct SGD<'a, T> {
-    params: Vec<SGDParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<SGDParam<'a>>>,
+    lr: Cell<f32>,
     penalty: T,
 }
 
@@ -31,21 +32,29 @@ impl<'a> From<Param> for SGDParam<'a> {
 impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
     type ParamRepr = SGDParam<'a>;
 
-    fn step(&mut self) {
-        let (lr, penalty, params) = (&self.lr, &self.penalty, &mut self.params);
+    fn step(&self) {
+        let (lr, penalty, mut params) = (self.lr.get(), &self.penalty, self.params.borrow_mut());
         params.par_iter_mut().for_each(|param| {
             let (data, grad) = (&mut param.data, &param.grad);
             Zip::from(data).and(grad).for_each(|data_el, grad_el| {
-                *data_el += -(grad_el + penalty.penalise(data_el)) * lr
+                *data_el += -(grad_el + penalty.penalize(data_el)) * lr
             });
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }
 
@@ -60,7 +69,9 @@ impl<'a, T: Penalty> SGD<'a, T> {
     ///
     /// * `penalty` - penalty regularization.
     pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
-        let params = Self::build_params(parameters);
+        let params = RefCell::new(Self::build_params(parameters));
+        let lr = Cell::new(lr);
+
         Self {
             params,
             lr,
@@ -86,7 +97,8 @@ impl<'a, T: Penalty> SGD<'a, T> {
         dampening: f32,
         nesterov: bool,
     ) -> SGDWithMomentum<'a, T> {
-        let params: Vec<SGDWithMomentumParam> = Self::build_params(self.params);
+        let params: RefCell<Vec<SGDWithMomentumParam>> =
+            RefCell::new(Self::build_params(self.params.into_inner()));
 
         SGDWithMomentum {
             params,
@@ -105,8 +117,8 @@ impl<'a, T: Penalty> SGD<'a, T> {
 #[allow(clippy::upper_case_acronyms)]
 /// The momentum variant of the *Stochastic Gradient Descent* optimizer.
 pub struct SGDWithMomentum<'a, T> {
-    params: Vec<SGDWithMomentumParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<SGDWithMomentumParam<'a>>>,
+    lr: Cell<f32>,
     penalty: T,
     momentum: f32,
     dampening: f32,
@@ -140,20 +152,21 @@ impl<'a> From<SGDParam<'a>> for SGDWithMomentumParam<'a> {
 impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
     type ParamRepr = SGDWithMomentumParam<'a>;
 
-    fn step(&mut self) {
-        let (lr, penalty, momentum, dampening, nesterov, params) = (
-            &self.lr,
+    fn step(&self) {
+        let (lr, penalty, momentum, dampening, nesterov, mut params) = (
+            self.lr.get(),
             &self.penalty,
             &self.momentum,
             &self.dampening,
             &self.nesterov,
-            &mut self.params,
+            self.params.borrow_mut(),
         );
+
         params.par_iter_mut().for_each(|param| {
             let mut p_grad = param.grad.to_owned();
             Zip::from(&mut p_grad)
                 .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
 
             Zip::from(&mut param.buffer)
                 .and(&p_grad)
@@ -167,16 +180,24 @@ impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
                     *data_el += -(p_grad_el + *buffer_el * *momentum) * lr
                 });
             } else {
-                zip.for_each(|data_el, buffer_el| *data_el += -*buffer_el * *lr);
+                zip.for_each(|data_el, buffer_el| *data_el += -*buffer_el * lr);
             }
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }
 
@@ -207,7 +228,9 @@ impl<'a, T: Penalty> SGDWithMomentum<'a, T> {
         dampening: f32,
         nesterov: bool,
     ) -> Self {
-        let params = Self::build_params(parameters);
+        let params = RefCell::new(Self::build_params(parameters));
+        let lr = Cell::new(lr);
+
         Self {
             params,
             lr,

@@ -69,7 +69,7 @@
 //! #     lin3: nn::Linear,     
 //! # }
 //! impl MLP {
-//!     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//!     // MLP behavior. Notice the presence of the ReLU non-linearity.
 //!     fn forward<I, T, U>(
 //!         &self,
 //!         input: I,
@@ -116,7 +116,7 @@
 //! #     }
 //! # }
 //! # impl MLP {
-//! #     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//! #     // MLP behavior. Notice the presence of the ReLU non-linearity.
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
@@ -589,7 +589,7 @@ impl Linear {
     /// The learnable weight of the layer is of shape `(out_features, in_features)`. The learnable
     /// bias of the layer is of shape `out_features`.
     ///
-    /// The values for both the weight and bias are initialised from *U(-k, k)* where
+    /// The values for both the weight and bias are initialized from *U(-k, k)* where
     /// `k = (1. / in_features as f32).sqrt()`.
     pub fn new(in_features: usize, out_features: usize) -> Self {
         let weight = Input::new(Tensor::zeros((out_features, in_features))).requires_grad();
@@ -649,7 +649,7 @@ impl LSTMCell {
     ///
     /// * `hidden_size` - number of features in the hidden state.
     ///
-    /// All the weight and biases are initialised from *U(-k, k)* where
+    /// All the weight and biases are initialized from *U(-k, k)* where
     /// `k = (1. / hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
@@ -763,7 +763,7 @@ impl GRUCell {
     ///
     /// * `hidden_size` - number of features in the hidden state.
     ///
-    /// All the weight and biases are initialised from *U(-k, k)* where
+    /// All the weight and biases are initialized from *U(-k, k)* where
     /// `k = (1. / hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
@@ -881,7 +881,7 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     /// * `dilation` - controls the spacing between the kernel points, a number for this
     /// one-dimensional case.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_size) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -1003,7 +1003,7 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     /// both subsequently concatenated.
     ///* at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_size) as f32).sqrt()`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -1123,7 +1123,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     /// * `dilation` - controls the spacing between the kernel points, a 2-tuple for this
     /// two-dimensional case.
     ///
-    /// The weight and the bias are initialised from *U(-k, k)* where
+    /// The weight and the bias are initialized from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_w * kernel_h) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -1256,7 +1256,7 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     /// and both subsequently concatenated.
     /// * at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_h * kernel_w) as f32).sqrt()`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -1384,7 +1384,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     /// * `dilation` - controls the spacing between the kernel points, a 3-tuple for this
     /// three-dimensional case.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_d * kernel_w * kernel_h) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -1521,7 +1521,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     /// and both subsequently concatenated.
     /// * at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias are initialised from *U(-k, k)* where
+    /// The weight and the bias are initialized from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt()`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(

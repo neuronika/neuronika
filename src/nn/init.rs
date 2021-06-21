@@ -16,7 +16,7 @@
 //!
 //! let mut lin = nn::Linear::new(10, 10);
 //!
-//! xavier_normal(&mut lin.weight, calculate_gain("relu"));
+//! xavier_normal(&lin.weight, calculate_gain("relu"));
 //! ```
 use super::Learnable;
 use ndarray::{Axis, Dimension, Ix2};

@@ -1,7 +1,8 @@
 //! Implementations of various optimization algorithms and penalty regularizations.
 //!
 //! Some of the most commonly used methods are already supported, and the interface is linear
-//! enough, so that more sophisticated ones can be also easily integrated in the future.
+//! enough, so that more sophisticated ones can be also easily integrated in the future. The
+//! complete list can be found [here](#algorithms).
 //!
 //! An optimizer holds a state, in the form of a *representation*, for each of the parameters to
 //! optimize and it updates such parameters accordingly to the computed gradient and the state
@@ -15,7 +16,7 @@
 //!
 //! To construct an optimizer you have to give it a vector of [`Param`](struct@Param) referring to
 //! the parameters to optimize and to pass optimizer-specific setting such as the learning rate,
-//! the regulatization, etc.
+//! the regularization, etc.
 //!
 //! ```
 //! # use neuronika::Param;
@@ -106,6 +107,7 @@
 //! ```
 //! use neuronika::Param;
 //! use neuronika::optim::Penalty;
+//! use std::cell::{Cell, RefCell};
 //!
 //! # use ndarray::{ArrayD, ArrayViewMutD};
 //! # struct SGDParam<'a> {
@@ -113,8 +115,8 @@
 //! #     grad: ArrayViewMutD<'a, f32>,
 //! # }
 //! struct SGD<'a, T> {
-//!     params: Vec<SGDParam<'a>>,
-//!     lr: f32,
+//!     params: RefCell<Vec<SGDParam<'a>>>,
+//!     lr: Cell<f32>,
 //!     penalty: T,
 //! }
 //! ```
@@ -128,9 +130,10 @@
 //! # use neuronika::Param;
 //! # use neuronika::optim::Penalty;
 //! # use ndarray::{ArrayD, ArrayViewMutD};
+//! # use std::cell::{Cell, RefCell};
 //! # struct SGD<'a, T> {
-//! #     params: Vec<SGDParam<'a>>,
-//! #     lr: f32,
+//! #     params: RefCell<Vec<SGDParam<'a>>>,
+//! #     lr: Cell<f32>,
 //! #     penalty: T,
 //! # }
 //! # struct SGDParam<'a> {
@@ -147,23 +150,31 @@
 //! impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
 //!     type ParamRepr = SGDParam<'a>;
 //!
-//!     fn step(&mut self) {
-//!         let (lr, penalty, params) = (&self.lr, &self.penalty, &mut self.params);
+//!     fn step(&self) {
+//!         let (lr, penalty) = (self.lr.get(), &self.penalty);
 //!
-//!         params.par_iter_mut().for_each(|param| {
+//!         self.params.borrow_mut().par_iter_mut().for_each(|param| {
 //!             let (data, grad) = (&mut param.data, &param.grad);
 //!
 //!             Zip::from(data).and(grad).for_each(|data_el, grad_el| {
-//!                 *data_el += -(grad_el + penalty.penalise(data_el)) * lr
+//!                 *data_el += -(grad_el + penalty.penalize(data_el)) * lr
 //!             });
 //!         });
 //!     }
 //!
-//!     fn zero_grad(&mut self) {
-//!         self.params.par_iter_mut().for_each(|param| {
+//!     fn zero_grad(&self) {
+//!         self.params.borrow_mut().par_iter_mut().for_each(|param| {
 //!             let grad = &mut param.grad;
 //!             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
 //!         });
+//!     }
+//!
+//!     fn get_lr(&self) -> f32 {
+//!         self.lr.get()
+//!     }
+//!
+//!     fn set_lr(&self, lr: f32) {
+//!         self.lr.set(lr)    
 //!     }
 //! }
 //!
@@ -171,13 +182,27 @@
 //! impl<'a, T: Penalty> SGD<'a, T> {
 //!   pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
 //!       Self {
-//!           params: Self::build_params(parameters),
-//!           lr,
+//!           params: RefCell::new(Self::build_params(parameters)),
+//!           lr: Cell::new(lr),
 //!           penalty,
 //!       }
 //!    }
 //! }
 //! ```
+//!
+//! # Algorithms
+//!
+//! List of all implemented optimizers.
+//!
+//! * [`Adagrad`] - Implements the Adagrad algorithm.
+//!
+//! * [`Adam`] - Implements the Adam algorithm.
+//!
+//! * [`AMSGrad`] - Implements the AMSGrad algorithm.
+//!
+//! * [`RMSProp`] - Implements the RMSProp algorithm.
+//!
+//! * [`SGD`] - Implements the stochastic gradient descent algorithm.
 use crate::variable::Param;
 pub use adagrad::{Adagrad, AdagradParam};
 pub use adam::{Adam, AdamParam};
@@ -197,10 +222,10 @@ pub trait Optimizer {
     type ParamRepr: From<Param>;
 
     /// Performs a single optimization step.
-    fn step(&mut self);
+    fn step(&self);
 
     /// Zeroes the gradients of all the optimizable parameters.
-    fn zero_grad(&mut self);
+    fn zero_grad(&self);
 
     /// Transforms a vector of parameter representations into a vector of another kind of parameter
     /// representations.
@@ -215,18 +240,24 @@ pub trait Optimizer {
         }
         vec
     }
+
+    /// Returns this optimizer's learning rate.
+    fn get_lr(&self) -> f32;
+
+    /// Sets this optimizer's learning rate.
+    fn set_lr(&self, lr: f32);
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// Penalty trait, defines the penalty regularisation's logic.
+/// Penalty trait, defines the penalty regularization's logic.
 pub trait Penalty: Send + Sync {
     /// Applies the penatly to an element of the gradient.
-    fn penalise(&self, w: &f32) -> f32;
+    fn penalize(&self, w: &f32) -> f32;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularizations Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularization Structs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// L2 penalty, also known as *weight decay* or *Tichonov regularization*.
 pub struct L2 {
@@ -285,25 +316,389 @@ impl ElasticNet {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl Penalty for L2 {
-    fn penalise(&self, w: &f32) -> f32 {
+    fn penalize(&self, w: &f32) -> f32 {
         2. * self.lambda * w
     }
 }
 
 impl Penalty for L1 {
-    fn penalise(&self, w: &f32) -> f32 {
+    fn penalize(&self, w: &f32) -> f32 {
         self.lambda * w.signum()
     }
 }
 
 impl Penalty for ElasticNet {
-    fn penalise(&self, w: &f32) -> f32 {
+    fn penalize(&self, w: &f32) -> f32 {
         self.lambda_l1 * w.signum() + 2. * self.lambda_l2 * w
     }
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Optimizers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 mod adagrad;
 mod adam;
 mod amsgrad;
 mod rmsprop;
 mod sgd;
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Learning Rate Scheduler Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Learning rate scheduler trait, defines the scheduler's logic.
+pub trait LRScheduler {
+    /// Updates the learning rate.
+    fn step(&mut self);
+
+    /// Returns an immutable reference to the last computed learning rate.
+    fn get_last_lr(&self) -> &f32;
+
+    /// Returns an immutable reference to the current learning rate.
+    fn get_current_lr(&self) -> &f32;
+
+    /// Returns an immutable reference to the current epoch.
+    fn get_current_epoch(&self) -> &usize;
+
+    /// Sets the current epoch.
+    fn set_current_epoch(&mut self, epoch: usize);
+
+    /// Prints the update of the learning rate. It should be called after `.step()`.
+    fn print_lr(&self) {
+        println!(
+            "epoch {}: learning rate adjusted to {}",
+            self.get_current_epoch() - 1,
+            self.get_current_lr()
+        );
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LambdaLR ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Sets the learning rate to the initial lr times a given function.
+///
+///```text
+/// lrₜ = lr₀ * lr_fn(epoch)
+///```
+pub struct LambdaLR<'a, T: Optimizer, F: Fn(usize) -> f32> {
+    optimizer: &'a T,
+    lr_fn: F,
+    current_epoch: usize,
+    current_lr: f32,
+    last_lr: f32,
+    initial_lr: f32,
+}
+
+impl<'a, T: Optimizer, F: Fn(usize) -> f32> LambdaLR<'a, T, F> {
+    /// Creates a new LambdaLR scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `optimizer` - wrapped optimizer.
+    ///
+    /// * `lr_fn` - function which computes a multiplicative factor given an `usize` parameter
+    /// epoch.
+    pub fn new(optimizer: &'a T, lr_fn: F) -> Self {
+        let current_lr = optimizer.get_lr();
+        Self {
+            optimizer,
+            lr_fn,
+            current_epoch: 0,
+            current_lr,
+            last_lr: 0.0,
+            initial_lr: current_lr,
+        }
+    }
+}
+
+impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for LambdaLR<'a, T, F> {
+    fn step(&mut self) {
+        self.current_epoch += 1;
+
+        self.last_lr = self.current_lr;
+        self.current_lr = self.initial_lr * (self.lr_fn)(self.current_epoch);
+        self.optimizer.set_lr(self.current_lr);
+    }
+
+    fn get_last_lr(&self) -> &f32 {
+        &self.last_lr
+    }
+
+    fn get_current_lr(&self) -> &f32 {
+        &self.current_lr
+    }
+
+    fn set_current_epoch(&mut self, epoch: usize) {
+        self.current_epoch = epoch;
+    }
+
+    fn get_current_epoch(&self) -> &usize {
+        &self.current_epoch
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiplicativeLR ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Multiplies the learning rate by the factor given in the specified function.
+///
+///```text
+/// lrₜ = lrₜ₋₁ * lr_fn(epoch)
+///```
+pub struct MultiplicativeLR<'a, T: Optimizer, F: Fn(usize) -> f32> {
+    optimizer: &'a T,
+    lr_fn: F,
+    current_epoch: usize,
+    current_lr: f32,
+    last_lr: f32,
+}
+
+impl<'a, T: Optimizer, F: Fn(usize) -> f32> MultiplicativeLR<'a, T, F> {
+    /// Creates a new MultiplicativeLR scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `optimizer` - wrapped optimizer.
+    ///
+    /// * `lr_fn` - function which computes a multiplicative factor given an `usize` parameter
+    /// epoch.
+    pub fn new(optimizer: &'a T, lr_fn: F) -> Self {
+        let current_lr = optimizer.get_lr();
+        Self {
+            optimizer,
+            lr_fn,
+            current_epoch: 0,
+            current_lr,
+            last_lr: 0.0,
+        }
+    }
+}
+
+impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for MultiplicativeLR<'a, T, F> {
+    fn step(&mut self) {
+        self.current_epoch += 1;
+
+        self.last_lr = self.current_lr;
+        self.current_lr *= (self.lr_fn)(self.current_epoch);
+        self.optimizer.set_lr(self.current_lr);
+    }
+
+    fn get_last_lr(&self) -> &f32 {
+        &self.last_lr
+    }
+
+    fn get_current_lr(&self) -> &f32 {
+        &self.current_lr
+    }
+
+    fn set_current_epoch(&mut self, epoch: usize) {
+        self.current_epoch = epoch;
+    }
+
+    fn get_current_epoch(&self) -> &usize {
+        &self.current_epoch
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StepLR ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Decays the learning rate by `gamma` every `step_size` epochs.
+///
+///```text
+/// lrₜ = lrₜ₋₁ * gamma if t mod step_size == 0 else lrₜ₋₁
+///```
+pub struct StepLR<'a, T: Optimizer> {
+    optimizer: &'a T,
+    gamma: f32,
+    step_size: usize,
+    current_epoch: usize,
+    current_lr: f32,
+    last_lr: f32,
+}
+
+impl<'a, T: Optimizer> StepLR<'a, T> {
+    /// Creates a new StepLR scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `optimizer` - wrapped optimizer.
+    ///
+    /// * `step_size` - period of learning rate decay.
+    ///
+    /// * `gamma` - multiplicative factor for the learning rate decay.
+    pub fn new(optimizer: &'a T, step_size: usize, gamma: f32) -> Self {
+        let current_lr = optimizer.get_lr();
+
+        Self {
+            optimizer,
+            gamma,
+            step_size,
+            current_epoch: 0,
+            current_lr,
+            last_lr: 0.0,
+        }
+    }
+}
+
+impl<'a, T: Optimizer> LRScheduler for StepLR<'a, T> {
+    fn step(&mut self) {
+        self.current_epoch += 1;
+
+        if self.current_epoch.rem_euclid(self.step_size) == 0 {
+            self.last_lr = self.current_lr;
+            self.current_lr = self.last_lr * self.gamma;
+            self.optimizer.set_lr(self.current_lr);
+        }
+    }
+
+    fn get_last_lr(&self) -> &f32 {
+        &self.last_lr
+    }
+
+    fn get_current_lr(&self) -> &f32 {
+        &self.current_lr
+    }
+
+    fn set_current_epoch(&mut self, epoch: usize) {
+        self.current_epoch = epoch;
+    }
+
+    fn get_current_epoch(&self) -> &usize {
+        &self.current_epoch
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiStepLR ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Decays the learning rate by gamma once the number of epoch reaches one of the specified
+/// milestones.
+///
+///```text
+/// lrₜ = lrₜ₋₁ * gamma if t is a milestone else lrₜ₋₁
+///```
+pub struct MultiStepLR<'a, T: Optimizer, const N: usize> {
+    optimizer: &'a mut T,
+    gamma: f32,
+    milestones: [usize; N],
+    current_epoch: usize,
+    current_lr: f32,
+    last_lr: f32,
+}
+
+impl<'a, T: Optimizer, const N: usize> MultiStepLR<'a, T, N> {
+    /// Creates a new MultiStepLR scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `optimizer` - wrapped optimizer.
+    ///
+    /// * `milestones` - list of epoch indices. Must be increasing.
+    ///
+    /// * `gamma` - multiplicative factor for the learning rate decay.
+    pub fn new(optimizer: &'a mut T, milestones: [usize; N], gamma: f32) -> Self {
+        let current_lr = optimizer.get_lr();
+
+        Self {
+            optimizer,
+            gamma,
+            milestones,
+            current_epoch: 0,
+            current_lr,
+            last_lr: 0.0,
+        }
+    }
+}
+
+impl<'a, T: Optimizer, const N: usize> LRScheduler for MultiStepLR<'a, T, N> {
+    fn step(&mut self) {
+        self.current_epoch += 1;
+
+        if self
+            .milestones
+            .iter()
+            .any(|milestone| *milestone == self.current_epoch)
+        {
+            self.last_lr = self.current_lr;
+            self.current_lr = self.last_lr * self.gamma;
+            self.optimizer.set_lr(self.current_lr);
+        }
+    }
+
+    fn get_last_lr(&self) -> &f32 {
+        &self.last_lr
+    }
+
+    fn get_current_lr(&self) -> &f32 {
+        &self.current_lr
+    }
+
+    fn set_current_epoch(&mut self, epoch: usize) {
+        self.current_epoch = epoch;
+    }
+
+    fn get_current_epoch(&self) -> &usize {
+        &self.current_epoch
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ExponentialLR ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Decays the learning rate by `gamma` every epoch.
+///
+///```text
+/// lrₜ = lrₜ₋₁ * gamma
+///```
+pub struct ExponentialLR<'a, T: Optimizer> {
+    optimizer: &'a T,
+    gamma: f32,
+    current_epoch: usize,
+    current_lr: f32,
+    last_lr: f32,
+}
+
+impl<'a, T: Optimizer> ExponentialLR<'a, T> {
+    /// Creates a new ExponentialLR scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `optimizer` - wrapped optimizer.
+    ///
+    /// * `gamma` - multiplicative factor for the learning rate decay.
+    pub fn new(optimizer: &'a T, gamma: f32) -> Self {
+        let current_lr = optimizer.get_lr();
+
+        Self {
+            optimizer,
+            gamma,
+            current_epoch: 0,
+            current_lr,
+            last_lr: 0.0,
+        }
+    }
+}
+
+impl<'a, T: Optimizer> LRScheduler for ExponentialLR<'a, T> {
+    fn step(&mut self) {
+        self.current_epoch += 1;
+
+        self.last_lr = self.current_lr;
+        self.current_lr = self.last_lr * self.gamma;
+        self.optimizer.set_lr(self.current_lr);
+    }
+
+    fn get_last_lr(&self) -> &f32 {
+        &self.last_lr
+    }
+
+    fn get_current_lr(&self) -> &f32 {
+        &self.current_lr
+    }
+
+    fn set_current_epoch(&mut self, epoch: usize) {
+        self.current_epoch = epoch;
+    }
+
+    fn get_current_epoch(&self) -> &usize {
+        &self.current_epoch
+    }
+}
