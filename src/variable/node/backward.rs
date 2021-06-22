@@ -8,8 +8,8 @@ use super::{
 use ndarray::{
     concatenate,
     linalg::{general_mat_mul, general_mat_vec_mul},
-    s, stack, ArrayBase, ArrayView, Axis, DimMax, Dimension, IntoNdProducer, Ix1, Ix2, NewAxis,
-    RemoveAxis, Zip,
+    s, stack, ArrayBase, ArrayView, Axis, DimMax, Dimension, IntoDimension, IntoNdProducer, Ix1,
+    Ix2, NewAxis, RemoveAxis, Zip,
 };
 
 use std::cell::{Cell, Ref, RefCell, RefMut};
@@ -4572,6 +4572,800 @@ where
 
     fn with_grad(&self) {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Losses ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+use crate::nn::loss::Reduction;
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MSELossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct MSELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
+{
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
+    diff_input: Rc<T>,
+    input: Rc<U>,
+    target: Rc<V>,
+    reduction: Reduction,
+}
+
+impl<T, U, V> MSELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
+{
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
+        Self {
+            diff_input,
+            input,
+            target,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            reduction,
+            overwrite: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U, V> Gradient for MSELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U, V> Overwrite for MSELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U, V> Backward for MSELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let (mut operand_gradient, gradient, input_data, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+
+        let zip = Zip::from(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and(&*input_data)
+            .and(&*target_data);
+        match self.reduction {
+            Reduction::Mean => {
+                let n = input_data.len() as f32;
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad = (2.0 * (input - target)) * grad / n
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad += (2.0 * (input - target)) * grad / n
+                    });
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad = (2.0 * (input - target)) * grad
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad += (2.0 * (input - target)) * grad
+                    });
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MAELossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct MAELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
+    diff_input: Rc<T>,
+    input: Rc<U>,
+    target: Rc<V>,
+    reduction: Reduction,
+}
+
+impl<T, U, V> MAELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
+        Self {
+            diff_input,
+            input,
+            target,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            reduction,
+            overwrite: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U, V> Gradient for MAELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U, V> Overwrite for MAELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U, V> Backward for MAELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let (mut operand_gradient, gradient, input_data, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+
+        let zip = Zip::from(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and(&*input_data)
+            .and(&*target_data);
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = input_data.len() as f32;
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad = if diff != 0. {
+                            diff.signum() * grad / n
+                        } else {
+                            0.
+                        }
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad += if diff != 0. {
+                            diff.signum() * grad / n
+                        } else {
+                            0.
+                        }
+                    });
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad = if diff != 0. { diff.signum() * grad } else { 0. }
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let diff = input - target;
+                        *op_grad += if diff != 0. { diff.signum() * grad } else { 0. }
+                    });
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCELossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct BCELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
+    diff_input: Rc<T>,
+    input: Rc<U>,
+    target: Rc<V>,
+    reduction: Reduction,
+}
+
+impl<T, U, V> BCELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
+        Self {
+            diff_input,
+            input,
+            target,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            reduction,
+            overwrite: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U, V> Gradient for BCELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U, V> Overwrite for BCELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U, V> Backward for BCELossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = U::Dim>,
+{
+    fn backward(&self) {
+        let (mut operand_gradient, gradient, input_data, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+
+        let zip = Zip::from(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and(&*input_data)
+            .and(&*target_data);
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = input_data.len() as f32;
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad = (input - target) / ((1. - input) * input).max(std::f32::EPSILON)
+                            * grad
+                            / n
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad += (input - target) / ((1. - input) * input).max(std::f32::EPSILON)
+                            * grad
+                            / n
+                    });
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad =
+                            (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        *op_grad +=
+                            (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
+                    });
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCEWithLogitsLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct BCEWithLogitsLossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    overwrite: Cell<bool>,
+    diff_input: Rc<T>,
+    input: Rc<U>,
+    target: Rc<V>,
+    reduction: Reduction,
+}
+
+impl<T, U, V> BCEWithLogitsLossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(
+        diff_input: Rc<T>,
+        input: Rc<U>,
+        target: Rc<V>,
+        reduction: Reduction,
+    ) -> Self {
+        Self {
+            diff_input,
+            input,
+            target,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            reduction,
+            overwrite: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U, V> Gradient for BCEWithLogitsLossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U, V> Overwrite for BCEWithLogitsLossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U, V> Backward for BCEWithLogitsLossBackward<T, U, V>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+    V: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let (mut operand_gradient, gradient, input_data, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+
+        let zip = Zip::from(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and(&*input_data)
+            .and(&*target_data);
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = input_data.len() as f32;
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad = (input_sigmoid - target) * grad / n
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad += (input_sigmoid - target) * grad / n
+                    });
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad = (input_sigmoid - target) * grad
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, input, target| {
+                        let input_sigmoid = 1.0 / (1.0 + (-input).exp());
+                        *op_grad += (input_sigmoid - target) * grad
+                    });
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
+    T::Dim: Copy,
+{
+    diff_input: Rc<T>,
+    target: Rc<U>,
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    reduction: Reduction,
+    overwrite: Cell<bool>,
+}
+
+impl<T, U> NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
+    T::Dim: Copy,
+{
+    pub(crate) fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            diff_input,
+            target,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            reduction,
+            overwrite: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Gradient for NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
+    T::Dim: Copy,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U> Overwrite for NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
+    T::Dim: Copy,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U> Backward for NLLLossBackward<T, U>
+where
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    U: Data,
+    T::Dim: Copy,
+{
+    fn backward(&self) {
+        let (mut operand_gradient, gradient, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient(),
+                self.target.data(),
+            )
+        };
+        let zip = Zip::indexed(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and_broadcast(target_data.view().insert_axis(Axis(1)));
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = target_data.len() as f32;
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad = grad * -1. / n
+                        } else {
+                            *op_grad = 0.;
+                        }
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad += grad * -1. / n
+                        } else {
+                            *op_grad += 0.;
+                        }
+                    });
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad = grad * -1.
+                        } else {
+                            *op_grad = 0.
+                        }
+                    });
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|idx, op_grad, grad, target| {
+                        if idx.into_dimension().last_elem() == *target as usize {
+                            *op_grad += grad * -1.
+                        } else {
+                            *op_grad += 0.
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::upper_case_acronyms)]
+pub struct KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    diff_input: Rc<T>,
+    target: Rc<U>,
+    gradient: RefCell<Option<Tensor<Ix1>>>,
+    reduction: Reduction,
+    overwrite: Cell<bool>,
+}
+
+impl<T, U> KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            diff_input,
+            target,
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            reduction,
+            overwrite: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Gradient for KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        expect_tensor(&self.gradient)
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        expect_tensor_mut(&self.gradient)
+    }
+}
+
+impl<T, U> Overwrite for KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn can_overwrite(&self) -> bool {
+        self.overwrite.get()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.overwrite.set(state);
+    }
+}
+
+impl<T, U> Backward for KLDivLossBackward<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data<Dim = T::Dim>,
+{
+    fn backward(&self) {
+        let (mut operand_gradient, gradient, target_data) = {
+            (
+                self.diff_input.gradient_mut(),
+                self.gradient(),
+                self.target.data(),
+            )
+        };
+        let zip = Zip::from(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .and(&*target_data);
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = target_data.len_of(Axis(0)) as f32;
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, target| *op_grad = -target * grad / n);
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, target| *op_grad += -target * grad / n);
+                }
+            }
+            Reduction::Sum => {
+                if self.diff_input.can_overwrite() {
+                    zip.for_each(|op_grad, grad, target| *op_grad = -target * grad);
+                    self.diff_input.set_overwrite(false);
+                } else {
+                    zip.for_each(|op_grad, grad, target| *op_grad += -target * grad);
+                }
+            }
+        }
+    }
+
+    fn no_grad(&self) {
+        *self.gradient.borrow_mut() = None;
+    }
+
+    fn with_grad(&self) {
+        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
     }
 }
 

@@ -5,7 +5,7 @@ use super::{
 use ndarray::{
     concatenate,
     linalg::{general_mat_mul, general_mat_vec_mul},
-    stack, Axis, DimMax, Dimension, Ix1, Ix2, RemoveAxis, Zip,
+    stack, Axis, DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis, Zip,
 };
 use rand::thread_rng;
 use rand_distr::{Bernoulli, Distribution};
@@ -2001,6 +2001,542 @@ impl<T: Data> Eval for Dropout<T> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Losses ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+use crate::nn::loss::Reduction;
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MSELoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::upper_case_acronyms)]
+pub struct MSELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
+    reduction: Reduction,
+    computed: Cell<bool>,
+}
+
+impl<T, U> MSELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for MSELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<T, U> Forward for MSELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        loss_data[0] = {
+            let total_loss = Zip::from(&*input_data)
+                .and(&*target_data)
+                .fold(0.0, |loss, input, target| loss + (input - target).powi(2));
+            match self.reduction {
+                Reduction::Mean => total_loss / input_data.len() as f32,
+                Reduction::Sum => total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MAELoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct MAELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
+    reduction: Reduction,
+    computed: Cell<bool>,
+}
+
+impl<T, U> MAELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for MAELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<T, U> Forward for MAELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        loss_data[0] = {
+            let total_loss = Zip::from(&*input_data)
+                .and(&*target_data)
+                .fold(0.0, |loss, input, target| loss + (input - target).abs());
+            match self.reduction {
+                Reduction::Mean => total_loss / input_data.len() as f32,
+                Reduction::Sum => total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCELoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct BCELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
+    reduction: Reduction,
+    computed: Cell<bool>,
+}
+
+impl<T, U> BCELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for BCELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<T, U> Forward for BCELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        const MIN_LOG: f32 = -100.;
+        loss_data[0] = {
+            let total_loss =
+                Zip::from(&*input_data)
+                    .and(&*target_data)
+                    .fold(0.0, |loss, input, target| {
+                        loss + (target * input.ln().clamp(MIN_LOG, std::f32::MAX)
+                            + (1. - target) * (1. - input).ln().clamp(MIN_LOG, std::f32::MAX))
+                    });
+            match self.reduction {
+                Reduction::Mean => -total_loss / input_data.len() as f32,
+                Reduction::Sum => -total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCEWithLogitsLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct BCEWithLogitsLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
+    reduction: Reduction,
+    state: Cell<bool>,
+}
+
+impl<T, U> BCEWithLogitsLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            state: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for BCEWithLogitsLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<T, U> Forward for BCEWithLogitsLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.state.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        loss_data[0] = {
+            let total_loss =
+                Zip::from(&*input_data)
+                    .and(&*target_data)
+                    .fold(0.0, |loss, input, target| {
+                        let max = (-input).max(0.);
+                        loss + (1. - target) * input
+                            + max
+                            + ((-max).exp() + (-input - max).exp()).ln()
+                    });
+            match self.reduction {
+                Reduction::Mean => total_loss / input_data.len() as f32,
+                Reduction::Sum => total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.state.get()
+    }
+
+    fn reset_computation(&self) {
+        self.state.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::upper_case_acronyms)]
+pub struct NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
+    T::Dim: Copy,
+    U: Data,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
+    reduction: Reduction,
+    computed: Cell<bool>,
+}
+
+impl<T, U> NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
+    T::Dim: Copy,
+    U: Data,
+{
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
+    T::Dim: Copy,
+    U: Data,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<T, U> Forward for NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
+    T::Dim: Copy,
+    U: Data,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+        self.computed.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        loss_data[0] = {
+            let total_loss = Zip::indexed(&*input_data)
+                .and_broadcast(&target_data.view().insert_axis(Axis(1)))
+                .fold(0.0, |loss, idx, log, target| {
+                    if idx.into_dimension()[1] == *target as usize {
+                        loss + log
+                    } else {
+                        loss + 0.
+                    }
+                });
+            match self.reduction {
+                Reduction::Mean => -total_loss / input_data.len_of(Axis(0)) as f32,
+                Reduction::Sum => -total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[allow(clippy::upper_case_acronyms)]
+pub struct KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    input: Rc<T>,
+    target: Rc<U>,
+    data: RefCell<Tensor<Ix1>>,
+    reduction: Reduction,
+    computed: Cell<bool>,
+}
+
+impl<T, U> KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    pub(crate) fn new(input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
+        Self {
+            input,
+            target,
+            data: RefCell::new(Tensor::zeros(1)),
+            reduction,
+            computed: Cell::new(false),
+        }
+    }
+}
+
+impl<T, U> Data for KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    type Dim = Ix1;
+
+    fn data(&self) -> Ref<Tensor<Self::Dim>> {
+        self.data.borrow()
+    }
+
+    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.data.borrow_mut()
+    }
+}
+
+impl<T, U> Forward for KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+        self.computed.set(true);
+        let (mut loss_data, input_data, target_data) = {
+            (
+                self.data.borrow_mut(),
+                self.input.data(),
+                self.target.data(),
+            )
+        };
+        loss_data[0] = {
+            let total_loss =
+                Zip::from(&*input_data)
+                    .and(&*target_data)
+                    .fold(0.0, |loss, log, target| {
+                        if *target > 0. {
+                            loss + target * (target.ln() - log)
+                        } else {
+                            loss + 0.
+                        }
+                    });
+            match self.reduction {
+                Reduction::Mean => total_loss / input_data.len_of(Axis(0)) as f32,
+                Reduction::Sum => total_loss,
+            }
+        };
+    }
+
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
