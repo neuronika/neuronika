@@ -84,6 +84,26 @@ impl<'a, T: Penalty> SGD<'a, T> {
     /// Nesterov momentum is based on the formula from
     /// [On the importance of initialization and momentum in deep learning](http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf).
     ///
+    /// Please **do note** that the implementation of SGD with Momentum/Nesterov subtly differs from
+    /// Sutskever et. al. and implementations in some other frameworks.
+    ///
+    /// Considering the specific case of momentum the update rule can be written as:
+    ///
+    /// ```text
+    /// v(t+1) = μ * v(t) + g(t+1)
+    /// p(t+1) = p(t) - lr * v(t+1)
+    /// ```
+    ///
+    /// Where p, g, v, and μ denote the parameters, gradient, velocity and momentum respectively.
+    ///
+    /// This is in contrast to Sutskever et. al. and other frameworks which employ an update of the
+    /// form:
+    ///
+    /// ```text
+    /// v(t+1) = μ * v(t) + lr * g(t+1)
+    /// p(t+1) = p(t) - v(t+1)
+    /// ```
+    ///
     /// # Arguments
     ///
     /// * `momentum` - the momentum factor.
