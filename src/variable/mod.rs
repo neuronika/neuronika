@@ -1,28 +1,10 @@
-pub mod node;
+pub(crate) mod node;
 
 use ndarray::{
     Array, ArrayD, ArrayViewMutD, DimMax, Dimension, IntoDimension, Ix, Ix1, Ix2, RawArrayViewMut,
     RemoveAxis,
 };
-use node::{
-    Addition, AdditionBackward, AdditionBackwardUnary, Backward, Chunk, ChunkBackward, Concatenate,
-    ConcatenateBackward, ConcatenateBackwardLeft, ConcatenateBackwardRight, Data, Differentiable,
-    Division, DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout,
-    DropoutBackward, Eval, Exp, ExpBackward, Forward, Gradient, LeakyReLU, LeakyReLUBackward,
-    LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatrixMatrixMul, MatrixMatrixMulBackward,
-    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixMatrixMulT,
-    MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight,
-    MatrixVectorMul, MatrixVectorMulBackward, MatrixVectorMulBackwardLeft,
-    MatrixVectorMulBackwardRight, Mean, MeanBackward, Multiplication, MultiplicationBackward,
-    MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Power, PowerBackward, ReLU,
-    ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward,
-    Sqrt, SqrtBackward, Stack as StackF, StackBackward, StackBackwardLeft, StackBackwardRight,
-    Subtraction, SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum,
-    SumBackward, TanH, TanHBackward, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward,
-    VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
-    VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackward,
-    VectorVectorMulBackwardUnary,
-};
+use node::*;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     collections::BTreeMap,
@@ -2236,11 +2218,11 @@ where
     F2: Data<Dim = F1::Dim> + 'static,
     F1::Dim: RemoveAxis,
 {
-    type Output = Var<StackF<F1, F2>>;
+    type Output = Var<node::Stack<F1, F2>>;
 
     fn stack(mut self, rhs: Var<F2>, axis: usize) -> Self::Output {
         self.past.merge(rhs.past);
-        Var::from(StackF::new(self.node, rhs.node, axis), self.past)
+        Var::from(node::Stack::new(self.node, rhs.node, axis), self.past)
     }
 }
 
@@ -2252,7 +2234,7 @@ where
     B2::Dim: RemoveAxis,
     F1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<StackF<F1, F2>, StackBackwardRight<B2>>;
+    type Output = VarDiff<node::Stack<F1, F2>, StackBackwardRight<B2>>;
 
     fn stack(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         let node = StackBackwardRight::new(self.node.clone(), rhs.node, axis);
@@ -2268,7 +2250,7 @@ where
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<StackF<F1, F2>, StackBackwardLeft<B1>>;
+    type Output = VarDiff<node::Stack<F1, F2>, StackBackwardLeft<B1>>;
 
     fn stack(self, rhs: Var<F2>, axis: usize) -> Self::Output {
         let node = StackBackwardLeft::new(self.node, rhs.node.clone(), axis);
@@ -2285,7 +2267,7 @@ where
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
-    type Output = VarDiff<StackF<F1, F2>, StackBackward<B1, B2>>;
+    type Output = VarDiff<node::Stack<F1, F2>, StackBackward<B1, B2>>;
 
     fn stack(mut self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.past.merge(rhs.past);
