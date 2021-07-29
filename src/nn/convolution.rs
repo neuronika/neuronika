@@ -10,8 +10,7 @@ use std::{
 };
 
 use crate::variable::{
-    expect_tensor, expect_tensor_mut,
-    node::{Backward, Data as NData, Forward, Gradient, Overwrite},
+    expect_tensor, expect_tensor_mut, Backward, Data as NData, Forward, Gradient, Overwrite,
     Tensor, Var, VarDiff,
 };
 
@@ -5168,7 +5167,7 @@ mod tests {
     }
 
     mod convolution_node {
-        use crate::variable::{node::Differentiable, Input, InputBackward};
+        use crate::variable::{Differentiable, Input, InputBackward};
         use ndarray::StrideShape;
 
         use super::super::*;

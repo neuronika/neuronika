@@ -1,10 +1,7 @@
-use super::{
-    broadcasted_zeros, expect_tensor, expect_tensor_mut, BroadTensor, Broadcasted, DynTensor,
-    Tensor, Var,
-};
 use ndarray::{
     linalg::{general_mat_mul, general_mat_vec_mul},
-    ArrayBase, ArrayView, Axis, Dimension, IntoNdProducer, Ix1, Ix2, StrideShape, Zip,
+    Array, ArrayBase, ArrayD, ArrayView, Axis, DimMax, Dimension, IntoNdProducer, Ix1, Ix2,
+    StrideShape, Zip,
 };
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
@@ -13,11 +10,21 @@ use std::{
 
 pub(crate) use binary_functions::*;
 pub use input::{Input, InputBackward};
+pub(crate) use nary_functions::*;
 pub(crate) use unary_functions::*;
 
 mod binary_functions;
 mod input;
+mod nary_functions;
 mod unary_functions;
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Type Aliases ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
+pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
+pub(crate) type DynTensor = ArrayD<f32>;
+pub(crate) type Tensor<D> = Array<f32, D>;
 
 /// Data representation.
 ///
@@ -88,6 +95,11 @@ pub trait Overwrite {
     /// Set the status of `self` as an overwritable node.
     fn set_overwrite(&self, state: bool);
 }
+
+/// The union of the Gradient and Overwrite.
+pub trait GradientOverwrite<D>: Gradient<Dim = D> + Overwrite {}
+
+impl<D: Dimension, T> GradientOverwrite<D> for T where T: Gradient<Dim = D> + Overwrite {}
 
 /// Back-propagation behavior.
 ///
@@ -301,6 +313,65 @@ where
     } else {
         zip.for_each(|d, f| *d += f * snd);
     }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tensor Utilities ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Creates an empty tensor whose shape is the result of broadcasting between `left` and `right`.
+pub(crate) fn broadcasted_zeros<Lhs, Rhs>(
+    left: &Tensor<Lhs>,
+    right: &Tensor<Rhs>,
+) -> BroadTensor<Lhs, Rhs>
+where
+    Lhs: Dimension + DimMax<Rhs>,
+    Rhs: Dimension,
+{
+    let (bigger, smaller) = if left.ndim() >= right.ndim() {
+        (left.shape(), right.shape())
+    } else {
+        (right.shape(), left.shape())
+    };
+    let mut broad_dim = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
+    broad_dim
+        .slice_mut()
+        .iter_mut()
+        .zip(bigger.iter())
+        .for_each(|(l, r)| *l = *r);
+    broad_dim
+        .slice_mut()
+        .iter_mut()
+        .rev()
+        .zip(smaller.iter().rev())
+        .for_each(|(l, r)| *l = std::cmp::max(*l, *r));
+    Tensor::zeros(broad_dim)
+}
+
+/// Requests the gradient of `tensor` as a reference.
+///
+/// **panics** if the gradient has been de-allocated.
+pub(crate) fn expect_tensor<D: Dimension>(tensor: &RefCell<Option<Tensor<D>>>) -> Ref<Tensor<D>> {
+    Ref::map(tensor.borrow(), |b| {
+        b.as_ref().expect(
+            "error: trying to get a de-allocated gradient. 
+        Switch on the gradients first by using with_grad().",
+        )
+    })
+}
+
+/// Requests the gradient of `tensor` as a mutable reference.
+///
+/// **panics** if the gradient has been de-allocated.
+pub(crate) fn expect_tensor_mut<D: Dimension>(
+    tensor: &RefCell<Option<Tensor<D>>>,
+) -> RefMut<Tensor<D>> {
+    RefMut::map(tensor.borrow_mut(), |b| {
+        b.as_mut().expect(
+            "error: trying to get a de-allocated gradient. 
+        Switch on the gradients first by using with_grad().",
+        )
+    })
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

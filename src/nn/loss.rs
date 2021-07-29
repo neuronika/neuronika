@@ -24,7 +24,7 @@
 //!
 //! * [`kldiv_loss`] -  Measures the Kullback-Leibler divergence between the target and the input.
 use super::{
-    variable::node::{
+    variable::{
         BCELoss, BCELossBackward, BCEWithLogitsLoss, BCEWithLogitsLossBackward, KLDivLoss,
         KLDivLossBackward, MAELoss, MAELossBackward, MSELoss, MSELossBackward, NLLLoss,
         NLLLossBackward, Overwrite,

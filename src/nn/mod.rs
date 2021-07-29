@@ -380,12 +380,8 @@
 //! the input variable with probability *p* using samples from a Bernoulli distribution.
 use super::{Input, InputBackward, Param};
 use crate::variable::{
-    self,
-    node::{
-        Backward, Data, Dropout as DropoutNode, DropoutBackward as DropoutBackwardNode, Eval,
-        Forward, Gradient, Overwrite,
-    },
-    MatMatMulT, Tensor, Var, VarDiff,
+    self, Backward, Data, Dropout as DropoutNode, DropoutBackward as DropoutBackwardNode, Eval,
+    Forward, Gradient, MatMatMulT, Overwrite, Tensor, Var, VarDiff,
 };
 pub use convolution::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use convolution::{Convolve, ConvolveWithGroups};

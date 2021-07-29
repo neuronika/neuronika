@@ -1,6 +1,6 @@
 use super::{
     expect_tensor, expect_tensor_mut, Data, Differentiable, Dimension, Forward, Gradient,
-    Overwrite, Tensor, Var,
+    Overwrite, Tensor,
 };
 use std::cell::{Cell, Ref, RefCell, RefMut};
 
@@ -13,13 +13,13 @@ pub struct Input<D: Dimension> {
 }
 
 impl<D: Dimension> Input<D> {
-    pub fn new(data: Tensor<D>) -> Var<Self> {
+    pub fn new(data: Tensor<D>) -> super::super::Var<Self> {
         let input = Self {
             data: RefCell::new(data),
             computed: Cell::new(false),
         };
 
-        Var::new(input)
+        super::super::Var::new(input)
     }
 
     pub(crate) fn data_mut(&self) -> RefMut<Tensor<D>> {
