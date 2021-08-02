@@ -99,6 +99,35 @@ pub trait Overwrite {
 /// The union of the Gradient and Overwrite.
 pub trait GradientOverwrite<D>: Gradient<Dim = D> + Overwrite {}
 
+impl<T> Overwrite for Rc<T>
+where
+    T: Overwrite,
+{
+    fn can_overwrite(&self) -> bool {
+        self.as_ref().can_overwrite()
+    }
+
+    fn set_overwrite(&self, state: bool) {
+        self.as_ref().set_overwrite(state)
+    }
+}
+
+impl<T, D> Gradient for Rc<T>
+where
+    T: Gradient<Dim = D>,
+    D: Dimension,
+{
+    type Dim = D;
+
+    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
+        self.as_ref().gradient()
+    }
+
+    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
+        self.as_ref().gradient_mut()
+    }
+}
+
 impl<D: Dimension, T> GradientOverwrite<D> for T where T: Gradient<Dim = D> + Overwrite {}
 
 /// Back-propagation behavior.
@@ -233,7 +262,7 @@ pub fn reduce<D: Dimension, E: Dimension>(dest: &Tensor<D>, src: &Tensor<E>) -> 
 
 pub fn push_gradient<'a, T, P, D>(node: &T, src: P)
 where
-    T: Gradient + Overwrite,
+    T: Gradient + Overwrite + ?Sized,
     P: IntoNdProducer<Dim = D, Output = ArrayView<'a, f32, D>, Item = &'a f32>,
     D: Dimension,
 {

@@ -3,14 +3,14 @@ use super::{
     DiffVarHistory, Differentiable, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward,
     Gradient, Input, InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul,
     MatrixMatrixMul, MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight,
-    MatrixVectorMul, MatrixVectorMulBackwardRight, Mean, MultiConcatenate, Multiplication,
-    MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid, SoftPlus,
-    Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
-    Tensor, Transpose, Unsqueeze, VarDiff, VarHistory, Variable, VecMatMul, VecVecMul,
+    MatrixVectorMul, MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack,
+    Multiplication, MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid,
+    SoftPlus, Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum,
+    TanH, Tensor, Transpose, Unsqueeze, VarDiff, VarHistory, Variable, VecMatMul, VecVecMul,
     VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackwardUnary,
     OPERATIONS_COUNTER,
 };
-use ndarray::{DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
+use ndarray::{concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
 use std::{
     cell::{Cell, Ref, RefMut},
     collections::HashSet,
@@ -398,6 +398,18 @@ impl<T: Data + 'static> Var<T> {
             })
             .collect()
     }
+}
+
+impl<T> Var<T>
+where
+    T: Data + 'static,
+    T::Dim: RemoveAxis,
+{
+    /// Returns a new variable with a dimension of size one inserted at the position specified by
+    /// `axis`.
+    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
+        Var::from(Unsqueeze::new(self.node, axis), self.past)
+    }
 
     /// Concatenates the given sequence of non-differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a non-differentiable variable with the results.
@@ -407,6 +419,11 @@ impl<T: Data + 'static> Var<T> {
     /// * `variables` - sequence of non-differentiable variables.
     ///
     /// * `axis` - axis to concatenate along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
     ///
     /// # Examples
     ///
@@ -432,38 +449,82 @@ impl<T: Data + 'static> Var<T> {
         variables: &[Box<dyn Variable<T::Dim>>],
         axis: usize,
     ) -> Var<MultiConcatenate<T::Dim>> {
-        let len = variables.len() + 1;
-        let (mut operands, mut shapes): (Vec<Rc<dyn Data<Dim = T::Dim>>>, _) =
-            (Vec::with_capacity(len), Vec::with_capacity(len));
-
+        let mut operands: Vec<Rc<dyn Data<Dim = T::Dim>>> = Vec::with_capacity(variables.len() + 1);
         operands.push(self.node.clone());
-        shapes.push(self.node.data().raw_dim());
-        let mut shape = shapes[0].clone();
 
         variables.iter().for_each(|variable| {
             self.past.merge(variable.get_past());
-
-            let node = variable.get_node();
-            {
-                let data = node.data();
-                shape.slice_mut()[axis] += data.raw_dim().slice()[axis];
-            }
-            operands.push(node);
+            operands.push(variable.get_node());
         });
 
-        Var::from(MultiConcatenate::new(operands, axis, shape), self.past)
-    }
-}
+        let data = {
+            let tensors: Vec<Ref<Tensor<T::Dim>>> =
+                operands.iter().map(|operand| operand.data()).collect();
+            let views: Vec<_> = tensors.iter().map(|tensor| tensor.view()).collect();
+            concatenate(Axis(axis), &views).unwrap()
+        };
 
-impl<T> Var<T>
-where
-    T: Data + 'static,
-    T::Dim: RemoveAxis,
-{
-    /// Returns a new variable with a dimension of size one inserted at the position specified by
-    /// `axis`.
-    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
-        Var::from(Unsqueeze::new(self.node, axis), self.past)
+        Var::from(MultiConcatenate::new(operands, axis, data), self.past)
+    }
+
+    /// Stacks the given sequence of non-differentiable variables `variables`, including
+    /// `self`, along the given axis, and returns a non-differentiable variable with the results.
+    ///
+    /// All variables must have the same shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `variables` - sequence of non-differentiable variables.
+    ///
+    /// * `axis` - axis to stack along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::boxed::Box;
+    /// use neuronika;
+    /// use ndarray;
+    ///
+    ///
+    /// let a = neuronika::ones((2, 2));
+    /// let b = neuronika::ones((2, 2));
+    /// let c = neuronika::ones((2, 2));
+    ///
+    /// let mut d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    /// d.forward();
+    ///
+    /// assert_eq!(*d.data(), ndarray::array![[[1., 1.],
+    ///                                        [1., 1.]],
+    ///                                       [[1., 1.],
+    ///                                        [1., 1.]],
+    ///                                       [[1., 1.],
+    ///                                        [1., 1.]]]);
+    /// ```
+    pub fn stack(
+        mut self,
+        variables: &[Box<dyn Variable<T::Dim>>],
+        axis: usize,
+    ) -> Var<MultiStack<T::Dim>> {
+        let mut operands: Vec<Rc<dyn Data<Dim = T::Dim>>> = Vec::with_capacity(variables.len() + 1);
+        operands.push(self.node.clone());
+
+        variables.iter().for_each(|variable| {
+            self.past.merge(variable.get_past());
+            operands.push(variable.get_node());
+        });
+
+        let data = {
+            let tensors: Vec<Ref<Tensor<T::Dim>>> =
+                operands.iter().map(|operand| operand.data()).collect();
+            let views: Vec<_> = tensors.iter().map(|tensor| tensor.view()).collect();
+            stack(Axis(axis), &views).unwrap()
+        };
+        Var::from(MultiStack::new(operands, axis, data), self.past)
     }
 }
 
@@ -925,6 +986,6 @@ where
 
     fn stack(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         let node = StackBackwardRight::new(self.node.clone(), rhs.node, axis);
-        VarDiff::from(node, rhs.past, self.stack(rhs.var, axis))
+        VarDiff::from(node, rhs.past, Stack::stack(self, rhs.var, axis))
     }
 }

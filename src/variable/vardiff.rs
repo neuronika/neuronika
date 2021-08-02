@@ -8,14 +8,15 @@ use super::{
     MatrixMatrixMulBackwardLeft, MatrixMatrixMulT, MatrixMatrixMulTBackward,
     MatrixMatrixMulTBackwardLeft, MatrixVectorMul, MatrixVectorMulBackward,
     MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate, MultiConcatenateBackward,
-    Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Negation,
-    NegationBackward, Overwrite, Param, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid,
-    SigmoidBackward, SoftPlus, SoftPlusBackward, Softmax, SoftmaxBackward, Sqrt, SqrtBackward,
-    Stack, StackBackward, StackBackwardLeft, Subtraction, SubtractionBackward,
-    SubtractionBackwardLeft, SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward,
-    Tensor, Transpose, TransposeBackward, Unsqueeze, UnsqueezeBackward, Var, Variable, VecMatMul,
-    VecVecMul, VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
-    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
+    MultiStack, MultiStackBackward, Multiplication, MultiplicationBackward,
+    MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Param, Power,
+    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
+    Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack, StackBackward, StackBackwardLeft,
+    Subtraction, SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum,
+    SumBackward, TanH, TanHBackward, Tensor, Transpose, TransposeBackward, Unsqueeze,
+    UnsqueezeBackward, Var, Variable, VecMatMul, VecVecMul, VectorMatrixMul,
+    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorVectorMul, VectorVectorMulBackward,
+    VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use ndarray::{DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
 use std::{
@@ -491,6 +492,23 @@ where
             })
             .collect()
     }
+}
+
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + 'static,
+    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    T::Dim: RemoveAxis,
+{
+    /// Returns a new differentiable variable with a dimension of size one inserted at the position
+    /// specified by `axis`.
+    pub fn unsqueeze(self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
+        VarDiff::from(
+            UnsqueezeBackward::new(self.node, axis),
+            self.past,
+            self.var.unsqueeze(axis),
+        )
+    }
 
     /// Concatenates the given sequence of differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a differentiable variable with the results.
@@ -500,6 +518,11 @@ where
     /// * `variables` - sequence of differentiable variables.
     ///
     /// * `axis` - axis to concatenate along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
     ///
     /// # Examples
     ///
@@ -545,21 +568,68 @@ where
             var,
         )
     }
-}
 
-impl<T, U> VarDiff<T, U>
-where
-    T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: RemoveAxis,
-{
-    /// Returns a new differentiable variable with a dimension of size one inserted at the position
-    /// specified by `axis`.
-    pub fn unsqueeze(self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
+    /// Stacks the given sequence of differentiable variables `variables`, including
+    /// `self`, along the given axis, and returns a differentiable variable with the results.
+    ///
+    /// All variables must have the same shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `variables` - sequence of differentiable variables.
+    ///
+    /// * `axis` - axis to stack along to.
+    ///
+    /// # Panics
+    ///
+    /// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+    /// if `axis` is out of bounds or if the result is larger than is possible to represent.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::boxed::Box;
+    /// use neuronika;
+    /// use ndarray;
+    ///
+    ///
+    /// let a = neuronika::ones((2, 2)).requires_grad();
+    /// let b = neuronika::ones((2, 2)).requires_grad();
+    /// let c = neuronika::ones((2, 2)).requires_grad();
+    ///
+    /// let mut d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    /// d.forward();
+    ///
+    /// assert_eq!(*d.data(), ndarray::array![[[1., 1.],
+    ///                                        [1., 1.]],
+    ///                                       [[1., 1.],
+    ///                                        [1., 1.]],
+    ///                                       [[1., 1.],
+    ///                                        [1., 1.]]]);
+    /// ```
+    pub fn stack(
+        mut self,
+        variables: &[Box<dyn DifferentiableVariable<T::Dim>>],
+        axis: usize,
+    ) -> VarDiff<MultiStack<T::Dim>, MultiStackBackward<T::Dim>> {
+        let vars: Vec<Box<dyn Variable<T::Dim>>> =
+            variables.iter().map(|el| el.get_var()).collect();
+        let var = self.var.stack(&vars, axis);
+        let shape = var.data().raw_dim();
+
+        let mut operands: Vec<Rc<dyn GradientOverwrite<T::Dim>>> =
+            Vec::with_capacity(variables.len() + 1);
+        operands.push(self.node);
+
+        for variable in variables {
+            self.past.merge(variable.get_past());
+            operands.push(variable.get_node());
+        }
+
         VarDiff::from(
-            UnsqueezeBackward::new(self.node, axis),
+            MultiStackBackward::new(operands, axis, shape),
             self.past,
-            self.var.unsqueeze(axis),
+            var,
         )
     }
 }
@@ -1093,7 +1163,7 @@ where
 
     fn stack(self, rhs: Var<F2>, axis: usize) -> Self::Output {
         let node = StackBackwardLeft::new(self.node, rhs.node.clone(), axis);
-        VarDiff::from(node, self.past, self.var.stack(rhs, axis))
+        VarDiff::from(node, self.past, Stack::stack(self.var, rhs, axis))
     }
 }
 
@@ -1111,6 +1181,6 @@ where
     fn stack(mut self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         self.past.merge(rhs.past);
         let node = StackBackward::new(self.node, rhs.node, axis);
-        VarDiff::from(node, self.past, self.var.stack(rhs.var, axis))
+        VarDiff::from(node, self.past, Stack::stack(self.var, rhs.var, axis))
     }
 }

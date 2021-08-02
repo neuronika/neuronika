@@ -153,8 +153,15 @@ where
         let reduced = reduce(&self.left.gradient_mut(), &self.gradient());
         push_gradient(&*self.left, &reduced.as_standard_layout());
 
-        let reduced = -reduce(&self.right.gradient_mut(), &self.gradient());
-        push_gradient(&*self.right, &reduced.as_standard_layout());
+        let reduced = reduce(&self.right.gradient_mut(), &self.gradient());
+        let mut right_grad = self.right.gradient_mut();
+        let zip = Zip::from(&mut *right_grad).and_broadcast(&reduced);
+        if self.right.can_overwrite() {
+            self.right.set_overwrite(false);
+            zip.for_each(|right_el, reduced_el| *right_el = -reduced_el);
+        } else {
+            zip.for_each(|right_el, reduced_el| *right_el += -reduced_el);
+        }
     }
 
     fn no_grad(&self) {
@@ -323,8 +330,15 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     fn backward(&self) {
-        let reduced = -reduce(&*self.operand.gradient_mut(), &self.gradient());
-        push_gradient(&*self.operand, &reduced.as_standard_layout());
+        let mut grad = self.operand.gradient_mut();
+        let reduced = reduce(&*grad, &self.gradient());
+        let zip = Zip::from(&mut *grad).and_broadcast(&reduced);
+        if self.operand.can_overwrite() {
+            self.operand.set_overwrite(false);
+            zip.for_each(|operand_el, reduced_el| *operand_el = -reduced_el);
+        } else {
+            zip.for_each(|operand_el, reduced_el| *operand_el += -reduced_el);
+        }
     }
 
     fn no_grad(&self) {

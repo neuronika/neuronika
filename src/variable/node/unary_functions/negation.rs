@@ -99,7 +99,16 @@ impl<T: Gradient + Overwrite> Overwrite for NegationBackward<T> {
 
 impl<T: Gradient + Overwrite> Backward for NegationBackward<T> {
     fn backward(&self) {
-        push_gradient(&*self.operand, &-(&*self.gradient()));
+        let mut op_grad = self.operand.gradient_mut();
+        let grad = self.gradient();
+        let zip = Zip::from(&mut *op_grad).and(&*grad);
+
+        if self.operand.can_overwrite() {
+            self.operand.set_overwrite(false);
+            zip.for_each(|op_grad_el, grad_el| *op_grad_el = -grad_el);
+        } else {
+            zip.for_each(|op_grad_el, grad_el| *op_grad_el += -grad_el)
+        }
     }
 
     fn no_grad(&self) {

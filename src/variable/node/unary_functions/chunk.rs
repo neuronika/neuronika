@@ -28,21 +28,24 @@ impl<T: Data> Forward for Chunk<T> {
         }
 
         self.computed.set(true);
-        let mut data = self.data.borrow_mut();
-        let operand_data = self.operand.data();
-        let (chunk_shape, chunk_no) = (&self.chunk_shape, self.chunk_no);
-        let operanderand_data_chunk = operand_data
+        let (mut data, operand_data, chunk_shape, chunk_no) = (
+            self.data.borrow_mut(),
+            self.operand.data(),
+            &self.chunk_shape,
+            self.chunk_no,
+        );
+
+        let operand_data_chunk = operand_data
             .exact_chunks(chunk_shape.clone())
             .into_iter()
             .skip(chunk_no)
             .take(1)
             .next()
             .unwrap();
+
         Zip::from(&mut *data)
-            .and(&operanderand_data_chunk)
-            .for_each(|chunk_el, operanderand_data_chunk_el| {
-                *chunk_el = *operanderand_data_chunk_el
-            });
+            .and(&operand_data_chunk)
+            .for_each(|chunk_el, operand_data_chunk_el| *chunk_el = *operand_data_chunk_el);
     }
 
     fn was_computed(&self) -> bool {
@@ -114,12 +117,13 @@ impl<T: Gradient + Overwrite> Overwrite for ChunkBackward<T> {
 
 impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
     fn backward(&self) {
-        let mut diff_operand = self.operand.gradient_mut();
-        let grad = self.gradient();
+        let (mut diff_operand, grad, chunk_id) =
+            (self.operand.gradient_mut(), self.gradient(), self.chunk_id);
+
         let mut op_gradient_chunk = diff_operand
             .exact_chunks_mut(self.shape.clone())
             .into_iter()
-            .skip(self.chunk_id)
+            .skip(chunk_id)
             .take(1)
             .next()
             .unwrap();

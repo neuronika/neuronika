@@ -11,8 +11,8 @@ pub struct MultiConcatenate<D: Dimension + 'static> {
 }
 
 impl<D: Dimension + 'static> MultiConcatenate<D> {
-    pub(crate) fn new(operands: Vec<Rc<dyn Data<Dim = D>>>, axis: usize, shape: D) -> Self {
-        let (data, computed) = (RefCell::new(Tensor::zeros(shape)), Cell::new(false));
+    pub(crate) fn new(operands: Vec<Rc<dyn Data<Dim = D>>>, axis: usize, data: Tensor<D>) -> Self {
+        let (data, computed) = (RefCell::new(data), Cell::new(false));
 
         Self {
             operands,
@@ -44,7 +44,7 @@ impl<D: Dimension> Forward for MultiConcatenate<D> {
         self.computed.set(true);
         let (axis, mut offset, mut data) = (self.axis, 0, self.data.borrow_mut());
 
-        for operand in &self.operands {
+        self.operands.iter().for_each(|operand| {
             let operand_data = operand.data();
             let axis_len = operand_data.len_of(Axis(axis));
             let slice = Slice::from(offset..axis_len + offset);
@@ -54,7 +54,7 @@ impl<D: Dimension> Forward for MultiConcatenate<D> {
                 .and(&*operand_data)
                 .for_each(|view_el, op_data_el| *view_el = *op_data_el);
             offset += axis_len;
-        }
+        });
     }
 
     fn was_computed(&self) -> bool {
@@ -115,20 +115,18 @@ impl<D: Dimension> Overwrite for MultiConcatenateBackward<D> {
 impl<D: Dimension> Backward for MultiConcatenateBackward<D> {
     fn backward(&self) {
         let (axis, grad, mut offset) = (self.axis, &self.gradient.borrow(), 0);
-        for operand in &self.operands {
-            let mut operand_grad = operand.gradient_mut();
-            let axis_len = operand_grad.len_of(Axis(axis));
-            let slice = Slice::from(offset..axis_len + offset);
-            let grad_view = grad.as_ref().unwrap().slice_axis(Axis(axis), slice);
-            let zip = Zip::from(&mut *operand_grad).and(grad_view);
-            if operand.can_overwrite() {
-                zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
-                operand.set_overwrite(false);
-            } else {
-                zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
-            }
+
+        self.operands.iter().for_each(|operand| {
+            let axis_len = operand.gradient().len_of(Axis(axis));
+
+            let grad_view = grad
+                .as_ref()
+                .unwrap()
+                .slice_axis(Axis(axis), Slice::from(offset..axis_len + offset));
+
+            push_gradient(operand.as_ref(), &grad_view);
             offset += axis_len;
-        }
+        });
     }
 
     fn no_grad(&self) {
@@ -139,3 +137,6 @@ impl<D: Dimension> Backward for MultiConcatenateBackward<D> {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
+
+#[cfg(test)]
+mod test {}
