@@ -586,7 +586,7 @@ pub(super) fn assign_from_cols<D: Dimension, S: DataMut<Elem = f32>, T: Data<Ele
 
     Zip::from(&mut dest_windows_mut)
         .and(&from_cols)
-        .for_each(|dest_el, src_el| *dest_el += *src_el);
+        .par_for_each(|dest_el, src_el| *dest_el += *src_el);
 }
 
 /// Partitions the **flattened input**, the **flattened kernel** and the **output map**
