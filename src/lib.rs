@@ -138,10 +138,9 @@ mod variable;
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
-pub use nn::convolution::{Convolve, ConvolveWithGroups};
 pub use variable::{
-    Backward, Cat, Data, Eval, Forward, Gradient, MatMatMul, MatMatMulT, Overwrite, Param, Stack,
-    Var, VarDiff, VecMatMul, VecVecMul,
+    Backward, Cat, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, MatMatMul,
+    MatMatMulT, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
 use variable::{Input, InputBackward};
 

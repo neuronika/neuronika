@@ -751,7 +751,14 @@ fn convolve() {
 
     let kernel = crate::zeros((2, 2, 2, 2));
     let input = crate::ones((4, 2, 6, 6));
-    let convolve = super::Var::convolve(input, kernel, &[1, 1], &[1, 1], &[0, 0], crate::nn::Zero);
+    let convolve = super::Var::convolve(
+        input,
+        kernel,
+        &[1, 1],
+        &[1, 1],
+        &[0, 0],
+        crate::variable::Zero,
+    );
 
     assert_eq!(convolve.past.len(), 1);
     assert!(convolve.past.changeables.is_empty());
@@ -763,15 +770,28 @@ fn convolve_diff() {
 
     let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
     let input = crate::ones((4, 2, 6, 6));
-    let convolve = super::Var::convolve(input, kernel, &[1, 1], &[1, 1], &[0, 0], crate::nn::Zero);
+    let convolve = super::Var::convolve(
+        input,
+        kernel,
+        &[1, 1],
+        &[1, 1],
+        &[0, 0],
+        crate::variable::Zero,
+    );
 
     assert_eq!(convolve.past.len(), 1);
     assert_eq!(convolve.past.parameters.len(), 1);
 
     let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
     let input = crate::ones((4, 2, 6, 6)).requires_grad();
-    let convolve =
-        super::VarDiff::convolve(input, kernel, &[1, 1], &[1, 1], &[0, 0], crate::nn::Zero);
+    let convolve = super::VarDiff::convolve(
+        input,
+        kernel,
+        &[1, 1],
+        &[1, 1],
+        &[0, 0],
+        crate::variable::Zero,
+    );
 
     assert_eq!(convolve.past.len(), 1);
     assert_eq!(convolve.past.parameters.len(), 2);
@@ -789,7 +809,7 @@ fn convolve_groups() {
         &[1, 1],
         &[1, 1],
         &[0, 0],
-        crate::nn::Zero,
+        crate::variable::Zero,
         2,
     );
 
@@ -809,7 +829,7 @@ fn convolve_groups_diff() {
         &[1, 1],
         &[1, 1],
         &[0, 0],
-        crate::nn::Zero,
+        crate::variable::Zero,
         2,
     );
 
@@ -824,7 +844,7 @@ fn convolve_groups_diff() {
         &[1, 1],
         &[1, 1],
         &[0, 0],
-        crate::nn::Zero,
+        crate::variable::Zero,
         2,
     );
 

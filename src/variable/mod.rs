@@ -2,16 +2,16 @@ mod node;
 mod var;
 mod vardiff;
 
-#[cfg(test)]
-mod test;
-
 use ndarray::{ArrayViewMutD, Dimension, Ix, RawArrayViewMut};
 use std::{collections::BTreeMap, collections::HashSet, rc::Rc};
 pub use var::Var;
 pub use vardiff::VarDiff;
 
 pub(crate) use node::*;
-pub use node::{Backward, Data, Eval, Forward, Gradient, Input, InputBackward, Overwrite};
+pub use node::{
+    Backward, Constant, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, Input,
+    InputBackward, Overwrite, PaddingMode, Reflective, Replicative, Zero,
+};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Global Var Identifier ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -31,8 +31,8 @@ impl OperationsCounter {
 pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter { count: 0 };
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Histories ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[derive(Clone)]
 /// The computational forward-history of a variable. It keeps track of the computation up to the
@@ -363,3 +363,9 @@ impl<T: Data<Dim = D>, U: GradientOverwrite<D>, D: Dimension> DifferentiableVari
         self.past.clone()
     }
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[cfg(test)]
+mod test;

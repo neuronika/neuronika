@@ -1,22 +1,24 @@
 use ndarray::{
     linalg::{general_mat_mul, general_mat_vec_mul},
-    Array, ArrayBase, ArrayD, ArrayView, Axis, DimMax, Dimension, IntoNdProducer, Ix1, Ix2,
-    StrideShape, Zip,
+    Array, ArrayBase, ArrayD, ArrayView, Axis, DimMax, Dimension, IntoNdProducer, Ix1, Ix2, Zip,
 };
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
+    cell::{Ref, RefCell, RefMut},
     rc::Rc,
 };
 
-pub(crate) use binary_functions::*;
+pub(crate) use binary::*;
+pub use binary::{
+    Constant, Convolve, ConvolveWithGroups, PaddingMode, Reflective, Replicative, Zero,
+};
 pub use input::{Input, InputBackward};
-pub(crate) use nary_functions::*;
-pub(crate) use unary_functions::*;
+pub(crate) use nary::*;
+pub(crate) use unary::*;
 
-mod binary_functions;
+mod binary;
 mod input;
-mod nary_functions;
-mod unary_functions;
+mod nary;
+mod unary;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Type Aliases ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -406,10 +408,10 @@ pub(crate) fn expect_tensor_mut<D: Dimension>(
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Testing Utilities ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[allow(clippy::dead_code)]
+#[cfg(test)]
 const F16_EPSILON: f32 = 9.77e-04;
 
-#[allow(clippy::dead_code)]
+#[cfg(test)]
 fn assert_almost_equals<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) {
     assert!(
         Zip::from(our).and(their).all(|l, r| {
@@ -423,29 +425,29 @@ fn assert_almost_equals<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) {
     );
 }
 
-#[allow(clippy::dead_code)]
+#[cfg(test)]
 fn new_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<Input<D>>
 where
     D: Dimension + 'static,
-    Sh: Into<StrideShape<D>>,
+    Sh: Into<ndarray::StrideShape<D>>,
 {
     Input::new(new_tensor(shape, elems)).node
 }
 
-#[allow(clippy::dead_code)]
+#[cfg(test)]
 fn new_backward_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<InputBackward<D>>
 where
     D: Dimension + 'static,
-    Sh: Into<StrideShape<D>>,
+    Sh: Into<ndarray::StrideShape<D>>,
 {
     Rc::new(Input::new(new_tensor(shape, elems)).node.differentiable())
 }
 
-#[allow(clippy::dead_code)]
+#[cfg(test)]
 fn new_tensor<D, Sh>(shape: Sh, elems: Vec<f32>) -> Tensor<D>
 where
     D: Dimension + 'static,
-    Sh: Into<StrideShape<D>>,
+    Sh: Into<ndarray::StrideShape<D>>,
 {
     Tensor::from_shape_vec(shape, elems).unwrap()
 }

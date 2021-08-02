@@ -380,15 +380,14 @@
 //! the input variable with probability *p* using samples from a Bernoulli distribution.
 use super::{Input, InputBackward, Param};
 use crate::variable::{
-    self, Backward, Data, Dropout as DropoutNode, DropoutBackward as DropoutBackwardNode, Eval,
-    Forward, Gradient, MatMatMulT, Overwrite, Tensor, Var, VarDiff,
+    self, Backward, Convolve, ConvolveWithGroups, Data, Dropout as DropoutNode,
+    DropoutBackward as DropoutBackwardNode, Eval, Forward, Gradient, MatMatMulT, Overwrite, Tensor,
+    Var, VarDiff,
 };
-pub use convolution::{Constant, PaddingMode, Reflective, Replicative, Zero};
-use convolution::{Convolve, ConvolveWithGroups};
+pub use crate::variable::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 use std::{cell::Cell, rc::Rc};
 
-pub(super) mod convolution;
 pub mod init;
 pub mod loss;
 
