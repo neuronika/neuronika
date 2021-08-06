@@ -1,8 +1,11 @@
-mod aux_functions {
-    use super::super::*;
+use super::*;
+
+mod auxiliary_functions {
+    use super::*;
+
     #[test]
     fn im2col() {
-        let input = ndarray::array![
+        let array = ndarray::array![
             [
                 [0., 1., 2., 3.],
                 [4., 5., 6., 7.],
@@ -22,9 +25,10 @@ mod aux_functions {
                 [12., 13., 14., 15.]
             ],
         ];
+
         // We must reshape the input, consider it as a bi-dimensional signal
         // with 3 channels each of 4 x 4.
-        let d = input.clone().into_shape((1, 3, 4, 4)).unwrap();
+        let array_as_image = array.clone().into_shape((1, 3, 4, 4)).unwrap();
 
         let im2col = ndarray::array![
             [0.0, 1.0, 4.0, 5.0],
@@ -55,21 +59,24 @@ mod aux_functions {
             [9.0, 10.0, 13.0, 14.0],
             [10.0, 11.0, 14.0, 15.0]
         ];
-        assert_eq!(im2col, to_col(&d, &[1, 3, 3, 3], &[1, 1], &[1, 1]));
+        assert_eq!(
+            im2col,
+            to_col(&array_as_image, &[1, 3, 3, 3], &[1, 1], &[1, 1])
+        );
 
         // Now let's increase the batch size by 1.
-        let input_batch = ndarray::stack(ndarray::Axis(0), &[input.view(), input.view()]).unwrap();
+        let input_batch = ndarray::stack(ndarray::Axis(0), &[array.view(), array.view()]).unwrap();
+
         // We must reshape the input, consider it as 2 bidimensional signals
         // with 3 channels each of 4 x 4.
-        let d = input_batch.into_shape((2, 3, 4, 4)).unwrap();
+        let array_as_image = input_batch.into_shape((2, 3, 4, 4)).unwrap();
 
         // The im2col's result. Note that the im2col of signals
         // from the batch are concatenated along the columns.
         assert_eq!(
             ndarray::concatenate(ndarray::Axis(1), &[im2col.view(), im2col.view()]).unwrap(),
-            to_col(&d, &[1, 3, 3, 3], &[1, 1], &[1, 1])
+            to_col(&array_as_image, &[1, 3, 3, 3], &[1, 1], &[1, 1])
         );
-        // The nice thing about to_col is that it works for 1d, 2d, and 3d convolutions.
     }
 
     #[test]
@@ -103,7 +110,7 @@ mod aux_functions {
     }
 
     #[test]
-    fn apply_remove_padding() {
+    fn apply_and_remove_padding() {
         let to_pad = (0..625)
             .map(|el| el as f32)
             .collect::<Array<f32, _>>()
