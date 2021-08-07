@@ -1,7 +1,7 @@
 use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
-
+use std::cell::{Cell, RefCell};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Adam ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -10,8 +10,8 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 /// It has been proposed in
 /// [Adam: A Method for Stochastic Optimization](https://arxiv.org/abs/1412.6980).
 pub struct Adam<'a, T: Penalty> {
-    params: Vec<AdamParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<AdamParam<'a>>>,
+    lr: Cell<f32>,
     penalty: T,
     betas: (f32, f32),
     eps: f32,
@@ -33,7 +33,8 @@ impl<'a, T: Penalty> Adam<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
-        let params = Self::build_params(params);
+        let params = RefCell::new(Self::build_params(params));
+        let lr = Cell::new(lr);
 
         Self {
             params,
@@ -73,11 +74,11 @@ impl<'a> From<Param> for AdamParam<'a> {
 impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
     type ParamRepr = AdamParam<'a>;
 
-    fn step(&mut self) {
-        let (lr, penalty, params, (beta1, beta2), eps) = (
-            &self.lr,
+    fn step(&self) {
+        let (lr, penalty, mut params, (beta1, beta2), eps) = (
+            self.lr.get(),
             &self.penalty,
-            &mut self.params,
+            self.params.borrow_mut(),
             &self.betas,
             &self.eps,
         );
@@ -92,7 +93,7 @@ impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
             let mut p_grad = param.grad.to_owned();
             Zip::from(&mut p_grad)
                 .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
 
             Zip::from(exp_avg)
                 .and(&p_grad)
@@ -117,10 +118,18 @@ impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }

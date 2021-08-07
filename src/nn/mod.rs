@@ -4,7 +4,7 @@
 //! combine them into a bigger architecture. Feel free to take a look at the
 //! [complete list](#layers).
 //!
-//! You can also customise the initialisation of the parameters of such components, and that of any
+//! You can also customize the initialization of the parameters of such components, and that of any
 //! other differentiable variable, by picking the function that best fits your needs from the
 //! [`nn::init`](module@init) module.
 //!
@@ -12,16 +12,16 @@
 //!
 //! # Assembling a neural network
 //!
-//! The suggested way of bulding a model using neuronika's building blocks is to define a struct
+//! The suggested way of building a model using neuronika's building blocks is to define a struct
 //! encapsulating its components.
 //!
-//! The behaviour of the model should be defined by including an appropriate method in its struct
+//! The behavior of the model should be defined by including an appropriate method in its struct
 //! implementation. Such method must specify how the components interact.
 //!
 //! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
 //! layers for a multivariate regression task, let's see what it would look like in neuronika.
 //!
-//! We begin by definining its struct using the provided components.
+//! We begin by defining its struct using the provided components.
 //!
 //! ```
 //! use neuronika::nn;
@@ -69,7 +69,7 @@
 //! #     lin3: nn::Linear,     
 //! # }
 //! impl MLP {
-//!     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//!     // MLP behavior. Notice the presence of the ReLU non-linearity.
 //!     fn forward<I, T, U>(
 //!         &self,
 //!         input: I,
@@ -116,7 +116,7 @@
 //! #     }
 //! # }
 //! # impl MLP {
-//! #     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//! #     // MLP behavior. Notice the presence of the ReLU non-linearity.
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
@@ -173,7 +173,7 @@
 //! #     }
 //! # }
 //! # impl MLP {
-//! #     // MLP behaviour. Notice the presence of the ReLU non-linearity.
+//! #     // MLP behavior. Notice the presence of the ReLU non-linearity.
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
@@ -197,7 +197,7 @@
 //!
 //! let some_other_variable = neuronika::rand((1, 25)).requires_grad();
 //!
-//! // Random perturbated data.
+//! // Random perturbed data.
 //! let fictitious_data = neuronika::rand((200, 25)) + some_other_variable;
 //!
 //! let out = model.forward(fictitious_data);
@@ -286,14 +286,14 @@
 //!
 //! # Train and Eval
 //!
-//! The status of a model determines the behaviour of its components. Certain building blocks, such
-//! as the [`Dropout`], are turned on and off depending on wheter the model is running in *training
+//! The status of a model determines the behavior of its components. Certain building blocks, such
+//! as the [`Dropout`], are turned on and off depending on whether the model is running in *training
 //! mode* or in *inference mode*.
 //!
 //! You can set a network in training mode or in inference mode either by calling [`.train()`] and
 //! [`.eval()`] directly on its output or by using `ModelStatus`.
 //!
-//! The former approach is preferrable, as when multiple models are pipelined, calling `.train()`
+//! The former approach is preferable, as when multiple models are pipelined, calling `.train()`
 //! and `.eval()` directly on the final outputs will switch the statuses of all the models.
 //! Do also note that switching the status by using `ModelStatus` is the only way that allows for
 //! selectively training and evaluating multiple models.
@@ -380,19 +380,14 @@
 //! the input variable with probability *p* using samples from a Bernoulli distribution.
 use super::{Input, InputBackward, Param};
 use crate::variable::{
-    self,
-    node::{
-        Backward, Data, Dropout as DropoutNode, DropoutBackward as DropoutBackwardNode, Eval,
-        Forward, Gradient, Overwrite,
-    },
-    MatMatMulT, Tensor, Var, VarDiff,
+    self, Backward, Convolve, ConvolveWithGroups, Data, Dropout as DropoutNode,
+    DropoutBackward as DropoutBackwardNode, Eval, Forward, Gradient, MatMatMulT, Overwrite, Tensor,
+    Var, VarDiff,
 };
-pub use convolution::{Constant, PaddingMode, Reflective, Replicative, Zero};
-use convolution::{Convolve, ConvolveWithGroups};
+pub use crate::variable::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 use std::{cell::Cell, rc::Rc};
 
-pub(super) mod convolution;
 pub mod init;
 pub mod loss;
 
@@ -589,14 +584,14 @@ impl Linear {
     /// The learnable weight of the layer is of shape `(out_features, in_features)`. The learnable
     /// bias of the layer is of shape `out_features`.
     ///
-    /// The values for both the weight and bias are initialised from *U(-k, k)* where
+    /// The values for both the weight and bias are initialized from *U(-k, k)* where
     /// `k = (1. / in_features as f32).sqrt()`.
     pub fn new(in_features: usize, out_features: usize) -> Self {
-        let mut weight = Input::new(Tensor::zeros((out_features, in_features))).requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_features)).requires_grad();
+        let weight = Input::new(Tensor::zeros((out_features, in_features))).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_features)).requires_grad();
         let k = (1. / (in_features as f32)).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self { weight, bias }
     }
@@ -632,7 +627,7 @@ impl Register for Linear {
 }
 
 /// A **long short-term memory (LSTM)** cell.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct LSTMCell {
     pub weight_ih: Learnable<Ix2>,
     pub weight_hh: Learnable<Ix2>,
@@ -649,7 +644,7 @@ impl LSTMCell {
     ///
     /// * `hidden_size` - number of features in the hidden state.
     ///
-    /// All the weight and biases are initialised from *U(-k, k)* where
+    /// All the weight and biases are initialized from *U(-k, k)* where
     /// `k = (1. / hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
@@ -660,16 +655,16 @@ impl LSTMCell {
                 xhidden_size,
             )
         };
-        let mut weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
-        let mut weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
-        let mut bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
-        let mut bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
+        let weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
+        let bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
 
         let k = 1. / (hidden_size as f32).sqrt();
-        init::uniform(&mut weight_ih, -k, k);
-        init::uniform(&mut weight_hh, -k, k);
-        init::uniform(&mut bias_ih, -k, k);
-        init::uniform(&mut bias_hh, -k, k);
+        init::uniform(&weight_ih, -k, k);
+        init::uniform(&weight_hh, -k, k);
+        init::uniform(&bias_ih, -k, k);
+        init::uniform(&bias_hh, -k, k);
 
         Self {
             weight_ih,
@@ -746,7 +741,7 @@ impl Register for LSTMCell {
 }
 
 /// A **gated recurrent unit (GRU)** cell.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct GRUCell {
     pub weight_ih: Learnable<Ix2>,
     pub weight_hh: Learnable<Ix2>,
@@ -763,7 +758,7 @@ impl GRUCell {
     ///
     /// * `hidden_size` - number of features in the hidden state.
     ///
-    /// All the weight and biases are initialised from *U(-k, k)* where
+    /// All the weight and biases are initialized from *U(-k, k)* where
     /// `k = (1. / hidden_size as f32).sqrt()`.
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let (weight_ih_shape, weight_hh_shape, bias_shape) = {
@@ -774,16 +769,16 @@ impl GRUCell {
                 xhidden_size,
             )
         };
-        let mut weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
-        let mut weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
-        let mut bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
-        let mut bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let weight_ih = Input::new(Tensor::zeros(weight_ih_shape)).requires_grad();
+        let weight_hh = Input::new(Tensor::zeros(weight_hh_shape)).requires_grad();
+        let bias_ih = Input::new(Tensor::zeros(bias_shape)).requires_grad();
+        let bias_hh = Input::new(Tensor::zeros(bias_shape)).requires_grad();
 
         let k = 1. / (hidden_size as f32).sqrt();
-        init::uniform(&mut weight_ih, -k, k);
-        init::uniform(&mut weight_hh, -k, k);
-        init::uniform(&mut bias_ih, -k, k);
-        init::uniform(&mut bias_hh, -k, k);
+        init::uniform(&weight_ih, -k, k);
+        init::uniform(&weight_hh, -k, k);
+        init::uniform(&bias_ih, -k, k);
+        init::uniform(&bias_hh, -k, k);
 
         Self {
             weight_ih,
@@ -881,7 +876,7 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     /// * `dilation` - controls the spacing between the kernel points, a number for this
     /// one-dimensional case.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_size) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -892,13 +887,13 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
         stride: usize,
         dilation: usize,
     ) -> Self {
-        let mut weight =
+        let weight =
             Input::new(Tensor::zeros((out_channels, in_channels, kernel_size))).requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_size) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1003,9 +998,9 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     /// both subsequently concatenated.
     ///* at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_size) as f32).sqrt()`.
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
@@ -1016,17 +1011,17 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
         dilation: usize,
         groups: usize,
     ) -> Self {
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels / groups,
             kernel_size,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (groups as f32 / (in_channels * kernel_size) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1123,7 +1118,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     /// * `dilation` - controls the spacing between the kernel points, a 2-tuple for this
     /// two-dimensional case.
     ///
-    /// The weight and the bias are initialised from *U(-k, k)* where
+    /// The weight and the bias are initialized from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_w * kernel_h) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -1135,18 +1130,18 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
         dilation: (usize, usize),
     ) -> Self {
         let (kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_h,
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1256,9 +1251,9 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     /// and both subsequently concatenated.
     /// * at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_h * kernel_w) as f32).sqrt()`.
-    #[allow(clippy::clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
@@ -1270,18 +1265,18 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
         groups: usize,
     ) -> Self {
         let (kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_h,
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (groups as f32 / (in_channels * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1384,7 +1379,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     /// * `dilation` - controls the spacing between the kernel points, a 3-tuple for this
     /// three-dimensional case.
     ///
-    /// The weight and the bias of the layer are initialised from *U(-k, k)* where
+    /// The weight and the bias of the layer are initialized from *U(-k, k)* where
     /// `k = (1. /(in_channels * kernel_d * kernel_w * kernel_h) as f32).sqrt()`.
     pub fn new(
         in_channels: usize,
@@ -1396,7 +1391,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
         dilation: (usize, usize, usize),
     ) -> Self {
         let (kernel_d, kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_d,
@@ -1404,11 +1399,11 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,
@@ -1521,7 +1516,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     /// and both subsequently concatenated.
     /// * at `groups = in_channels`, each input channel is convolved with its own set of filters.
     ///
-    /// The weight and the bias are initialised from *U(-k, k)* where
+    /// The weight and the bias are initialized from *U(-k, k)* where
     /// `k = (groups /(in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt()`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -1535,7 +1530,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
         groups: usize,
     ) -> Self {
         let (kernel_d, kernel_h, kernel_w) = kernel_size;
-        let mut weight = Input::new(Tensor::zeros((
+        let weight = Input::new(Tensor::zeros((
             out_channels,
             in_channels,
             kernel_d,
@@ -1543,11 +1538,11 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let mut bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
 
         let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
-        init::uniform(&mut weight, -k, k);
-        init::uniform(&mut bias, -k, k);
+        init::uniform(&weight, -k, k);
+        init::uniform(&bias, -k, k);
 
         Self {
             padding,

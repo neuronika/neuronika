@@ -1,7 +1,8 @@
 //! Implementations of various optimization algorithms and penalty regularizations.
 //!
 //! Some of the most commonly used methods are already supported, and the interface is linear
-//! enough, so that more sophisticated ones can be also easily integrated in the future.
+//! enough, so that more sophisticated ones can be also easily integrated in the future. The
+//! complete list can be found [here](#algorithms).
 //!
 //! An optimizer holds a state, in the form of a *representation*, for each of the parameters to
 //! optimize and it updates such parameters accordingly to the computed gradient and the state
@@ -15,7 +16,7 @@
 //!
 //! To construct an optimizer you have to give it a vector of [`Param`](struct@Param) referring to
 //! the parameters to optimize and to pass optimizer-specific setting such as the learning rate,
-//! the regulatization, etc.
+//! the regularization, etc.
 //!
 //! ```
 //! # use neuronika::Param;
@@ -106,6 +107,7 @@
 //! ```
 //! use neuronika::Param;
 //! use neuronika::optim::Penalty;
+//! use std::cell::{Cell, RefCell};
 //!
 //! # use ndarray::{ArrayD, ArrayViewMutD};
 //! # struct SGDParam<'a> {
@@ -113,8 +115,8 @@
 //! #     grad: ArrayViewMutD<'a, f32>,
 //! # }
 //! struct SGD<'a, T> {
-//!     params: Vec<SGDParam<'a>>,
-//!     lr: f32,
+//!     params: RefCell<Vec<SGDParam<'a>>>,
+//!     lr: Cell<f32>,
 //!     penalty: T,
 //! }
 //! ```
@@ -128,9 +130,10 @@
 //! # use neuronika::Param;
 //! # use neuronika::optim::Penalty;
 //! # use ndarray::{ArrayD, ArrayViewMutD};
+//! # use std::cell::{Cell, RefCell};
 //! # struct SGD<'a, T> {
-//! #     params: Vec<SGDParam<'a>>,
-//! #     lr: f32,
+//! #     params: RefCell<Vec<SGDParam<'a>>>,
+//! #     lr: Cell<f32>,
 //! #     penalty: T,
 //! # }
 //! # struct SGDParam<'a> {
@@ -147,23 +150,31 @@
 //! impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
 //!     type ParamRepr = SGDParam<'a>;
 //!
-//!     fn step(&mut self) {
-//!         let (lr, penalty, params) = (&self.lr, &self.penalty, &mut self.params);
+//!     fn step(&self) {
+//!         let (lr, penalty) = (self.lr.get(), &self.penalty);
 //!
-//!         params.par_iter_mut().for_each(|param| {
+//!         self.params.borrow_mut().par_iter_mut().for_each(|param| {
 //!             let (data, grad) = (&mut param.data, &param.grad);
 //!
 //!             Zip::from(data).and(grad).for_each(|data_el, grad_el| {
-//!                 *data_el += -(grad_el + penalty.penalise(data_el)) * lr
+//!                 *data_el += -(grad_el + penalty.penalize(data_el)) * lr
 //!             });
 //!         });
 //!     }
 //!
-//!     fn zero_grad(&mut self) {
-//!         self.params.par_iter_mut().for_each(|param| {
+//!     fn zero_grad(&self) {
+//!         self.params.borrow_mut().par_iter_mut().for_each(|param| {
 //!             let grad = &mut param.grad;
 //!             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
 //!         });
+//!     }
+//!
+//!     fn get_lr(&self) -> f32 {
+//!         self.lr.get()
+//!     }
+//!
+//!     fn set_lr(&self, lr: f32) {
+//!         self.lr.set(lr)    
 //!     }
 //! }
 //!
@@ -171,13 +182,27 @@
 //! impl<'a, T: Penalty> SGD<'a, T> {
 //!   pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
 //!       Self {
-//!           params: Self::build_params(parameters),
-//!           lr,
+//!           params: RefCell::new(Self::build_params(parameters)),
+//!           lr: Cell::new(lr),
 //!           penalty,
 //!       }
 //!    }
 //! }
 //! ```
+//!
+//! # Algorithms
+//!
+//! List of all implemented optimizers.
+//!
+//! * [`Adagrad`] - Implements the Adagrad algorithm.
+//!
+//! * [`Adam`] - Implements the Adam algorithm.
+//!
+//! * [`AMSGrad`] - Implements the AMSGrad algorithm.
+//!
+//! * [`RMSProp`] - Implements the RMSProp algorithm.
+//!
+//! * [`SGD`] - Implements the stochastic gradient descent algorithm.
 use crate::variable::Param;
 pub use adagrad::{Adagrad, AdagradParam};
 pub use adam::{Adam, AdamParam};
@@ -186,6 +211,7 @@ pub use rmsprop::{
     RMSProp, RMSPropCentered, RMSPropCenteredParam, RMSPropCenteredWithMomentum,
     RMSPropCenteredWithMomentumParam, RMSPropParam, RMSPropWithMomentum, RMSPropWithMomentumParam,
 };
+pub use scheduler::{ExponentialLR, LRScheduler, LambdaLR, MultiStepLR, MultiplicativeLR, StepLR};
 pub use sgd::{SGDParam, SGDWithMomentum, SGDWithMomentumParam, SGD};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -197,10 +223,10 @@ pub trait Optimizer {
     type ParamRepr: From<Param>;
 
     /// Performs a single optimization step.
-    fn step(&mut self);
+    fn step(&self);
 
     /// Zeroes the gradients of all the optimizable parameters.
-    fn zero_grad(&mut self);
+    fn zero_grad(&self);
 
     /// Transforms a vector of parameter representations into a vector of another kind of parameter
     /// representations.
@@ -215,18 +241,24 @@ pub trait Optimizer {
         }
         vec
     }
+
+    /// Returns this optimizer's learning rate.
+    fn get_lr(&self) -> f32;
+
+    /// Sets this optimizer's learning rate.
+    fn set_lr(&self, lr: f32);
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// Penalty trait, defines the penalty regularisation's logic.
+/// Penalty trait, defines the penalty regularization's logic.
 pub trait Penalty: Send + Sync {
     /// Applies the penatly to an element of the gradient.
-    fn penalise(&self, w: &f32) -> f32;
+    fn penalize(&self, w: &f32) -> f32;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularizations Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Regularization Structs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// L2 penalty, also known as *weight decay* or *Tichonov regularization*.
 pub struct L2 {
@@ -285,25 +317,34 @@ impl ElasticNet {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl Penalty for L2 {
-    fn penalise(&self, w: &f32) -> f32 {
+    fn penalize(&self, w: &f32) -> f32 {
         2. * self.lambda * w
     }
 }
 
 impl Penalty for L1 {
-    fn penalise(&self, w: &f32) -> f32 {
+    fn penalize(&self, w: &f32) -> f32 {
         self.lambda * w.signum()
     }
 }
 
 impl Penalty for ElasticNet {
-    fn penalise(&self, w: &f32) -> f32 {
+    fn penalize(&self, w: &f32) -> f32 {
         self.lambda_l1 * w.signum() + 2. * self.lambda_l2 * w
     }
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Optimizers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 mod adagrad;
 mod adam;
 mod amsgrad;
 mod rmsprop;
 mod sgd;
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Learning Rate Schedulers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+mod scheduler;

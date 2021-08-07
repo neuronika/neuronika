@@ -988,7 +988,7 @@ mod tests {
                 .unwrap()
             );
 
-            assert_eq!(kfold.next().is_none(), true);
+            assert!(kfold.next().is_none());
         }
 
         #[test]
@@ -1022,7 +1022,7 @@ mod tests {
                 .unwrap()
             );
 
-            assert_eq!(batch.next().is_none(), true);
+            assert!(batch.next().is_none());
         }
 
         #[test]
@@ -1105,8 +1105,8 @@ mod tests {
                 .unwrap()
             );
 
-            assert_eq!(batch.next().is_none(), true);
-            assert_eq!(batch.next().is_none(), true);
+            assert!(batch.next().is_none());
+            assert!(batch.next().is_none());
         }
     }
 
@@ -1220,7 +1220,7 @@ mod tests {
                 Array::from_shape_vec((2, 2), vec![0., 1., 1., 0.]).unwrap()
             );
 
-            assert_eq!(kfold.next().is_none(), true);
+            assert!(kfold.next().is_none());
         }
 
         #[test]
@@ -1265,7 +1265,7 @@ mod tests {
                 Array::from_shape_vec((2, 2), vec![0., 1., 1., 0.]).unwrap()
             );
 
-            assert_eq!(batch.next().is_none(), true);
+            assert!(batch.next().is_none());
         }
 
         #[test]
@@ -1370,8 +1370,8 @@ mod tests {
                 Array::from_shape_vec((3, 2), vec![1., 0., 0., 1., 1., 0.]).unwrap()
             );
 
-            assert_eq!(batch.next().is_none(), true);
-            assert_eq!(batch.next().is_none(), true);
+            assert!(batch.next().is_none());
+            assert!(batch.next().is_none());
         }
     }
 }

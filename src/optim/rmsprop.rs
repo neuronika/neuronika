@@ -1,6 +1,7 @@
 use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use std::cell::{Cell, RefCell};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSProp ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -17,10 +18,10 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 /// *epsilon*. Do note that TensorFlow interchanges these two operations. The effective
 /// *learning rate* is thus *lr' / (v.sqrt() + eps)* where *lr'* is the scheduled
 /// learning rate and *v* is the weighted moving average of the square gradient.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSProp<'a, T: Penalty> {
-    params: Vec<RMSPropParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<RMSPropParam<'a>>>,
+    lr: Cell<f32>,
     alpha: f32,
     penalty: T,
     eps: f32,
@@ -41,7 +42,8 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
-        let params = Self::build_params(params);
+        let params = RefCell::new(Self::build_params(params));
+        let lr = Cell::new(lr);
 
         Self {
             params,
@@ -55,7 +57,8 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     /// Transforms this *RMSProp* optimizer in the *centered RMSProp* version of the algorithm
     /// where the gradient is normalized by an estimation of its variance.
     pub fn centered(self) -> RMSPropCentered<'a, T> {
-        let params: Vec<RMSPropCenteredParam> = Self::build_params(self.params);
+        let params: RefCell<Vec<RMSPropCenteredParam>> =
+            RefCell::new(Self::build_params(self.params.into_inner()));
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropCentered {
@@ -73,7 +76,8 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     ///
     /// `momentum` - the momentum factor.
     pub fn with_momentum(self, momentum: f32) -> RMSPropWithMomentum<'a, T> {
-        let params: Vec<RMSPropWithMomentumParam> = Self::build_params(self.params);
+        let params: RefCell<Vec<RMSPropWithMomentumParam>> =
+            RefCell::new(Self::build_params(self.params.into_inner()));
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropWithMomentum {
@@ -93,7 +97,8 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     ///
     /// `momentum` - the momentum factor.
     pub fn centered_with_momentum(self, momentum: f32) -> RMSPropCenteredWithMomentum<'a, T> {
-        let params: Vec<RMSPropCenteredWithMomentumParam> = Self::build_params(self.params);
+        let params: RefCell<Vec<RMSPropCenteredWithMomentumParam>> =
+            RefCell::new(Self::build_params(self.params.into_inner()));
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropCenteredWithMomentum {
@@ -108,7 +113,7 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
 }
 
 /// A parameter used by the *RMSProp* optimizer.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -134,10 +139,10 @@ impl<'a> From<Param> for RMSPropParam<'a> {
 impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
     type ParamRepr = RMSPropParam<'a>;
 
-    fn step(&mut self) {
-        let (params, lr, alpha, penalty, eps) = (
-            &mut self.params,
-            &self.lr,
+    fn step(&self) {
+        let (mut params, lr, alpha, penalty, eps) = (
+            self.params.borrow_mut(),
+            self.lr.get(),
             &self.alpha,
             &self.penalty,
             &self.eps,
@@ -151,7 +156,7 @@ impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
             let mut p_grad = param.grad.to_owned();
             Zip::from(&mut p_grad)
                 .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -168,11 +173,19 @@ impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }
 
@@ -180,10 +193,10 @@ impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropWithMomentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *RMSProp* optimizer with *momentum*.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropWithMomentum<'a, T: Penalty> {
-    params: Vec<RMSPropWithMomentumParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<RMSPropWithMomentumParam<'a>>>,
+    lr: Cell<f32>,
     alpha: f32,
     penalty: T,
     eps: f32,
@@ -191,7 +204,7 @@ pub struct RMSPropWithMomentum<'a, T: Penalty> {
 }
 
 /// A parameter used by the *RMSProp* optimizer with momentum.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -224,7 +237,8 @@ impl<'a, T: Penalty> RMSPropWithMomentum<'a, T> {
         penalty: T,
         eps: f32,
     ) -> Self {
-        let params = Self::build_params(params);
+        let params = RefCell::new(Self::build_params(params));
+        let lr = Cell::new(lr);
 
         Self {
             params,
@@ -238,7 +252,8 @@ impl<'a, T: Penalty> RMSPropWithMomentum<'a, T> {
 
     /// Transofrms this *RMSProp* optimizer in the *centered* variant with *momentum*.
     pub fn centered(self) -> RMSPropCenteredWithMomentum<'a, T> {
-        let params: Vec<RMSPropCenteredWithMomentumParam> = Self::build_params(self.params);
+        let params: RefCell<Vec<RMSPropCenteredWithMomentumParam>> =
+            RefCell::new(Self::build_params(self.params.into_inner()));
         let (lr, alpha, momentum, penalty, eps) =
             (self.lr, self.alpha, self.momentum, self.penalty, self.eps);
 
@@ -286,10 +301,10 @@ impl<'a> From<RMSPropParam<'a>> for RMSPropWithMomentumParam<'a> {
 impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
     type ParamRepr = RMSPropWithMomentumParam<'a>;
 
-    fn step(&mut self) {
-        let (params, lr, alpha, penalty, eps, momentum) = (
-            &mut self.params,
-            &self.lr,
+    fn step(&self) {
+        let (mut params, lr, alpha, penalty, eps, momentum) = (
+            self.params.borrow_mut(),
+            self.lr.get(),
             &self.alpha,
             &self.penalty,
             &self.eps,
@@ -305,7 +320,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
             let mut p_grad = param.grad.to_owned();
             Zip::from(&mut p_grad)
                 .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -326,11 +341,19 @@ impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }
 
@@ -338,10 +361,10 @@ impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropCentered ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *RMSProp* optimizer in its *centered* variant.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCentered<'a, T: Penalty> {
-    params: Vec<RMSPropCenteredParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<RMSPropCenteredParam<'a>>>,
+    lr: Cell<f32>,
     alpha: f32,
     penalty: T,
     eps: f32,
@@ -362,7 +385,8 @@ impl<'a, T: Penalty> RMSPropCentered<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
-        let params = Self::build_params(params);
+        let params = RefCell::new(Self::build_params(params));
+        let lr = Cell::new(lr);
 
         Self {
             params,
@@ -379,7 +403,8 @@ impl<'a, T: Penalty> RMSPropCentered<'a, T> {
     ///
     /// `momentum` - momentum factor.
     pub fn with_momentum(self, momentum: f32) -> RMSPropCenteredWithMomentum<'a, T> {
-        let params: Vec<RMSPropCenteredWithMomentumParam> = Self::build_params(self.params);
+        let params: RefCell<Vec<RMSPropCenteredWithMomentumParam>> =
+            RefCell::new(Self::build_params(self.params.into_inner()));
         let (lr, alpha, penalty, eps) = (self.lr, self.alpha, self.penalty, self.eps);
 
         RMSPropCenteredWithMomentum {
@@ -394,7 +419,7 @@ impl<'a, T: Penalty> RMSPropCentered<'a, T> {
 }
 
 /// A parameter used by the *centered RMSProp* optimizer.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCenteredParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -437,10 +462,10 @@ impl<'a> From<RMSPropParam<'a>> for RMSPropCenteredParam<'a> {
 impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
     type ParamRepr = RMSPropCenteredParam<'a>;
 
-    fn step(&mut self) {
-        let (params, lr, alpha, penalty, eps) = (
-            &mut self.params,
-            &self.lr,
+    fn step(&self) {
+        let (mut params, lr, alpha, penalty, eps) = (
+            self.params.borrow_mut(),
+            self.lr.get(),
             &self.alpha,
             &self.penalty,
             &self.eps,
@@ -455,7 +480,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
             let mut p_grad = param.grad.to_owned();
             Zip::from(&mut p_grad)
                 .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -481,11 +506,19 @@ impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }
 
@@ -493,10 +526,10 @@ impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RMSPropCenteredWithMomentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The *centered RMSProp* optimizer with *momentum*.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCenteredWithMomentum<'a, T: Penalty> {
-    params: Vec<RMSPropCenteredWithMomentumParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<RMSPropCenteredWithMomentumParam<'a>>>,
+    lr: Cell<f32>,
     alpha: f32,
     penalty: T,
     eps: f32,
@@ -527,7 +560,8 @@ impl<'a, T: Penalty> RMSPropCenteredWithMomentum<'a, T> {
         penalty: T,
         eps: f32,
     ) -> Self {
-        let params = Self::build_params(params);
+        let params = RefCell::new(Self::build_params(params));
+        let lr = Cell::new(lr);
 
         Self {
             params,
@@ -541,7 +575,7 @@ impl<'a, T: Penalty> RMSPropCenteredWithMomentum<'a, T> {
 }
 
 /// A parameter used by the *centered RMSProp* optimizer with *momentum*.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RMSPropCenteredWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -633,10 +667,10 @@ impl<'a> From<RMSPropWithMomentumParam<'a>> for RMSPropCenteredWithMomentumParam
 
 impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
     type ParamRepr = RMSPropCenteredWithMomentumParam<'a>;
-    fn step(&mut self) {
-        let (params, lr, alpha, penalty, eps, momentum) = (
-            &mut self.params,
-            &self.lr,
+    fn step(&self) {
+        let (mut params, lr, alpha, penalty, eps, momentum) = (
+            self.params.borrow_mut(),
+            self.lr.get(),
             &self.alpha,
             &self.penalty,
             &self.eps,
@@ -656,7 +690,7 @@ impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
             let mut p_grad = param.grad.to_owned();
             Zip::from(&mut p_grad)
                 .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
 
             Zip::from(square_avg)
                 .and(&p_grad)
@@ -685,10 +719,18 @@ impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }

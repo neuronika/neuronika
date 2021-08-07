@@ -21,7 +21,7 @@
 //!
 //! Both differentiable and non-differentiable variables can be understood as *tensors*, you
 //! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
-//! Refer to [`Var`] and [`VarDiff`] for a complete list of the avaiable operations.
+//! Refer to [`Var`] and [`VarDiff`] for a complete list of the available operations.
 //!
 //! It is important to note that cloning variables is extremely memory efficient as only a shallow
 //! copy is returned. Cloning a variable is thus the way to go if you need to use it several times.
@@ -83,7 +83,7 @@
 //! with respect to some of the differentiable leaves, thus populating their gradients, by using
 //! [`.backward()`](VarDiff::backward()).
 //!
-//! It is important to note that the computational grap is *lazily* evalutated, this means that
+//! It is important to note that the computational graph is *lazily* evaluated, this means that
 //! neuronika decouples the construction of the graph from the actual computation of the nodes'
 //! values. You must use `.forward()` in order to obtain the actual result of the computation.
 //!
@@ -138,12 +138,11 @@ mod variable;
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
-pub use nn::convolution::{Convolve, ConvolveWithGroups};
-use variable::node::{Input, InputBackward};
 pub use variable::{
-    node::{Backward, Data, Eval, Forward, Gradient, Overwrite},
-    Cat, MatMatMul, MatMatMulT, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
+    Backward, Cat, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, MatMatMul,
+    MatMatMulT, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
+use variable::{Input, InputBackward};
 
 /// Creates a variable from a **[ndarray]** array that owns its data.
 ///
@@ -333,6 +332,52 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
 /// ```
 pub fn range(start: f32, end: f32, step: f32) -> Var<Input<Ix1>> {
     Input::new(Array::range(start, end, step))
+}
+
+/// Concatenates the variables `lhs` and `rhs` along `axis`.
+///
+/// All variables must have the same shape, except in the concatenating dimension.
+///
+/// # Arguments
+///
+/// * `lhs` - variable.
+///
+/// * `rhs` - other variable.
+///
+/// * `axis` - axis to concatenate along to.
+///
+/// # Panics
+///
+/// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+/// if `axis` is out of bounds or if the result is larger than is possible to represent.
+pub fn cat<Lhs, Rhs>(lhs: Lhs, rhs: Rhs, axis: usize) -> <Lhs as Cat<Rhs>>::Output
+where
+    Lhs: Cat<Rhs>,
+{
+    Cat::cat(lhs, rhs, axis)
+}
+
+/// Stacks the variables `lhs` and `rhs` along `axis`.
+///
+/// All variables must have the same shape.
+///
+/// # Arguments
+///
+/// * `lhs` - variable.
+///
+/// * `rhs` - other variable.
+///
+/// * `axis` - axis to stack along to.
+///
+/// # Panics
+///
+/// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
+/// if `axis` is out of bounds or if the result is larger than is possible to represent.
+pub fn stack<Lhs, Rhs>(lhs: Lhs, rhs: Rhs, axis: usize) -> <Lhs as Stack<Rhs>>::Output
+where
+    Lhs: Stack<Rhs>,
+{
+    Stack::stack(lhs, rhs, axis)
 }
 
 #[cfg(test)]

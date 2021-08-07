@@ -1,14 +1,14 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ init module ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-//! Layers' parameters initialisation functions.
+//! Layers' parameters initialization functions.
 //!
 //! These initializers define a way to set the initial random weights of neuronika's layers.
 //!
-//! # Using an initialiser
+//! # Using an initializer
 //!
 //! You can freely access any learnable component of any layer, as their visibility is public,
-//! and pass them, via a mutable reference, to the initialisation function of your choice.
+//! and pass them, via a mutable reference, to the initialization function of your choice.
 //!
 //! ```
 //! use neuronika::nn;
@@ -16,7 +16,7 @@
 //!
 //! let mut lin = nn::Linear::new(10, 10);
 //!
-//! xavier_normal(&mut lin.weight, calculate_gain("relu"));
+//! xavier_normal(&lin.weight, calculate_gain("relu"));
 //! ```
 use super::Learnable;
 use ndarray::{Axis, Dimension, Ix2};
@@ -85,10 +85,10 @@ pub fn calculate_fan_in_fan_out<D: Dimension>(param: &Learnable<D>) -> (f32, f32
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `value` - value to fill the variable with.
-pub fn constant<D: Dimension>(param: &mut Learnable<D>, value: f32) {
+pub fn constant<D: Dimension>(param: &Learnable<D>, value: f32) {
     param.data_mut().map_inplace(|el| *el = value);
 }
 
@@ -96,8 +96,8 @@ pub fn constant<D: Dimension>(param: &mut Learnable<D>, value: f32) {
 ///
 /// # Arguments
 ///
-/// `param` - differentiable variable to initialise.
-pub fn zeros<D: Dimension>(param: &mut Learnable<D>) {
+/// `param` - differentiable variable to initialize.
+pub fn zeros<D: Dimension>(param: &Learnable<D>) {
     param.data_mut().map_inplace(|el| *el = 0.);
 }
 
@@ -105,8 +105,8 @@ pub fn zeros<D: Dimension>(param: &mut Learnable<D>) {
 ///
 /// # Arguments
 ///
-/// `param` - differentiable variable to initialise.
-pub fn ones<D: Dimension>(param: &mut Learnable<D>) {
+/// `param` - differentiable variable to initialize.
+pub fn ones<D: Dimension>(param: &Learnable<D>) {
     param.data_mut().map_inplace(|el| *el = 1.0);
 }
 
@@ -117,8 +117,8 @@ pub fn ones<D: Dimension>(param: &mut Learnable<D>) {
 ///
 /// # Arguments
 ///
-/// `param` - differentiable variable to initialise.
-pub fn eye(param: &mut Learnable<Ix2>) {
+/// `param` - differentiable variable to initialize.
+pub fn eye(param: &Learnable<Ix2>) {
     for ((x, y), el) in param.data_mut().indexed_iter_mut() {
         if x == y {
             *el = 1.
@@ -136,7 +136,7 @@ pub fn eye(param: &mut Learnable<Ix2>) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `groups` - number of groups.
 ///
@@ -145,7 +145,7 @@ pub fn eye(param: &mut Learnable<Ix2>) {
 /// If the differentiable variable is not {3, 4, 5}-dimensional and the number of output
 /// channels is not divisible by `groups`. The number of output channels is equal to the length
 /// of the first axis of `param`'s data.
-pub fn dirac<D: Dimension>(param: &mut Learnable<D>, groups: usize) {
+pub fn dirac<D: Dimension>(param: &Learnable<D>, groups: usize) {
     let mut data = param.data_mut();
     let shape = data.shape().to_vec();
     let no_dim = shape.len();
@@ -182,7 +182,7 @@ pub fn dirac<D: Dimension>(param: &mut Learnable<D>, groups: usize) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `low` - lower bound of the uniform distribution.
 ///
@@ -191,7 +191,7 @@ pub fn dirac<D: Dimension>(param: &mut Learnable<D>, groups: usize) {
 /// # Panics
 ///
 /// If `low` >= `high`.
-pub fn uniform<D: Dimension>(param: &mut Learnable<D>, low: f32, high: f32) {
+pub fn uniform<D: Dimension>(param: &Learnable<D>, low: f32, high: f32) {
     let unif_dstr = Uniform::new(low, high);
     let mut t_rng = thread_rng();
     param
@@ -204,12 +204,12 @@ pub fn uniform<D: Dimension>(param: &mut Learnable<D>, low: f32, high: f32) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `mean` - mean of the normal distribution.
 ///
 /// * `std` - standard deviation of the normal distribution.
-pub fn normal<D: Dimension>(param: &mut Learnable<D>, mean: f32, std: f32) {
+pub fn normal<D: Dimension>(param: &Learnable<D>, mean: f32, std: f32) {
     let norm_dstr = Normal::new(mean, std).unwrap();
     let mut t_rng = thread_rng();
     param
@@ -224,10 +224,10 @@ pub fn normal<D: Dimension>(param: &mut Learnable<D>, mean: f32, std: f32) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
-pub fn xavier_uniform<D: Dimension>(param: &mut Learnable<D>, gain: f32) {
+pub fn xavier_uniform<D: Dimension>(param: &Learnable<D>, gain: f32) {
     let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
     let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
     let a = 3.0_f32.sqrt() * std;
@@ -247,10 +247,10 @@ pub fn xavier_uniform<D: Dimension>(param: &mut Learnable<D>, gain: f32) {
 ///
 /// # Arguments
 ///
-/// * `param` - differentiable variable to initialise.
+/// * `param` - differentiable variable to initialize.
 ///
 /// * `gain` - optional scaling factor. See also [`calculate_gain`](function@calculate_gain).
-pub fn xavier_normal<D: Dimension>(param: &mut Learnable<D>, gain: f32) {
+pub fn xavier_normal<D: Dimension>(param: &Learnable<D>, gain: f32) {
     let (fan_in, fan_out) = calculate_fan_in_fan_out(param);
     let std = gain * (2. / ((fan_in + fan_out) as f32)).sqrt();
     let norm_distr = Normal::new(0., std).unwrap();

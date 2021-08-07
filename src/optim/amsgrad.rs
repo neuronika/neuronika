@@ -1,6 +1,7 @@
 use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use std::cell::{Cell, RefCell};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AMSGrad ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -9,10 +10,10 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 ///
 /// It is a variant of the *Adam* algorithm from the paper
 /// [On the Convergence of Adam and Beyond](https://openreview.net/forum?id=ryQu7f-RZ).
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct AMSGrad<'a, T: Penalty> {
-    params: Vec<AMSGradParam<'a>>,
-    lr: f32,
+    params: RefCell<Vec<AMSGradParam<'a>>>,
+    lr: Cell<f32>,
     penalty: T,
     betas: (f32, f32),
     eps: f32,
@@ -34,7 +35,8 @@ impl<'a, T: Penalty> AMSGrad<'a, T> {
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
     pub fn new(params: Vec<Param>, lr: f32, penalty: T, betas: (f32, f32), eps: f32) -> Self {
-        let params = Self::build_params(params);
+        let params = RefCell::new(Self::build_params(params));
+        let lr = Cell::new(lr);
 
         Self {
             params,
@@ -47,7 +49,7 @@ impl<'a, T: Penalty> AMSGrad<'a, T> {
 }
 
 /// A parameter used by the *AMSGrad* optmizier.
-#[allow(clippy::clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct AMSGradParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -83,11 +85,11 @@ impl<'a> From<Param> for AMSGradParam<'a> {
 impl<'a, T: Penalty> Optimizer for AMSGrad<'a, T> {
     type ParamRepr = AMSGradParam<'a>;
 
-    fn step(&mut self) {
-        let (lr, penalty, params, (beta1, beta2), eps) = (
-            &self.lr,
+    fn step(&self) {
+        let (lr, penalty, mut params, (beta1, beta2), eps) = (
+            self.lr.get(),
             &self.penalty,
-            &mut self.params,
+            self.params.borrow_mut(),
             &self.betas,
             &self.eps,
         );
@@ -107,7 +109,7 @@ impl<'a, T: Penalty> Optimizer for AMSGrad<'a, T> {
             let mut p_grad = param.grad.to_owned();
             Zip::from(&mut p_grad)
                 .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalise(data_el));
+                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
 
             Zip::from(exp_avg)
                 .and(&p_grad)
@@ -138,10 +140,18 @@ impl<'a, T: Penalty> Optimizer for AMSGrad<'a, T> {
         });
     }
 
-    fn zero_grad(&mut self) {
-        self.params.par_iter_mut().for_each(|param| {
+    fn zero_grad(&self) {
+        self.params.borrow_mut().par_iter_mut().for_each(|param| {
             let grad = &mut param.grad;
             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
         });
+    }
+
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
     }
 }
