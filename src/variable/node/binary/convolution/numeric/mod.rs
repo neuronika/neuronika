@@ -835,6 +835,10 @@ pub(super) fn group_gradients_unary<
     )
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolutions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 /// Performs an **n-dimensional** convolution where **n** can be either *1*, *2* or *3*.
 /// Do note that this function doesn't take into account *groups* nor *padding*. The padding is
 /// assumed to be already applied to the input map when this function is called.
@@ -971,6 +975,29 @@ pub(super) fn convolution_backward<D: Dimension, S: DataMut<Elem = f32>, T: Data
 ///
 /// This function should be used in those circumstances in which the kernel is the only
 /// differentiable variable, such as the first layer of a CNN module.
+///
+/// # Arguments
+///
+/// * `kernel_grad` - gradient of the kernel.
+///
+/// * `grad` -  incoming gradient **d_out**.
+///
+/// * `input` -  input map.
+///
+/// * `kernel` -  kernel.
+///
+/// * `padding` - padding that must be taken into account while accumulating the input's
+/// gradient.
+///
+/// * `stride` - stride.
+///
+/// * `dilation` - the dilation.
+///
+/// * `overwrite_input_grad`  - specifies the kind of accumulation operation to be performed on
+/// the input's gradient.
+///
+/// * `overwrite_kernel_grad` - specifies the kind of accumulation operation to be performed on
+/// the kernel's gradient.
 pub(super) fn convolution_unary_backward<
     D: Dimension,
     S: DataMut<Elem = f32>,
@@ -1119,6 +1146,28 @@ pub(super) fn convolution_with_groups_backward<D: Dimension>(
 ///
 /// This function should be used in those circumstances in which the kernel is the only
 /// differentiable variable, such as the first layer of a CNN module.
+///
+// # Arguments
+///
+/// * `kernel_grad` -  gradient of the kernel.
+///
+/// * `grad` -  incoming gradient **d_out**.
+///
+/// * `input` -  input map.
+///
+/// * `kernel` -  kernel.
+///
+/// * `stride` -  stride.
+///
+/// * `dilation` -  dilation.
+///
+/// * `groups` -  number of groups.
+///
+/// * `overwrite_input_grad`  - specifies the kind of accumulation operation to be performed on
+/// the input gradient.
+///
+/// * `overwrite_kernel_grad` - specifies the kind of accumulation operation to be performed on
+/// the kernel gradient.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn convolution_with_groups_unary_backward<D: Dimension>(
     kernel_grad: &mut Array<f32, D>,

@@ -12,6 +12,7 @@ use ndarray::{DimMax, Dimension, Zip};
 
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Addition ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub struct Addition<Lhs, Rhs>

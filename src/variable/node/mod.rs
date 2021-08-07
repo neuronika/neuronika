@@ -15,6 +15,10 @@ pub use input::{Input, InputBackward};
 pub(crate) use nary::*;
 pub(crate) use unary::*;
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Nodes' Modules ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 mod binary;
 mod input;
 mod nary;
@@ -23,10 +27,15 @@ mod unary;
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Type Aliases ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type DynTensor = ArrayD<f32>;
 pub(crate) type Tensor<D> = Array<f32, D>;
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Computational Nodes` Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Data representation.
 ///
@@ -178,6 +187,10 @@ pub trait Eval {
     fn eval(&self);
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DotDim ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 /// Utility trait useful to compute the dimensionality of algebraic operations' results.
 trait DotDim<Rhs>
 where
@@ -190,6 +203,10 @@ where
     /// Does the actual computation of the shape.
     fn shape(lhs: Self, rhs: Rhs) -> <Self as DotDim<Rhs>>::Output;
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DotDim implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 impl DotDim<Ix1> for Ix1 {
     type Output = Ix1;
@@ -235,114 +252,182 @@ impl DotDim<Ix2> for Ix2 {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Gradient Accumulation Utilities  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-fn sum_axis_inplace(arr: &mut DynTensor, axis: Axis) {
-    let (first, rest) = arr.view_mut().split_at(axis, 1);
+
+/// Shrinks `array` summing in-place along `axis`.
+///
+/// # Arguments
+///
+/// * `array` - array to reduce.
+///
+/// * `axis` - axis to sum along to.
+fn sum_axis_inplace(array: &mut DynTensor, axis: Axis) {
+    let (first, rest) = array.view_mut().split_at(axis, 1);
     Zip::from(first.remove_axis(axis))
         .and(rest.lanes(axis))
         .for_each(|dst, src| *dst += src.sum());
-    arr.index_axis_inplace(axis, 0);
+    array.index_axis_inplace(axis, 0);
 }
 
-pub fn reduce<D: Dimension, E: Dimension>(dest: &Tensor<D>, src: &Tensor<E>) -> DynTensor {
-    let mut dyn_rhs = src.clone().into_dyn();
+/// Reduces `array` to the dimension of `target` by summing along the axes.
+///
+/// # Arguments
+///
+/// * `target` - array to reduce `array` to.
+///
+/// * `array` - array to reduce.
+pub fn reduce<D: Dimension, E: Dimension>(target: &Tensor<D>, array: &Tensor<E>) -> DynTensor {
+    let mut dyn_rhs = array.clone().into_dyn();
 
     unsafe {
-        while (*(&dyn_rhs as *const DynTensor)).ndim() > dest.ndim() {
+        while (*(&dyn_rhs as *const DynTensor)).ndim() > target.ndim() {
             sum_axis_inplace(&mut dyn_rhs, Axis(0));
         }
     }
 
-    for (axis, size) in dest.shape().iter().enumerate() {
+    for (axis, size) in target.shape().iter().enumerate() {
         if *size == 1 {
-            sum_axis_inplace(&mut dyn_rhs, ndarray::Axis(axis));
-            dyn_rhs.insert_axis_inplace(ndarray::Axis(axis));
+            sum_axis_inplace(&mut dyn_rhs, Axis(axis));
+            dyn_rhs.insert_axis_inplace(Axis(axis));
         }
     }
 
     dyn_rhs
 }
 
-pub fn push_gradient<'a, T, P, D>(node: &T, src: P)
+/// Performs gradient accumulation of `gradient` into `destination_node`.
+///
+/// # Arguments
+///
+/// * `destination_node` - a node of the computational graph.
+///
+/// * `gradient` - incoming gradient.
+pub fn push_gradient<'a, T, P, D>(destination_node: &T, gradient: P)
 where
     T: Gradient + Overwrite + ?Sized,
     P: IntoNdProducer<Dim = D, Output = ArrayView<'a, f32, D>, Item = &'a f32>,
     D: Dimension,
 {
-    let mut dest = node.gradient_mut();
-    let zip = Zip::from(&mut *dest).and_broadcast(src);
-    if node.can_overwrite() {
+    let mut destination_gradient = destination_node.gradient_mut();
+    let zip = Zip::from(&mut *destination_gradient).and_broadcast(gradient);
+    if destination_node.can_overwrite() {
         zip.for_each(|d, s| *d = *s);
-        node.set_overwrite(false);
+        destination_node.set_overwrite(false);
     } else {
         zip.for_each(|d, s| *d += *s);
     }
 }
 
+/// Performs gradient accumulation into `destination_node`.
+///
+/// This functions accumulates the gradient of the matrix multiplication operation.
+///
+/// # Arguments
+///
+/// * `destination_node` - a node of the computational graph.
+///
+/// * `first` - two-dimensional array.
+///
+/// * `second` - two-dimensional array.
 pub fn push_mat_mat_gradient<T, S1, S2>(
-    dest: &T,
-    fst: &ArrayBase<S1, Ix2>,
-    snd: &ArrayBase<S2, Ix2>,
+    destination_node: &T,
+    first: &ArrayBase<S1, Ix2>,
+    second: &ArrayBase<S2, Ix2>,
 ) where
     T: Gradient<Dim = Ix2> + Overwrite,
     S1: ndarray::Data<Elem = f32>,
     S2: ndarray::Data<Elem = f32>,
 {
-    if dest.can_overwrite() {
-        general_mat_mul(1., fst, snd, 0., &mut dest.gradient_mut());
-        dest.set_overwrite(false);
+    if destination_node.can_overwrite() {
+        general_mat_mul(1., first, second, 0., &mut destination_node.gradient_mut());
+        destination_node.set_overwrite(false);
     } else {
-        general_mat_mul(1., fst, snd, 1., &mut dest.gradient_mut());
+        general_mat_mul(1., first, second, 1., &mut destination_node.gradient_mut());
     }
 }
 
+/// Performs gradient accumulation into `destination_node`.
+///
+/// This functions accumulates the gradient of the matrix-vector multiplication operation.
+///
+/// # Arguments
+///
+/// * `destination_node` - a node of the computational graph.
+///
+/// * `first` - two-dimensional array.
+///
+/// * `second` - one-dimensional array.
 pub fn push_mat_vec_gradient<T, S1, S2>(
-    node: &T,
-    fst: &ArrayBase<S1, Ix2>,
-    snd: &ArrayBase<S2, Ix1>,
+    destination_node: &T,
+    first: &ArrayBase<S1, Ix2>,
+    second: &ArrayBase<S2, Ix1>,
 ) where
     T: Gradient<Dim = Ix2> + Overwrite,
     S1: ndarray::Data<Elem = f32>,
     S2: ndarray::Data<Elem = f32>,
 {
-    let mut dest = node.gradient_mut();
-    let zip = Zip::from(&mut *dest).and_broadcast(fst).and_broadcast(snd);
-    if node.can_overwrite() {
+    let mut destination_gradient = destination_node.gradient_mut();
+    let zip = Zip::from(&mut *destination_gradient)
+        .and_broadcast(first)
+        .and_broadcast(second);
+    if destination_node.can_overwrite() {
         zip.for_each(|d, f, s| *d = f * s);
-        node.set_overwrite(false);
+        destination_node.set_overwrite(false);
     } else {
         zip.for_each(|d, f, s| *d += f * s);
     }
 }
 
+/// Performs gradient accumulation into `destination_node`.
+///
+/// This functions accumulates the gradient of the vector-matrix multiplication operation.
+///
+/// # Arguments
+///
+/// * `destination_node` - a node of the computational graph.
+///
+/// * `first` - two-dimensional array.
+///
+/// * `second` - one-dimensional array.
 pub fn push_vec_mat_gradient<T, S1, S2>(
-    dest: &T,
-    fst: &ArrayBase<S1, Ix2>,
-    snd: &ArrayBase<S2, Ix1>,
+    destination_node: &T,
+    first: &ArrayBase<S1, Ix2>,
+    second: &ArrayBase<S2, Ix1>,
 ) where
     T: Gradient<Dim = Ix1> + Overwrite,
     S1: ndarray::Data<Elem = f32>,
     S2: ndarray::Data<Elem = f32>,
 {
-    if dest.can_overwrite() {
-        general_mat_vec_mul(1., fst, snd, 0., &mut dest.gradient_mut());
-        dest.set_overwrite(false);
+    if destination_node.can_overwrite() {
+        general_mat_vec_mul(1., first, second, 0., &mut destination_node.gradient_mut());
+        destination_node.set_overwrite(false);
     } else {
-        general_mat_vec_mul(1., fst, snd, 1., &mut dest.gradient_mut());
+        general_mat_vec_mul(1., first, second, 1., &mut destination_node.gradient_mut());
     }
 }
 
-pub fn push_vec_vec_gradient<T, S>(node: &T, fst: &ArrayBase<S, Ix1>, snd: &f32)
+/// Performs gradient accumulation into `destination_node`.
+///
+/// This functions accumulates the gradient of the vector-vector multiplication operation.
+///
+/// # Arguments
+///
+/// * `destination_node` - a node of the computational graph.
+///
+/// * `first` - two-dimensional array.
+///
+/// * `second` - one-dimensional array.
+pub fn push_vec_vec_gradient<T, S>(destination_node: &T, first: &ArrayBase<S, Ix1>, second: &f32)
 where
     T: Gradient<Dim = Ix1> + Overwrite,
     S: ndarray::Data<Elem = f32>,
 {
-    let mut dest = node.gradient_mut();
-    let zip = Zip::from(&mut *dest).and_broadcast(fst);
-    if node.can_overwrite() {
-        zip.for_each(|d, f| *d = f * snd);
-        node.set_overwrite(false);
+    let mut destination_gradient = destination_node.gradient_mut();
+    let zip = Zip::from(&mut *destination_gradient).and_broadcast(first);
+    if destination_node.can_overwrite() {
+        zip.for_each(|d, f| *d = f * second);
+        destination_node.set_overwrite(false);
     } else {
-        zip.for_each(|d, f| *d += f * snd);
+        zip.for_each(|d, f| *d += f * second);
     }
 }
 
@@ -350,7 +435,14 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tensor Utilities ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-/// Creates an empty tensor whose shape is the result of broadcasting between `left` and `right`.
+/// Creates an empty tensor whose shape is the result of broadcasting between those of `left` and
+/// `right`.
+///
+/// # Arguments
+///
+/// * `left` - left operand in the binary operations that admits broadcasting.
+///
+/// * `right` - right operand in the binary operations that admits broadcasting.
 pub(crate) fn broadcasted_zeros<Lhs, Rhs>(
     left: &Tensor<Lhs>,
     right: &Tensor<Rhs>,
@@ -364,24 +456,30 @@ where
     } else {
         (right.shape(), left.shape())
     };
-    let mut broad_dim = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
-    broad_dim
+    let mut broadcasted_dim = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
+    broadcasted_dim
         .slice_mut()
         .iter_mut()
         .zip(bigger.iter())
         .for_each(|(l, r)| *l = *r);
-    broad_dim
+    broadcasted_dim
         .slice_mut()
         .iter_mut()
         .rev()
         .zip(smaller.iter().rev())
         .for_each(|(l, r)| *l = std::cmp::max(*l, *r));
-    Tensor::zeros(broad_dim)
+    Tensor::zeros(broadcasted_dim)
 }
 
-/// Requests the gradient of `tensor` as a reference.
+/// Returns a `Ref` to `tensor`. This function is used to access gradients.
 ///
-/// **panics** if the gradient has been de-allocated.
+/// # Arguments
+///
+/// `tensor` - gradient.
+///
+/// # Panics
+///
+/// If the gradient has been de-allocated.
 pub(crate) fn expect_tensor<D: Dimension>(tensor: &RefCell<Option<Tensor<D>>>) -> Ref<Tensor<D>> {
     Ref::map(tensor.borrow(), |b| {
         b.as_ref().expect(
@@ -391,9 +489,15 @@ pub(crate) fn expect_tensor<D: Dimension>(tensor: &RefCell<Option<Tensor<D>>>) -
     })
 }
 
-/// Requests the gradient of `tensor` as a mutable reference.
+/// Returns a `RefMut` to `tensor`. This function is used to access gradients.
 ///
-/// **panics** if the gradient has been de-allocated.
+/// # Arguments
+///
+/// `tensor` - gradient.
+///
+/// # Panics
+///
+/// If the gradient has been de-allocated.
 pub(crate) fn expect_tensor_mut<D: Dimension>(
     tensor: &RefCell<Option<Tensor<D>>>,
 ) -> RefMut<Tensor<D>> {
@@ -408,46 +512,84 @@ pub(crate) fn expect_tensor_mut<D: Dimension>(
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Testing Utilities ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 #[cfg(test)]
 const F16_EPSILON: f32 = 9.77e-04;
 
 #[cfg(test)]
-fn assert_almost_equals<D: Dimension>(our: &Tensor<D>, their: &Tensor<D>) {
+/// Checks element-wise whether `array` is within `F16_EPSILON` of `target`.
+///
+/// # Arguments
+///
+/// * `array` - array to check.
+///
+/// * `target` - target to check against.
+///
+/// # Panics
+///
+/// If `array` is not within `F16_EPSILON` of `target`.
+fn assert_almost_equals<D: Dimension>(array: &Tensor<D>, target: &Tensor<D>) {
     assert!(
-        Zip::from(our).and(their).all(|l, r| {
+        Zip::from(array).and(target).all(|l, r| {
             (*l == 0. && *r == 0.)
                 || (!l.is_finite() && !r.is_finite())
                 || ((1. - r / l).abs() <= F16_EPSILON)
         }),
         "\nLeft:\n{}\nRight:\n{}",
-        our,
-        their
+        array,
+        target
     );
 }
 
 #[cfg(test)]
-fn new_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<Input<D>>
+/// Creates a new input node whose data will have shape `shape` and elements `elements`.
+///
+/// # Arguments
+///
+/// * `shape` - shape.
+///
+/// * `elements` - elements.
+fn new_input<D, Sh>(shape: Sh, elements: Vec<f32>) -> Rc<Input<D>>
 where
     D: Dimension + 'static,
     Sh: Into<ndarray::StrideShape<D>>,
 {
-    Input::new(new_tensor(shape, elems)).node
+    Input::new(new_tensor(shape, elements)).node
 }
 
 #[cfg(test)]
-fn new_backward_input<D, Sh>(shape: Sh, elems: Vec<f32>) -> Rc<InputBackward<D>>
+/// Creates a new backward input node whose gradient will have shape `shape` and elements
+/// `elements`.
+///
+/// # Arguments
+///
+/// * `shape` - shape.
+///
+/// * `elements` - elements.
+fn new_backward_input<D, Sh>(shape: Sh, elements: Vec<f32>) -> Rc<InputBackward<D>>
 where
     D: Dimension + 'static,
     Sh: Into<ndarray::StrideShape<D>>,
 {
-    Rc::new(Input::new(new_tensor(shape, elems)).node.differentiable())
+    Rc::new(
+        Input::new(new_tensor(shape, elements))
+            .node
+            .differentiable(),
+    )
 }
 
 #[cfg(test)]
-fn new_tensor<D, Sh>(shape: Sh, elems: Vec<f32>) -> Tensor<D>
+/// Creates a new tensor with shape `shape` and elements `elements`.
+///
+/// # Arguments
+///
+/// * `shape` - shape.
+///
+/// * `elements` - elements.
+fn new_tensor<D, Sh>(shape: Sh, elements: Vec<f32>) -> Tensor<D>
 where
     D: Dimension + 'static,
     Sh: Into<ndarray::StrideShape<D>>,
 {
-    Tensor::from_shape_vec(shape, elems).unwrap()
+    Tensor::from_shape_vec(shape, elements).unwrap()
 }
