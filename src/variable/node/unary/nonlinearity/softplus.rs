@@ -337,5 +337,20 @@ mod test {
                 &new_tensor(3, vec![0.7311, 0.8808, 0.9526]),
             );
         }
+
+        #[test]
+        fn no_grad() {
+            // SoftPlusBackward
+            let node = SoftPlusBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

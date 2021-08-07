@@ -358,5 +358,20 @@ mod test {
                 &new_tensor(3, vec![2.7183, 7.3891, 20.0855]),
             );
         }
+
+        #[test]
+        fn no_grad() {
+            // ExpBackward
+            let node = ExpBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

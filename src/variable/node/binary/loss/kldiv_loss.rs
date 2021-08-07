@@ -304,4 +304,20 @@ mod test {
             ) * 2.),
         );
     }
+
+    #[test]
+    fn no_grad() {
+        // KLDivLossBackward
+        let node = KLDivLossBackward::new(
+            new_backward_input(3, vec![0.; 3]),
+            new_input(3, vec![0.; 3]),
+            Reduction::Mean,
+        );
+
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
+
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(1));
+    }
 }

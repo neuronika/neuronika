@@ -633,5 +633,46 @@ mod test {
                 &new_tensor((2, 3), vec![12., 15., 18., 12., 15., 18.]),
             );
         }
+
+        #[test]
+        fn no_grad() {
+            // MatrixMatrixMulTBackward
+            let node = MatrixMatrixMulTBackward::new(
+                new_input((3, 3), vec![0.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![0.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+
+            // MatrixMatrixMulTBackwardLeft
+            let node = MatrixMatrixMulTBackwardLeft::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+
+            // MatrixMatrixMulTBackwardRight
+            let node = MatrixMatrixMulTBackwardRight::new(
+                new_input((3, 3), vec![0.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

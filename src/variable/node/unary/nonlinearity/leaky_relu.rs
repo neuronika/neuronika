@@ -315,5 +315,20 @@ mod test {
             node.backward();
             assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![0.01, 1., 0.01]));
         }
+
+        #[test]
+        fn no_grad() {
+            // LeakyReLUBackward
+            let node = LeakyReLUBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

@@ -420,5 +420,17 @@ mod test {
             node.backward();
             assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
         }
+
+        #[test]
+        fn no_grad() {
+            // UnsqueezeBackward
+            let node = UnsqueezeBackward::new(new_backward_input((3, 3), vec![0.; 9]), 0);
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

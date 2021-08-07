@@ -504,5 +504,26 @@ mod test {
             node.backward();
             assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![1.; 9]));
         }
+
+        #[test]
+        fn no_grad() {
+            // DropoutBackward
+            let node = DropoutBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                Rc::new(Dropout::new(
+                    new_input((3, 3), vec![0.; 9]),
+                    0.5,
+                    Rc::new(Cell::new(true)),
+                )),
+                0.5,
+                Rc::new(Cell::new(true)),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

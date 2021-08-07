@@ -602,5 +602,46 @@ mod test {
                 &new_tensor((3, 3), vec![1., 1., 1., 2., 2., 2., 3., 3., 3.]),
             );
         }
+
+        #[test]
+        fn no_grad() {
+            // VectorMatrixMulBackward
+            let node = VectorMatrixMulBackward::new(
+                new_input(3, vec![0.; 3]),
+                new_backward_input(3, vec![0.; 3]),
+                new_input((3, 3), vec![0.; 9]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+
+            // VectorMatrixMulBackwardLeft
+            let node = VectorMatrixMulBackwardLeft::new(
+                new_backward_input(3, vec![0.; 3]),
+                new_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+
+            // VectorMatrixMulBackwardRight
+            let node = VectorMatrixMulBackwardRight::new(
+                new_input(3, vec![0.; 3]),
+                new_backward_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

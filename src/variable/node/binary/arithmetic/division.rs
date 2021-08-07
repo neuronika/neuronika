@@ -803,4 +803,46 @@ mod test {
             assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-0.36; 3]));
         }
     }
+
+    #[test]
+    fn no_grad() {
+        // DivisionBackward
+        let node = DivisionBackward::new(
+            new_input((3, 3), vec![0.; 9]),
+            new_backward_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+            new_backward_input((3, 3), vec![0.; 9]),
+        );
+
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
+
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+
+        // DivisionBackwardLeft
+        let node = DivisionBackwardLeft::new(
+            new_backward_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+        );
+
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
+
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+
+        // DivisionBackwardRight
+        let node = DivisionBackwardRight::new(
+            new_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+            new_backward_input((3, 3), vec![0.; 9]),
+        );
+
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
+
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
 }

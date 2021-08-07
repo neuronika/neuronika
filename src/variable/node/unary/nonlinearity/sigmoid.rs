@@ -337,5 +337,20 @@ mod test {
                 &new_tensor(3, vec![0.1966, 0.105, 0.0452]),
             );
         }
+
+        #[test]
+        fn no_grad() {
+            // SigmoidBackward
+            let node = SigmoidBackward::new(
+                new_backward_input((3, 3), vec![0.; 9]),
+                new_input((3, 3), vec![0.; 9]),
+            );
+
+            node.no_grad();
+            assert!(node.gradient.borrow().is_none());
+
+            node.with_grad();
+            assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        }
     }
 }

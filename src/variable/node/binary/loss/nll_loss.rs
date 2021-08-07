@@ -361,4 +361,20 @@ mod test {
             ) * 2.),
         );
     }
+
+    #[test]
+    fn no_grad() {
+        // NLLLossBackward
+        let node = NLLLossBackward::new(
+            new_backward_input((3, 3), vec![0.; 9]),
+            new_input(3, vec![0.; 3]),
+            Reduction::Mean,
+        );
+
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
+
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(1));
+    }
 }
