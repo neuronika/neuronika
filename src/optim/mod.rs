@@ -190,6 +190,11 @@
 //! }
 //! ```
 //!
+//! # Adjusting the learning rate
+//!
+//! The [`lr_scheduler`] module provides several methods to adjust the learning rate based on the
+//! number of epochs.
+//!
 //! # Algorithms
 //!
 //! List of all implemented optimizers.
@@ -211,7 +216,6 @@ pub use rmsprop::{
     RMSProp, RMSPropCentered, RMSPropCenteredParam, RMSPropCenteredWithMomentum,
     RMSPropCenteredWithMomentumParam, RMSPropParam, RMSPropWithMomentum, RMSPropWithMomentumParam,
 };
-pub use scheduler::{ExponentialLR, LRScheduler, LambdaLR, MultiStepLR, MultiplicativeLR, StepLR};
 pub use sgd::{SGDParam, SGDWithMomentum, SGDWithMomentumParam, SGD};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -347,4 +351,4 @@ mod sgd;
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Learning Rate Schedulers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-mod scheduler;
+pub mod lr_scheduler;

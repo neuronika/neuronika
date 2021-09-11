@@ -23,8 +23,8 @@ use padding::{ReflPad, ReplPad};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 mod numeric;
 use numeric::{
-    check_conv_args, check_groups_args, conv_out_shape, convolution, convolution_backward,
-    convolution_unary_backward, convolution_with_groups, convolution_with_groups_backward,
+    check_conv_args, check_groups_args, conv_out_shape, convolution, convolution_backward_input,
+    convolution_backward_kernel, convolution_with_groups, convolution_with_groups_backward,
     convolution_with_groups_unary_backward, pad,
 };
 
@@ -59,6 +59,7 @@ pub trait Convolve<Inp, Ker, Pad: PaddingMode> {
 impl<F1, F2, Pad> Convolve<Self, Var<F2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
+    F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     F2: NData<Dim = F1::Dim> + 'static,
@@ -92,13 +93,14 @@ where
 impl<F1, F2, B2, Pad> Convolve<Self, VarDiff<F2, B2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
+    F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     F2: NData<Dim = F1::Dim> + 'static,
     B2: Gradient<Dim = F2::Dim> + Overwrite,
     Pad: PaddingMode + 'static,
 {
-    type Output = VarDiff<Convolution<F1, F2, Pad>, ConvolutionUnaryBackward<F1, F2, B2, Pad>>;
+    type Output = VarDiff<Convolution<F1, F2, Pad>, ConvolutionUnaryBackward<F1, B2, Pad>>;
 
     fn convolve(
         input: Self,
@@ -129,6 +131,7 @@ where
 impl<F1, B1, F2, B2, Pad> Convolve<Self, VarDiff<F2, B2>, Pad> for VarDiff<F1, B1>
 where
     F1: NData + 'static,
+    F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     B1: Gradient<Dim = F1::Dim> + Overwrite,
@@ -204,6 +207,7 @@ pub trait ConvolveWithGroups<Inp, Ker, Pad: PaddingMode> {
 impl<F1, F2, Pad> ConvolveWithGroups<Self, Var<F2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
+    F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     F2: NData<Dim = F1::Dim> + 'static,
@@ -239,6 +243,7 @@ where
 impl<F1, F2, B2, Pad> ConvolveWithGroups<Self, VarDiff<F2, B2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
+    F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     F2: NData<Dim = F1::Dim> + 'static,
@@ -246,7 +251,7 @@ where
     Pad: PaddingMode + 'static,
 {
     type Output =
-        VarDiff<GroupedConvolution<F1, F2, Pad>, GroupedConvolutionUnaryBackward<F1, F2, B2, Pad>>;
+        VarDiff<GroupedConvolution<F1, F2, Pad>, GroupedConvolutionUnaryBackward<F1, B2, Pad>>;
 
     fn convolve_with_groups(
         input: Self,
@@ -287,6 +292,7 @@ where
 impl<F1, B1, F2, B2, Pad> ConvolveWithGroups<Self, VarDiff<F2, B2>, Pad> for VarDiff<F1, B1>
 where
     F1: NData + 'static,
+    F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     B1: Gradient<Dim = F1::Dim> + Overwrite,
@@ -417,6 +423,7 @@ where
 impl<Inp, Ker, Pad> Forward for Convolution<Inp, Ker, Pad>
 where
     Inp: NData,
+    Inp::Dim: RemoveAxis,
     Ker: NData<Dim = Inp::Dim>,
     Pad: PaddingMode,
     <<Inp as NData>::Dim as Dimension>::Smaller: RemoveAxis,
@@ -539,6 +546,7 @@ where
 impl<Inp, Ker, Pad> Forward for GroupedConvolution<Inp, Ker, Pad>
 where
     Inp: NData,
+    Inp::Dim: RemoveAxis,
     Ker: NData<Dim = Inp::Dim>,
     <<Inp as NData>::Dim as Dimension>::Smaller: RemoveAxis,
     <<<Inp as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
@@ -707,6 +715,7 @@ where
 impl<InpD, InpG, KerD, KerG, Pad> Backward for ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
 where
     InpD: NData,
+    InpD::Dim: RemoveAxis,
     InpG: Gradient<Dim = InpD::Dim> + Overwrite,
     KerD: NData<Dim = InpD::Dim>,
     KerG: Gradient<Dim = KerD::Dim> + Overwrite,
@@ -740,32 +749,32 @@ where
             self.input_grad.can_overwrite(),
             self.kernel_grad.can_overwrite(),
         );
-
+        convolution_backward_input(
+            &mut *input_grad,
+            &*gradient,
+            &*kernel,
+            padding,
+            stride,
+            dilation,
+            overwrite_input_grad,
+        );
         if padding.iter().all(|pad| *pad == 0) {
-            convolution_backward(
-                &mut *input_grad,
+            convolution_backward_kernel(
                 &mut *kernel_grad,
                 &*gradient,
-                &*input,
-                &*kernel,
-                padding,
+                &input,
                 stride,
                 dilation,
-                overwrite_input_grad,
                 overwrite_kernel_grad,
             );
         } else {
             let padded_input = pad(&input, padding, padding_mode);
-            convolution_backward(
-                &mut *input_grad,
+            convolution_backward_kernel(
                 &mut *kernel_grad,
                 &*gradient,
                 &padded_input,
-                &*kernel,
-                padding,
                 stride,
                 dilation,
-                overwrite_input_grad,
                 overwrite_kernel_grad,
             );
         }
@@ -789,17 +798,15 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution Unary Backward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct ConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+pub struct ConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
     kernel_grad: Rc<KerG>,
     gradient: RefCell<Option<Tensor<KerG::Dim>>>,
     input: Rc<InpD>,
-    kernel: Rc<KerD>,
     stride: Vec<usize>,
     dilation: Vec<usize>,
     padding: Vec<usize>,
@@ -808,14 +815,13 @@ where
     overwrite: Cell<bool>,
 }
 
-impl<InpD, KerD, KerG, Pad> ConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> ConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
-    pub fn new(
+    pub fn new<KerD: NData<Dim = KerG::Dim>>(
         kernel_grad: Rc<KerG>,
         input: Rc<InpD>,
         kernel: Rc<KerD>,
@@ -839,7 +845,6 @@ where
             gradient,
             shape,
             input,
-            kernel,
             stride,
             dilation,
             padding,
@@ -849,11 +854,10 @@ where
     }
 }
 
-impl<InpD, KerD, KerG, Pad> Gradient for ConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> Gradient for ConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
     type Dim = KerG::Dim;
@@ -867,11 +871,10 @@ where
     }
 }
 
-impl<InpD, KerD, KerG, Pad> Overwrite for ConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> Overwrite for ConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
     fn can_overwrite(&self) -> bool {
@@ -883,11 +886,11 @@ where
     }
 }
 
-impl<InpD, KerD, KerG, Pad> Backward for ConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> Backward for ConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    InpD::Dim: RemoveAxis,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
@@ -895,10 +898,9 @@ where
     fn backward(&self) {
         let gradient = self.gradient();
 
-        let (mut kernel_grad, input, kernel, padding, padding_mode, stride, dilation) = (
+        let (mut kernel_grad, input, padding, padding_mode, stride, dilation) = (
             self.kernel_grad.gradient_mut(),
             self.input.data(),
-            self.kernel.data(),
             &self.padding,
             &self.padding_mode,
             &self.stride,
@@ -907,22 +909,20 @@ where
         let overwrite_kernel_grad = self.kernel_grad.can_overwrite();
 
         if padding.iter().all(|pad| *pad == 0) {
-            convolution_unary_backward(
+            convolution_backward_kernel(
                 &mut *kernel_grad,
                 &*gradient,
                 &*input,
-                &*kernel,
                 stride,
                 dilation,
                 overwrite_kernel_grad,
             );
         } else {
             let padded_input = pad(&input, padding, padding_mode);
-            convolution_unary_backward(
+            convolution_backward_kernel(
                 &mut *kernel_grad,
                 &*gradient,
                 &padded_input,
-                &*kernel,
                 stride,
                 dilation,
                 overwrite_kernel_grad,
@@ -1055,6 +1055,7 @@ impl<InpD, InpG, KerD, KerG, Pad> Backward
     for GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
 where
     InpD: NData,
+    InpD::Dim: RemoveAxis,
     InpG: Gradient<Dim = InpD::Dim> + Overwrite,
     KerD: NData<Dim = InpD::Dim>,
     KerG: Gradient<Dim = KerD::Dim> + Overwrite,
@@ -1140,17 +1141,15 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Grouped Convolution Unary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct GroupedConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+pub struct GroupedConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
     kernel_grad: Rc<KerG>,
     gradient: RefCell<Option<Tensor<KerG::Dim>>>,
     input: Rc<InpD>,
-    kernel: Rc<KerD>,
     stride: Vec<usize>,
     dilation: Vec<usize>,
     padding: Vec<usize>,
@@ -1160,15 +1159,14 @@ where
     overwrite: Cell<bool>,
 }
 
-impl<InpD, KerD, KerG, Pad> GroupedConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> GroupedConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<KerD: NData>(
         kernel_grad: Rc<KerG>,
         input: Rc<InpD>,
         kernel: Rc<KerD>,
@@ -1193,7 +1191,6 @@ where
             gradient,
             shape,
             input,
-            kernel,
             stride,
             dilation,
             padding,
@@ -1204,11 +1201,10 @@ where
     }
 }
 
-impl<InpD, KerD, KerG, Pad> Gradient for GroupedConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> Gradient for GroupedConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
     type Dim = KerG::Dim;
@@ -1222,11 +1218,10 @@ where
     }
 }
 
-impl<InpD, KerD, KerG, Pad> Overwrite for GroupedConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> Overwrite for GroupedConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
 {
     fn can_overwrite(&self) -> bool {
@@ -1238,11 +1233,11 @@ where
     }
 }
 
-impl<InpD, KerD, KerG, Pad> Backward for GroupedConvolutionUnaryBackward<InpD, KerD, KerG, Pad>
+impl<InpD, KerG, Pad> Backward for GroupedConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
-    KerD: NData<Dim = InpD::Dim>,
-    KerG: Gradient<Dim = KerD::Dim> + Overwrite,
+    InpD::Dim: RemoveAxis,
+    KerG: Gradient<Dim = InpD::Dim> + Overwrite,
     Pad: PaddingMode,
     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
@@ -1250,10 +1245,9 @@ where
     fn backward(&self) {
         let gradient = self.gradient();
 
-        let (mut kernel_grad, input, kernel, padding, padding_mode, stride, dilation, groups) = (
+        let (mut kernel_grad, input, padding, padding_mode, stride, dilation, groups) = (
             self.kernel_grad.gradient_mut(),
             self.input.data(),
-            self.kernel.data(),
             &self.padding,
             &self.padding_mode,
             &self.stride,
@@ -1267,7 +1261,6 @@ where
                 &mut *kernel_grad,
                 &*gradient,
                 &*input,
-                &*kernel,
                 stride,
                 dilation,
                 *groups,
@@ -1279,7 +1272,6 @@ where
                 &mut *kernel_grad,
                 &*gradient,
                 &padded_input,
-                &*kernel,
                 stride,
                 dilation,
                 *groups,

@@ -26,10 +26,6 @@ mod auxiliary_functions {
             ],
         ];
 
-        // We must reshape the input, consider it as a bi-dimensional signal
-        // with 3 channels each of 4 x 4.
-        let array_as_image = array.clone().into_shape((1, 3, 4, 4)).unwrap();
-
         let im2col = ndarray::array![
             [0.0, 1.0, 4.0, 5.0],
             [1.0, 2.0, 5.0, 6.0],
@@ -59,23 +55,26 @@ mod auxiliary_functions {
             [9.0, 10.0, 13.0, 14.0],
             [10.0, 11.0, 14.0, 15.0]
         ];
-        assert_eq!(
-            im2col,
-            to_col(&array_as_image, &[1, 3, 3, 3], &[1, 1], &[1, 1])
-        );
 
-        // Now let's increase the batch size by 1.
+        // Increase the batch size by 1.
         let input_batch = ndarray::stack(ndarray::Axis(0), &[array.view(), array.view()]).unwrap();
 
-        // We must reshape the input, consider it as 2 bidimensional signals
+        // Reshape the input, consider it as 2 bi-dimensional signals
         // with 3 channels each of 4 x 4.
         let array_as_image = input_batch.into_shape((2, 3, 4, 4)).unwrap();
 
         // The im2col's result. Note that the im2col of signals
         // from the batch are concatenated along the columns.
         assert_eq!(
-            ndarray::concatenate(ndarray::Axis(1), &[im2col.view(), im2col.view()]).unwrap(),
-            to_col(&array_as_image, &[1, 3, 3, 3], &[1, 1], &[1, 1])
+            ndarray::stack(ndarray::Axis(0), &[im2col.t(), im2col.t()]).unwrap(),
+            as_windows(&array_as_image, &[1, 3, 3, 3], &[1, 1], &[1, 1])
+                .to_shape(columns_shape(
+                    &array_as_image,
+                    &[1, 3, 3, 3],
+                    &[1, 1],
+                    &[1, 1]
+                ))
+                .unwrap()
         );
     }
 
@@ -99,8 +98,9 @@ mod auxiliary_functions {
             .into_shape((3, 3))
             .unwrap();
         let flattened = stack(Axis(0), &[kernel1.view(), kernel2.view(), kernel3.view()]).unwrap();
+        let flat_shape = super::super::flat_shape(&flattened);
         assert_eq!(
-            super::super::flatten(flattened),
+            flattened.into_shape(flat_shape).unwrap(),
             (0..27)
                 .map(|el| el as f32)
                 .collect::<Array<f32, _>>()
@@ -415,16 +415,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -524,16 +529,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -643,16 +653,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -764,16 +779,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -865,16 +885,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -951,16 +976,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -1061,16 +1091,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -1161,16 +1196,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -1242,16 +1282,21 @@ mod convolution_numeric {
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
         // Backward pass.
-        convolution_backward(
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &input,
+            stride,
+            dilation,
             true,
         );
 
@@ -1384,16 +1429,22 @@ mod convolution_numeric {
         let mut kernel_grad = Array::<f32, _>::zeros(kernel.raw_dim());
         let conv_out_grad = Array::<f32, _>::ones(conv_out_shape);
 
-        convolution_backward(
+        // Backward pass.
+        convolution_backward_input(
             &mut input_grad,
-            &mut kernel_grad,
             &conv_out_grad,
-            &padded_input,
             &kernel,
             padding,
             stride,
             dilation,
             true,
+        );
+        convolution_backward_kernel(
+            &mut kernel_grad,
+            &conv_out_grad,
+            &padded_input,
+            stride,
+            dilation,
             true,
         );
 
@@ -1611,10 +1662,6 @@ mod convolution_numeric {
             31296., 31360., 26176., 26240., 26496., 26560., 27776., 27840., 28096., 28160., 29376.,
             29440., 29696., 29760., 30976., 31040., 31296., 31360.,
         ];
-        assert_eq!(
-            kernel_grad,
-            Array::from_shape_vec(kernel_grad.raw_dim(), true_kernel_grad_elems).unwrap()
-        );
 
         let true_input_grad_elems: Vec<f32> = vec![
             4., 8., 8., 8., 4., 8., 16., 16., 16., 8., 8., 16., 16., 16., 8., 8., 16., 16., 16.,
@@ -1663,6 +1710,10 @@ mod convolution_numeric {
         assert_eq!(
             input_grad,
             Array::from_shape_vec(input_grad.raw_dim(), true_input_grad_elems).unwrap()
+        );
+        assert_eq!(
+            kernel_grad,
+            Array::from_shape_vec(kernel_grad.raw_dim(), true_kernel_grad_elems).unwrap()
         );
     }
 

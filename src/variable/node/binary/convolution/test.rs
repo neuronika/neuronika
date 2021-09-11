@@ -161,7 +161,7 @@ mod backward {
     }
 }
 
-mod backward_gropued {
+mod backward_grouped {
     use super::*;
     #[test]
     fn creation() {

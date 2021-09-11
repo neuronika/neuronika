@@ -1,7 +1,8 @@
 use super::{PaddingMode, ReflPad, ReplPad};
 use ndarray::{
     iter::{AxisChunksIter, AxisChunksIterMut},
-    Array, ArrayBase, ArrayView, ArrayViewMut, Axis, Data, DataMut, Dimension, Ix2, IxDyn, Order,
+    linalg::general_mat_mul,
+    Array, ArrayBase, ArrayView, ArrayViewMut, Axis, Data, DataMut, Dimension, Ix2, Ix3, IxDyn,
     RawData, RemoveAxis, ShapeBuilder, Slice, ViewRepr, Zip,
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
@@ -23,7 +24,6 @@ type GroupedBackwardArgs<'a, D> = (
 /// is the only differentiable variable.
 type GroupedBackwardArgsUnary<'a, D> = (
     AxisChunksIterMut<'a, f32, D>,
-    AxisChunksIter<'a, f32, D>,
     AxisChunksIter<'a, f32, D>,
     AxisChunksIter<'a, f32, D>,
 );
@@ -550,59 +550,6 @@ fn as_windows_mut<'a, D: Dimension, S: DataMut<Elem = f32>>(
     }
 }
 
-/// Computes **sig2col**, **im2col** and **vol2col**.
-///
-/// Do note that this function **allocates** and its memory-intensive.
-///
-/// # Arguments
-///
-/// * `input` - input array.
-///
-/// * `kernel_shape` - shape of the kernel.
-///
-/// * `padding` - padding to be applied to `input`.
-///
-/// * `stride` - stride.
-///
-/// * `dilation` - dilation.
-fn to_col<D: Dimension, S: Data<Elem = f32>>(
-    input: &ArrayBase<S, D>,
-    kernel_shape: &[usize],
-    stride: &[usize],
-    dilation: &[usize],
-) -> Array<f32, Ix2> {
-    let mut o_shape = conv_out_shape_padded::<D>(input.shape(), kernel_shape, stride, dilation);
-    o_shape[1] = 1;
-    let (to_col_height, to_col_width): (usize, usize) = {
-        (
-            kernel_shape.iter().skip(1).product(),
-            o_shape.slice().iter().product(),
-        )
-    };
-    as_windows(&input, kernel_shape, stride, dilation)
-        .into_owned()
-        .into_shape((to_col_width, to_col_height))
-        .unwrap()
-        .reversed_axes()
-}
-
-/// Reshapes the array in input into a matrix so that only the dimension of
-/// axis 0 is preserved.
-///
-/// # Arguments
-///
-/// ` array` - array to be flattened.
-///
-/// # Panics
-///
-///  if `array` is not standard layout.
-fn flatten<D: Dimension, S: RawData>(array: ArrayBase<S, D>) -> ArrayBase<S, Ix2> {
-    let (original_shape, mut flattened_shape) = (array.raw_dim(), Ix2::zeros(2));
-    flattened_shape[0] = original_shape[0];
-    flattened_shape[1] = original_shape.slice().iter().skip(1).product();
-    array.into_shape(flattened_shape).unwrap()
-}
-
 /// Puts the axis corresponding to the output channels of the feature map `array`
 /// in the last position and returns the input with swapped axes.
 ///
@@ -622,65 +569,46 @@ fn permute_channels<D: Dimension>(
     array.permuted_axes(dim)
 }
 
-/// Assigns the **2-dimensional** convolution result to the **n-dimensional** feature map.
+/// Computes the shapes of **sig2col**, **im2col** and **vol2col**.
 ///
 /// # Arguments
 ///
-/// * `output_map` - output_map.
+/// * `input` - input array.
 ///
-/// * `flat_result` - bi-dimensional flat result from the matrix multiplication.
-fn assign_to_output_map<D: Dimension, S: DataMut<Elem = f32>>(
-    output_map: &mut ArrayBase<S, D>,
-    flat_result: &Array<f32, Ix2>,
-) {
-    let reordered_flat_result = {
-        let ndim = output_map.ndim();
-        let mut reshaped_dim = D::zeros(ndim);
-        let output_map_dim = output_map.shape();
+/// * `kernel_shape` - shape of the kernel.
+///
+/// * `padding` - padding to be applied to `input`.
+///
+/// * `stride` - stride.
+///
+/// * `dilation` - dilation.
+fn columns_shape<D: Dimension, S: Data<Elem = f32>>(
+    input: &ArrayBase<S, D>,
+    kernel_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> Ix3 {
+    let output_map_shape =
+        conv_out_shape_padded::<D>(input.shape(), kernel_shape, stride, dilation);
+    let mut columns_shape = Ix3::zeros(3);
+    columns_shape[0] = output_map_shape[0];
+    columns_shape[1] = output_map_shape.slice().iter().skip(2).product();
+    columns_shape[2] = kernel_shape.iter().skip(1).product();
 
-        let (batch_size, input_channels, signal_dim) =
-            (output_map_dim[0], output_map_dim[1], &output_map_dim[2..]);
+    columns_shape
+}
 
-        reshaped_dim.set_last_elem(batch_size);
-        reshaped_dim[0] = input_channels;
-        reshaped_dim
-            .slice_mut()
-            .iter_mut()
-            .skip(1)
-            .zip(signal_dim)
-            .for_each(|(reshaped_dim, signal_dim)| *reshaped_dim = *signal_dim);
-
-        let mut axis_permutation = D::zeros(ndim);
-        axis_permutation[0] = ndim - 1;
-        axis_permutation[1] = 0;
-        axis_permutation
-            .slice_mut()
-            .iter_mut()
-            .skip(2)
-            .zip((1..ndim - 1).rev())
-            .for_each(|(axis, permutation)| *axis = permutation);
-
-        flat_result
-            .to_shape((reshaped_dim, Order::ColumnMajor))
-            .unwrap()
-            .permuted_axes(axis_permutation)
-    };
-
-    // Does not allocate.
-    debug_assert_eq!(reordered_flat_result.is_owned(), false);
-
-    let reshaped_flat_result = reordered_flat_result
-        .to_shape(output_map.raw_dim())
-        .unwrap();
-
-    // Does not allocate.
-    debug_assert_eq!(reshaped_flat_result.is_owned(), false);
-
-    Zip::from(output_map)
-        .and(&reshaped_flat_result)
-        .par_for_each(|output_map_el, reshaped_flat_result_el| {
-            *output_map_el = *reshaped_flat_result_el
-        });
+/// Computes a shape from the array in input so that only the dimension of axis 0 is preserved.
+///
+/// # Arguments
+///
+/// ` array` - array to be flattened.
+///
+fn flat_shape<D: Dimension, S: RawData>(array: &ArrayBase<S, D>) -> Ix2 {
+    let (original_shape, mut flat_shape) = (array.raw_dim(), Ix2::zeros(2));
+    flat_shape[0] = original_shape[0];
+    flat_shape[1] = original_shape.slice().iter().skip(1).product();
+    flat_shape
 }
 
 /// Assigns to the **n**-dimensional feature map's gradient `dest` the **2**-dimensional
@@ -702,7 +630,7 @@ fn assign_to_output_map<D: Dimension, S: DataMut<Elem = f32>>(
 /// * `dilation` - dilation.
 fn assign_from_cols<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
     dest: &mut ArrayBase<S, D>,
-    columns: ArrayBase<T, Ix2>,
+    columns: ArrayBase<T, Ix3>,
     kernel_shape: &[usize],
     stride: &[usize],
     dilation: &[usize],
@@ -710,8 +638,7 @@ fn assign_from_cols<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
     let mut dest_windows_mut = as_windows_mut(dest, kernel_shape, stride, dilation);
     let from_cols = columns.into_shape(dest_windows_mut.raw_dim()).unwrap();
 
-    // Safe because each sample is independent from one another. This operation is
-    // emb. parallel.
+    // Safe because each sample is independent from one another.
     dest_windows_mut
         .axis_iter_mut(Axis(0))
         .into_par_iter()
@@ -782,8 +709,9 @@ pub(super) fn group_gradients<'a, D: Dimension, S: DataMut<Elem = f32>, U: Data<
 ) -> GroupedBackwardArgs<'a, D> {
     let input_grad_groups =
         input_grad.axis_chunks_iter_mut(Axis(1), input_grad.len_of(Axis(1)) / groups);
-    let (kernel_grad_groups, output_map_grad_groups, input_groups, kernel_groups) =
-        group_gradients_unary(kernel_grad, output_map_grad, input, kernel, groups);
+    let kernel_groups = kernel.axis_chunks_iter(Axis(0), kernel.len_of(Axis(0)) / groups);
+    let (kernel_grad_groups, output_map_grad_groups, input_groups) =
+        group_gradients_unary(kernel_grad, output_map_grad, input, groups);
 
     (
         input_grad_groups,
@@ -805,8 +733,6 @@ pub(super) fn group_gradients<'a, D: Dimension, S: DataMut<Elem = f32>, U: Data<
 ///
 /// * `input` - input of the convolution.
 ///
-/// * `kernel` - kernel of the convolution.
-///
 /// * `groups` - number of groups.
 pub(super) fn group_gradients_unary<
     'a,
@@ -817,7 +743,6 @@ pub(super) fn group_gradients_unary<
     kernel_grad: &'a mut ArrayBase<S, D>,
     output_map_grad: &'a ArrayBase<U, D>,
     input: &'a ArrayBase<U, D>,
-    kernel: &'a ArrayBase<U, D>,
     groups: usize,
 ) -> GroupedBackwardArgsUnary<'a, D> {
     let kernel_grad_groups =
@@ -825,14 +750,8 @@ pub(super) fn group_gradients_unary<
     let output_map_grad_groups =
         output_map_grad.axis_chunks_iter(Axis(1), output_map_grad.len_of(Axis(1)) / groups);
     let input_groups = input.axis_chunks_iter(Axis(1), input.len_of(Axis(1)) / groups);
-    let kernel_groups = kernel.axis_chunks_iter(Axis(0), kernel.len_of(Axis(0)) / groups);
 
-    (
-        kernel_grad_groups,
-        output_map_grad_groups,
-        input_groups,
-        kernel_groups,
-    )
+    (kernel_grad_groups, output_map_grad_groups, input_groups)
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -857,7 +776,7 @@ pub(super) fn group_gradients_unary<
 ///
 /// * `dilation` - dilation controls the spacing between the kernel points.
 pub(super) fn convolution<
-    D: Dimension,
+    D: Dimension + RemoveAxis,
     S: Data<Elem = f32>,
     T: DataMut<Elem = f32>,
     U: Data<Elem = f32>,
@@ -868,12 +787,29 @@ pub(super) fn convolution<
     stride: &[usize],
     dilation: &[usize],
 ) {
-    let (flat_kernel, flat_input) = (
-        flatten(kernel.view()),
-        to_col(&input, kernel.shape(), stride, dilation),
+    let (kernel_shape, flattened_kernel) = (
+        kernel.shape(),
+        kernel.view().into_shape(flat_shape(&kernel)).unwrap(),
     );
-    let convolution_result = flat_kernel.dot(&flat_input);
-    assign_to_output_map(output, &convolution_result);
+
+    let input_windows = as_windows(input, kernel_shape, stride, dilation);
+    let input_columns = input_windows
+        .to_shape(columns_shape(&input, kernel_shape, stride, dilation))
+        .unwrap();
+
+    Zip::from(input_columns.axis_iter(Axis(0)))
+        .and(output.axis_iter_mut(Axis(0)))
+        .par_for_each(|input_sample_columns, output_sample| {
+            let flat_shape = flat_shape(&output_sample);
+            let mut flattened_sample_out_view_mut = output_sample.into_shape(flat_shape).unwrap();
+            general_mat_mul(
+                1.,
+                &flattened_kernel,
+                &input_sample_columns.t(),
+                0.,
+                &mut flattened_sample_out_view_mut,
+            );
+        });
 }
 
 /// Performs the **back-propagation** for an an **n-dimensional** convolution where
@@ -883,11 +819,7 @@ pub(super) fn convolution<
 ///
 /// * `input_grad` - gradient of the input map.
 ///
-/// * `kernel_grad` - gradient of the kernel.
-///
 /// * `grad` -  incoming gradient **d_out**.
-///
-/// * `input` -  input map.
 ///
 /// * `kernel` -  kernel.
 ///
@@ -900,72 +832,64 @@ pub(super) fn convolution<
 ///
 /// * `overwrite_input_grad`  - specifies the kind of accumulation operation to be performed on
 /// the input's gradient.
-///
-/// * `overwrite_kernel_grad` - specifies the kind of accumulation operation to be performed on
-/// the kernel's gradient.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn convolution_backward<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+pub(super) fn convolution_backward_input<
+    D: Dimension + RemoveAxis,
+    S: DataMut<Elem = f32>,
+    T: Data<Elem = f32>,
+>(
     input_grad: &mut ArrayBase<S, D>,
-    kernel_grad: &mut ArrayBase<S, D>,
     grad: &ArrayBase<T, D>,
-    input: &ArrayBase<T, D>,
     kernel: &ArrayBase<T, D>,
     padding: &[usize],
     stride: &[usize],
     dilation: &[usize],
     overwrite_input_grad: bool,
-    overwrite_kernel_grad: bool,
 ) {
-    // Flattens the incoming gradient.
-    let gradient = permute_channels(grad.view());
-    // Allocates. We need the reshaped gradient in standard layout, otherwise we can't flatten it.
-    let gradient_as_standard = gradient.as_standard_layout();
-    let flat_gradient = flatten(gradient_as_standard);
+    let (kernel_shape, flattened_kernel, grad_shape) = (
+        kernel.shape(),
+        kernel.view().into_shape(flat_shape(&kernel)).unwrap(),
+        grad.shape(),
+    );
 
-    // Computes the kernel's gradient.
-    let kernel_gradient = flat_gradient
-        .dot(&to_col(input, kernel.shape(), stride, dilation).t())
-        .into_shape(kernel_grad.raw_dim())
-        .unwrap();
+    let mut buffer_shape = Ix3::zeros(3);
+    buffer_shape[0] = grad_shape[0];
+    buffer_shape[1] = flattened_kernel.shape()[1];
+    buffer_shape[2] = grad_shape.iter().skip(2).product();
+    let mut buffer = Array::<f32, Ix3>::zeros(buffer_shape);
 
-    // Assigns the kernel's gradient.
-    let kernel_grad_zip = Zip::from(kernel_grad).and(&kernel_gradient);
-    if overwrite_kernel_grad {
-        kernel_grad_zip
-            .for_each(|kernel_grad_el, incoming_grad_el| *kernel_grad_el = *incoming_grad_el);
-    } else {
-        kernel_grad_zip
-            .for_each(|kernel_grad_el, incoming_grad_el| *kernel_grad_el += *incoming_grad_el);
-    }
+    Zip::from(grad.axis_iter(Axis(0)))
+        .and(buffer.axis_iter_mut(Axis(0)))
+        .par_for_each(|gradient_sample, mut buffer_sample| {
+            let gradient_sample_flat_shape = flat_shape(&gradient_sample);
+            let flattened_sample_in = gradient_sample
+                .into_shape(gradient_sample_flat_shape)
+                .unwrap();
+            general_mat_mul(
+                1.,
+                &flattened_kernel.t(),
+                &flattened_sample_in,
+                0.,
+                &mut buffer_sample,
+            );
+        });
 
-    // Computes the input's gradient.
-    let flat_kernel = flatten(kernel.view());
-    let input_gradient = flat_kernel.t().dot(&flat_gradient);
-
-    // If padding is not present, just assigns the gradient to the input.
     if padding.iter().all(|pad| *pad == 0) {
-        assign_from_cols(input_grad, input_gradient, kernel.shape(), stride, dilation);
+        assign_from_cols(input_grad, buffer, kernel_shape, stride, dilation);
     } else {
-        // If padding is present a buffer is needed to accumulate the input's incoming gradient.
-        let mut buffer: Array<f32, D> =
+        let mut padded_buffer: Array<f32, D> =
             Array::zeros(padded_shape::<D>(input_grad.shape(), padding));
-        assign_from_cols(
-            &mut buffer,
-            input_gradient,
-            kernel.shape(),
-            stride,
-            dilation,
-        );
+        assign_from_cols(&mut padded_buffer, buffer, kernel.shape(), stride, dilation);
 
         // The actual input's incoming gradient is extracted from the buffer and assigned.
-        let actual_gradient = unpad(&buffer, padding);
+        let actual_gradient = unpad(&padded_buffer, padding);
         let input_gradient_zip = Zip::from(input_grad).and(actual_gradient);
         if overwrite_input_grad {
             input_gradient_zip
-                .for_each(|input_grad_el, incoming_grad_el| *input_grad_el = *incoming_grad_el);
+                .par_for_each(|input_grad_el, incoming_grad_el| *input_grad_el = *incoming_grad_el);
         } else {
-            input_gradient_zip
-                .for_each(|input_grad_el, incoming_grad_el| *input_grad_el += *incoming_grad_el);
+            input_gradient_zip.par_for_each(|input_grad_el, incoming_grad_el| {
+                *input_grad_el += *incoming_grad_el
+            });
         }
     }
 }
@@ -998,41 +922,41 @@ pub(super) fn convolution_backward<D: Dimension, S: DataMut<Elem = f32>, T: Data
 ///
 /// * `overwrite_kernel_grad` - specifies the kind of accumulation operation to be performed on
 /// the kernel's gradient.
-pub(super) fn convolution_unary_backward<
-    D: Dimension,
+pub(super) fn convolution_backward_kernel<
+    D: Dimension + RemoveAxis,
     S: DataMut<Elem = f32>,
     T: Data<Elem = f32>,
-    U: Data<Elem = f32>,
 >(
     kernel_grad: &mut ArrayBase<S, D>,
     grad: &ArrayBase<T, D>,
-    input: &ArrayBase<U, D>,
-    kernel: &ArrayBase<T, D>,
+    input: &ArrayBase<T, D>,
     stride: &[usize],
     dilation: &[usize],
     overwrite_kernel_grad: bool,
 ) {
-    // Flattens the incoming gradient.
     let gradient = permute_channels(grad.view());
-    // Allocates.
-    let gradient_as_standard = gradient.as_standard_layout();
-    let flat_gradient = flatten(gradient_as_standard);
+    let flat_gradient = gradient.to_shape(flat_shape(&gradient)).unwrap();
+    let beta = if overwrite_kernel_grad { 0. } else { 1. };
+    let kernel_shape = kernel_grad.raw_dim();
 
-    // Computes the kernel's gradient.
-    let kernel_gradient = flat_gradient
-        .dot(&to_col(input, kernel.shape(), stride, dilation).t())
-        .into_shape(kernel_grad.raw_dim())
-        .unwrap();
+    let input_windows = as_windows(&input, kernel_shape.slice(), stride, dilation);
+    let columns_shape = columns_shape(&input, kernel_shape.slice(), stride, dilation);
 
-    // Assigns the kernel's gradient.
-    let kernel_grad_zip = Zip::from(kernel_grad).and(&kernel_gradient);
-    if overwrite_kernel_grad {
-        kernel_grad_zip
-            .for_each(|kernel_grad_el, incoming_grad_el| *kernel_grad_el = *incoming_grad_el);
-    } else {
-        kernel_grad_zip
-            .for_each(|kernel_grad_el, incoming_grad_el| *kernel_grad_el += *incoming_grad_el);
-    }
+    let mut matrix_shape = Ix2::zeros(2);
+    matrix_shape[0] = columns_shape[0] * columns_shape[1];
+    matrix_shape[1] = columns_shape[2];
+    let input_matrix = input_windows.to_shape(matrix_shape).unwrap();
+
+    general_mat_mul(
+        1.,
+        &flat_gradient,
+        &input_matrix,
+        beta,
+        &mut kernel_grad
+            .view_mut()
+            .into_shape((flat_gradient.shape()[0], matrix_shape[1]))
+            .unwrap(),
+    );
 }
 
 /// Performs an **n-dimensional grouped** convolution where **n** can be either *1*, *2* or *3*.
@@ -1053,7 +977,7 @@ pub(super) fn convolution_unary_backward<
 /// * `dilation` -  dilation.
 ///
 /// * `groups` -  number of groups.
-pub(super) fn convolution_with_groups<D: Dimension>(
+pub(super) fn convolution_with_groups<D: Dimension + RemoveAxis>(
     input: &Array<f32, D>,
     kernel: &Array<f32, D>,
     output: &mut Array<f32, D>,
@@ -1101,7 +1025,7 @@ pub(super) fn convolution_with_groups<D: Dimension>(
 /// * `overwrite_kernel_grad` - specifies the kind of accumulation operation to be performed on
 /// the kernel gradient.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn convolution_with_groups_backward<D: Dimension>(
+pub(super) fn convolution_with_groups_backward<D: Dimension + RemoveAxis>(
     input_grad: &mut Array<f32, D>,
     kernel_grad: &mut Array<f32, D>,
     grad: &Array<f32, D>,
@@ -1125,17 +1049,22 @@ pub(super) fn convolution_with_groups_backward<D: Dimension>(
         .zip(input_groups.into_iter())
         .for_each(
             |((((gradient, mut kernel_gradient), mut input_gradient), kernel), input)| {
-                convolution_backward(
-                    &mut input_gradient,
+                convolution_backward_kernel(
                     &mut kernel_gradient,
                     &gradient,
                     &input,
+                    stride,
+                    dilation,
+                    overwrite_kernel_grad,
+                );
+                convolution_backward_input(
+                    &mut input_gradient,
+                    &gradient,
                     &kernel,
                     padding,
                     stride,
                     dilation,
                     overwrite_input_grad,
-                    overwrite_kernel_grad,
                 )
             },
         );
@@ -1169,30 +1098,27 @@ pub(super) fn convolution_with_groups_backward<D: Dimension>(
 /// * `overwrite_kernel_grad` - specifies the kind of accumulation operation to be performed on
 /// the kernel gradient.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn convolution_with_groups_unary_backward<D: Dimension>(
+pub(super) fn convolution_with_groups_unary_backward<D: Dimension + RemoveAxis>(
     kernel_grad: &mut Array<f32, D>,
     grad: &Array<f32, D>,
     input: &Array<f32, D>,
-    kernel: &Array<f32, D>,
     stride: &[usize],
     dilation: &[usize],
     groups: usize,
     overwrite_kernel_grad: bool,
 ) {
-    let (kernel_grad_groups, grad_groups, input_groups, kernel_groups) =
-        group_gradients_unary(kernel_grad, &grad, &input, &kernel, groups);
+    let (kernel_grad_groups, grad_groups, input_groups) =
+        group_gradients_unary(kernel_grad, &grad, &input, groups);
 
     grad_groups
         .into_par_iter()
         .zip(kernel_grad_groups.into_iter())
-        .zip(kernel_groups.into_iter())
         .zip(input_groups.into_iter())
-        .for_each(|(((gradient, mut kernel_gradient), kernel), input)| {
-            convolution_unary_backward(
+        .for_each(|((gradient, mut kernel_gradient), input)| {
+            convolution_backward_kernel(
                 &mut kernel_gradient,
                 &gradient,
                 &input,
-                &kernel,
                 stride,
                 dilation,
                 overwrite_kernel_grad,
