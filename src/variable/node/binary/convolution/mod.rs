@@ -18,9 +18,7 @@ use std::{
 mod padding;
 pub use padding::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use padding::{ReflPad, ReplPad};
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Utility Methods ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 mod numeric;
 use numeric::{
     check_conv_args, check_groups_args, conv_out_shape, convolution, convolution_backward_input,
@@ -31,6 +29,7 @@ use numeric::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 /// Convolution.
 pub trait Convolve<Inp, Ker, Pad: PaddingMode> {
     /// The type of the convolution's result. See the [*differentiability arithmetic*] for more
@@ -51,11 +50,6 @@ pub trait Convolve<Inp, Ker, Pad: PaddingMode> {
     ) -> Self::Output;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve Trait Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with non differentiable variables ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl<F1, F2, Pad> Convolve<Self, Var<F2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
@@ -89,7 +83,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~ Convolve with differentiable kernel and not differentiable input ~~~~~~~~~~~~~~~~
 impl<F1, F2, B2, Pad> Convolve<Self, VarDiff<F2, B2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
@@ -127,7 +120,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with differentiable variables ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl<F1, B1, F2, B2, Pad> Convolve<Self, VarDiff<F2, B2>, Pad> for VarDiff<F1, B1>
 where
     F1: NData + 'static,
@@ -178,6 +170,7 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with Groups Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 /// Grouped convolution.
 pub trait ConvolveWithGroups<Inp, Ker, Pad: PaddingMode> {
     /// The type of the grouped convolution's result. See the [*differentiability arithmetic*] for
@@ -199,11 +192,6 @@ pub trait ConvolveWithGroups<Inp, Ker, Pad: PaddingMode> {
     ) -> Self::Output;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with Groups Trait Implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with non differentiable variables ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl<F1, F2, Pad> ConvolveWithGroups<Self, Var<F2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
@@ -239,7 +227,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~ Convolve with differentiable kernel and not differentiable input ~~~~~~~~~~~~~~~~
 impl<F1, F2, B2, Pad> ConvolveWithGroups<Self, VarDiff<F2, B2>, Pad> for Var<F1>
 where
     F1: NData + 'static,
@@ -288,7 +275,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with differentiable variables ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 impl<F1, B1, F2, B2, Pad> ConvolveWithGroups<Self, VarDiff<F2, B2>, Pad> for VarDiff<F1, B1>
 where
     F1: NData + 'static,
@@ -344,7 +330,6 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution Forward Structs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct Convolution<Inp, Ker, Pad>
 where
     Inp: NData,
@@ -466,7 +451,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Grouped Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct GroupedConvolution<Inp, Ker, Pad>
 where
     Inp: NData,
@@ -609,7 +593,6 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution Backward Structs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
 where
     InpD: NData,
@@ -796,8 +779,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution Unary Backward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 pub struct ConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
@@ -943,7 +924,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Grouped Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
 where
     InpD: NData,
@@ -1140,7 +1120,6 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Grouped Convolution Unary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct GroupedConvolutionUnaryBackward<InpD, KerG, Pad>
 where
     InpD: NData,
@@ -1292,10 +1271,6 @@ where
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #[cfg(test)]
 mod test;

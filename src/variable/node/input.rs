@@ -4,8 +4,6 @@ use super::{
 };
 use std::cell::{Cell, Ref, RefCell, RefMut};
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 /// The forward component of a leaf of the computational graph.
 pub struct Input<D: Dimension> {
     data: RefCell<Tensor<D>>,
@@ -52,8 +50,6 @@ impl<D: Dimension> Forward for Input<D> {
         self.computed.set(false);
     }
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ InputBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// The backward component of a differentiable leaf of the computational graph.
 pub struct InputBackward<D: Dimension> {
