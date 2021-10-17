@@ -481,7 +481,7 @@ mod tests {
             .data()
             .iter()
             .zip(ndarray::arr1(&[1.0_f32, 10.0_f32, 100.0_f32, 1000.0_f32]).iter())
-            .all(|(&t, &a)| t.round() == a.round()));
+            .all(|(&t, &a)| (t.round() - a.round()).abs() <= f32::EPSILON));
     }
 
     #[test]

@@ -12,7 +12,7 @@ fn lambda_lr() {
         optim.step();
         assert_eq!(scheduler.get_current_epoch(), epoch);
         scheduler.step();
-        assert_eq!(scheduler.get_current_lr(), epoch as f32);
+        assert!((scheduler.get_current_lr() - epoch as f32).abs() <= f32::EPSILON);
     }
 }
 
@@ -30,7 +30,7 @@ fn multiplicative_lr() {
         scheduler.step();
     }
 
-    assert_eq!(scheduler.get_current_lr(), 120.0); // Should be 5!.
+    assert!((scheduler.get_current_lr() - 120_f32).abs() <= f32::EPSILON); // Should be 5!.
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn step_lr() {
         optim.step();
         assert_eq!(scheduler.get_current_epoch(), epoch);
         scheduler.step();
-        assert_eq!(scheduler.get_current_lr(), 2.0_f32.powi(epoch as i32));
+        assert!((scheduler.get_current_lr() - 2_f32.powi(epoch as i32)).abs() <= f32::EPSILON);
     }
 }
 
@@ -61,7 +61,7 @@ fn multistep_lr() {
         assert_eq!(scheduler.get_current_epoch(), epoch);
         scheduler.step();
     }
-    assert_eq!(scheduler.get_current_lr(), 32.); // Should be 2^5.
+    assert!((scheduler.get_current_lr() - 32_f32).abs() <= f32::EPSILON); // Should be 2^5.
 }
 
 #[test]
@@ -77,5 +77,6 @@ fn exponential_lr() {
         scheduler.step();
     }
 
-    assert_eq!(scheduler.get_current_lr(), 5.0_f32.powi(5)); // Should be 5^5.
+    assert!((scheduler.get_current_lr() - 5_f32.powi(5)).abs() <= f32::EPSILON);
+    // Should be 5^5.
 }

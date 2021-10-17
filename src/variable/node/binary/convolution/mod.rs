@@ -366,7 +366,7 @@ where
             conv_out_shape(
                 input_data.shape(),
                 kernel_data.shape(),
-                &padding,
+                padding,
                 stride,
                 dilation,
             )
@@ -636,9 +636,9 @@ where
         let shape: InpD::Dim = conv_out_shape(
             input.data().shape(),
             kernel.data().shape(),
-            &padding,
-            &stride,
-            &dilation,
+            padding,
+            stride,
+            dilation,
         );
         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
@@ -814,9 +814,9 @@ where
         let shape: InpD::Dim = conv_out_shape(
             input.data().shape(),
             kernel.data().shape(),
-            &padding,
-            &stride,
-            &dilation,
+            padding,
+            stride,
+            dilation,
         );
         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
@@ -969,9 +969,9 @@ where
         let shape: InpD::Dim = conv_out_shape(
             input.data().shape(),
             kernel.data().shape(),
-            &padding,
-            &stride,
-            &dilation,
+            padding,
+            stride,
+            dilation,
         );
         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
@@ -1158,9 +1158,9 @@ where
         let shape: InpD::Dim = conv_out_shape(
             input.data().shape(),
             kernel.data().shape(),
-            &padding,
-            &stride,
-            &dilation,
+            padding,
+            stride,
+            dilation,
         );
         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());

@@ -390,7 +390,7 @@ where
         padded_shape
     };
     let mut padded = Array::zeros(padded_shape);
-    constant_pad_inplace(&mut padded, &input, padding_into_dim.slice(), val);
+    constant_pad_inplace(&mut padded, input, padding_into_dim.slice(), val);
     padded
 }
 
@@ -470,7 +470,7 @@ impl ReflPad for Ix2 {
         let (pad_x, pad_y) = (padding[0], padding[1]);
         let (out_len_x, out_len_y) = (len_x + pad_x * 2, len_y + pad_y * 2);
         let mut out = Array::<f32, _>::zeros((out_len_x, out_len_y));
-        Self::reflection_pad_inplace(&mut out, &input, &padding);
+        Self::reflection_pad_inplace(&mut out, input, padding);
         out
     }
 
@@ -525,7 +525,7 @@ impl ReflPad for Ix3 {
         let (out_len_x, out_len_y, out_len_z) =
             (len_x + pad_x * 2, len_y + pad_y * 2, len_z + pad_z * 2);
         let mut out = Array::<f32, _>::zeros((out_len_z, out_len_x, out_len_y));
-        Self::reflection_pad_inplace(&mut out, &input, padding);
+        Self::reflection_pad_inplace(&mut out, input, padding);
         out
     }
 
@@ -592,7 +592,7 @@ impl ReplPad for Ix1 {
             len + pad * 2
         };
         let mut out = Array::<f32, _>::zeros(out_len);
-        Self::replication_pad_inplace(&mut out, &input, padding);
+        Self::replication_pad_inplace(&mut out, input, padding);
         out
     }
 
@@ -630,7 +630,7 @@ impl ReplPad for Ix2 {
         let (pad_x, pad_y) = (padding[0], padding[1]);
         let (out_len_x, out_len_y) = (len_x + pad_x * 2, len_y + pad_y * 2);
         let mut out = Array::<f32, _>::zeros((out_len_x, out_len_y));
-        Self::replication_pad_inplace(&mut out, &input, padding);
+        Self::replication_pad_inplace(&mut out, input, padding);
         out
     }
 
@@ -685,7 +685,7 @@ impl ReplPad for Ix3 {
         let (out_len_x, out_len_y, out_len_z) =
             (len_x + pad_x * 2, len_y + pad_y * 2, len_z + pad_z * 2);
         let mut out = Array::<f32, _>::zeros((out_len_z, out_len_x, out_len_y));
-        Self::replication_pad_inplace(&mut out, &input, padding);
+        Self::replication_pad_inplace(&mut out, input, padding);
         out
     }
 

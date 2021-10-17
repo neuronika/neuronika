@@ -789,12 +789,12 @@ pub(super) fn convolution<
 ) {
     let (kernel_shape, flattened_kernel) = (
         kernel.shape(),
-        kernel.view().into_shape(flat_shape(&kernel)).unwrap(),
+        kernel.view().into_shape(flat_shape(kernel)).unwrap(),
     );
 
     let input_windows = as_windows(input, kernel_shape, stride, dilation);
     let input_columns = input_windows
-        .to_shape(columns_shape(&input, kernel_shape, stride, dilation))
+        .to_shape(columns_shape(input, kernel_shape, stride, dilation))
         .unwrap();
 
     Zip::from(input_columns.axis_iter(Axis(0)))
@@ -847,7 +847,7 @@ pub(super) fn convolution_backward_input<
 ) {
     let (kernel_shape, flattened_kernel, grad_shape) = (
         kernel.shape(),
-        kernel.view().into_shape(flat_shape(&kernel)).unwrap(),
+        kernel.view().into_shape(flat_shape(kernel)).unwrap(),
         grad.shape(),
     );
 
@@ -939,8 +939,8 @@ pub(super) fn convolution_backward_kernel<
     let beta = if overwrite_kernel_grad { 0. } else { 1. };
     let kernel_shape = kernel_grad.raw_dim();
 
-    let input_windows = as_windows(&input, kernel_shape.slice(), stride, dilation);
-    let columns_shape = columns_shape(&input, kernel_shape.slice(), stride, dilation);
+    let input_windows = as_windows(input, kernel_shape.slice(), stride, dilation);
+    let columns_shape = columns_shape(input, kernel_shape.slice(), stride, dilation);
 
     let mut matrix_shape = Ix2::zeros(2);
     matrix_shape[0] = columns_shape[0] * columns_shape[1];
@@ -1039,7 +1039,7 @@ pub(super) fn convolution_with_groups_backward<D: Dimension + RemoveAxis>(
     overwrite_kernel_grad: bool,
 ) {
     let (input_grad_groups, kernel_grad_groups, grad_groups, input_groups, kernel_groups) =
-        group_gradients(input_grad, kernel_grad, &grad, &input, &kernel, groups);
+        group_gradients(input_grad, kernel_grad, grad, input, kernel, groups);
 
     grad_groups
         .into_par_iter()
@@ -1108,7 +1108,7 @@ pub(super) fn convolution_with_groups_unary_backward<D: Dimension + RemoveAxis>(
     overwrite_kernel_grad: bool,
 ) {
     let (kernel_grad_groups, grad_groups, input_groups) =
-        group_gradients_unary(kernel_grad, &grad, &input, groups);
+        group_gradients_unary(kernel_grad, grad, input, groups);
 
     grad_groups
         .into_par_iter()
