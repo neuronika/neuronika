@@ -384,7 +384,7 @@ where
 mod tests {
     #[test]
     fn from_ndarray_test() {
-        use super::*;
+        use super::from_ndarray;
         let a = ndarray::array![[1., 2.], [3., 4.]];
         let t = from_ndarray(a.clone());
 
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn zeros() {
-        use super::*;
+        use super::zeros;
 
         let t1 = zeros(1);
         let t2 = zeros((1, 5));
@@ -411,7 +411,7 @@ mod tests {
     }
     #[test]
     fn ones() {
-        use super::*;
+        use super::ones;
 
         let t1 = ones(1);
         let t2 = ones((1, 5));
@@ -429,7 +429,7 @@ mod tests {
     }
     #[test]
     fn full() {
-        use super::*;
+        use super::full;
 
         let t1 = full(1, 5.);
         let t2 = full((1, 5), 6.);
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn rand_test() {
-        use super::*;
+        use super::rand;
         let t = rand([4, 5, 6]);
 
         assert_eq!(t.data().shape(), &[4, 5, 6]);
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn eye_test() {
-        use super::*;
+        use super::{eye, Array2};
         let tensor = eye(3);
 
         assert_eq!(*tensor.data(), Array2::eye(3));
@@ -460,9 +460,28 @@ mod tests {
 
     #[test]
     fn linspace() {
-        use super::*;
+        use super::linspace;
         let tensor = linspace(0., 1., 5);
         assert!(*tensor.data() == ndarray::arr1(&[0.0, 0.25, 0.5, 0.75, 1.0]))
+    }
+
+    #[test]
+    fn logspace() {
+        use super::logspace;
+        let tensor = logspace(2., 1., 5., 5);
+        assert!(*tensor.data() == ndarray::arr1(&[2., 4., 8., 16., 32.]))
+    }
+
+    #[test]
+    fn geomspace() {
+        use super::geomspace;
+        let tensor = geomspace(1., 1000., 4);
+        assert!(tensor
+            .unwrap()
+            .data()
+            .iter()
+            .zip(ndarray::arr1(&[1.0_f32, 10.0_f32, 100.0_f32, 1000.0_f32]).iter())
+            .all(|(&t, &a)| t.round() == a.round()));
     }
 
     #[test]

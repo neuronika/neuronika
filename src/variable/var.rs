@@ -587,48 +587,48 @@ where
 impl<T> Add<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Addition<T, Input<Ix1>>>;
+    type Output = Var<Addition<Input<Ix1>, T>>;
 
     fn add(self, rhs: Var<T>) -> Self::Output {
-        rhs + crate::full(1, self)
+        crate::full(1, self) + rhs
     }
 }
 
 impl<T> Sub<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Subtraction<T, Input<Ix1>>>;
+    type Output = Var<Subtraction<Input<Ix1>, T>>;
 
     fn sub(self, rhs: Var<T>) -> Self::Output {
-        rhs - crate::full(1, self)
+        crate::full(1, self) - rhs
     }
 }
 
 impl<T> Mul<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Multiplication<T, Input<Ix1>>>;
+    type Output = Var<Multiplication<Input<Ix1>, T>>;
 
     fn mul(self, rhs: Var<T>) -> Self::Output {
-        rhs * crate::full(1, self)
+        crate::full(1, self) * rhs
     }
 }
 
 impl<T> Div<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Division<T, Input<Ix1>>>;
+    type Output = Var<Division<Input<Ix1>, T>>;
 
     fn div(self, rhs: Var<T>) -> Self::Output {
-        rhs / crate::full(1, self)
+        crate::full(1, self) / rhs
     }
 }
 

@@ -108,7 +108,7 @@ where
     ///
     /// At the differentiable variable's creation the gradient is filled with zeros. You can
     /// populate it with a call to [`.backward()`](VarDiff::backward()).
-    pub fn grad_mut(&mut self) -> RefMut<Tensor<U::Dim>> {
+    pub fn grad_mut(&self) -> RefMut<Tensor<U::Dim>> {
         self.node.gradient_mut()
     }
 }
