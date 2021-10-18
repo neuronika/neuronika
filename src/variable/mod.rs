@@ -110,14 +110,14 @@ impl VarHistory {
 #[derive(Clone)]
 /// The computational backward-history of a variable. It keeps track of the computation up to the
 /// variable to whom the struct belongs.
-pub struct DiffVarHistory {
+pub struct VarDiffHistory {
     path: BTreeMap<usize, Rc<dyn Backward>>,
     buffer: Vec<Rc<dyn Backward>>,
     parameters: HashSet<Param>,
 }
 
-impl DiffVarHistory {
-    /// Returns a new, empty, `VarHistory` with  parameters `parameters`.
+impl VarDiffHistory {
+    /// Returns a new, empty, `VarDiffHistory` with  parameters `parameters`.
     ///
     /// # Arguments
     ///
@@ -134,8 +134,8 @@ impl DiffVarHistory {
     ///
     /// # Arguments
     ///
-    /// `other` - other DiffVarHistory.
-    pub(crate) fn merge(&mut self, mut other: DiffVarHistory) {
+    /// `other` - other VarDiffHistory.
+    pub(crate) fn merge(&mut self, mut other: VarDiffHistory) {
         self.path.append(&mut other.path);
         self.parameters.extend(other.parameters);
     }
@@ -345,7 +345,7 @@ impl<T: Data<Dim = D>, D: Dimension> Variable<D> for Var<T> {
 pub trait DifferentiableVariable<D: Dimension> {
     fn get_var(&self) -> Box<dyn Variable<D>>;
     fn get_node(&self) -> Rc<dyn GradientOverwrite<D>>;
-    fn get_past(&self) -> DiffVarHistory;
+    fn get_past(&self) -> VarDiffHistory;
 }
 
 impl<T: Data<Dim = D>, U: GradientOverwrite<D>, D: Dimension> DifferentiableVariable<D>
@@ -359,7 +359,7 @@ impl<T: Data<Dim = D>, U: GradientOverwrite<D>, D: Dimension> DifferentiableVari
         self.node.clone()
     }
 
-    fn get_past(&self) -> DiffVarHistory {
+    fn get_past(&self) -> VarDiffHistory {
         self.past.clone()
     }
 }

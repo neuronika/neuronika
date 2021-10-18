@@ -1,14 +1,14 @@
 use super::{
     Addition, AdditionBackwardUnary, Cat, Chunk, Concatenate, ConcatenateBackwardRight, Data,
-    DiffVarHistory, Differentiable, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward,
-    Gradient, Input, InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul,
-    MatrixMatrixMul, MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight,
-    MatrixVectorMul, MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack,
-    Multiplication, MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid,
-    SoftPlus, Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum,
-    TanH, Tensor, Transpose, Unsqueeze, VarDiff, VarHistory, Variable, VecMatMul, VecVecMul,
-    VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackwardUnary,
-    OPERATIONS_COUNTER,
+    Differentiable, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward, Gradient, Input,
+    InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
+    MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
+    MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
+    MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid, SoftPlus,
+    Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
+    Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
+    VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
+    VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use ndarray::{concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
 use std::{
@@ -80,7 +80,7 @@ impl<D: Dimension> Var<Input<D>> {
         VarDiff {
             var: self,
             node: node.clone(),
-            past: DiffVarHistory::new(parameters),
+            past: VarDiffHistory::new(parameters),
         }
     }
 

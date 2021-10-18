@@ -1,22 +1,21 @@
 use super::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Cat, Chunk, ChunkBackward,
-    Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DiffVarHistory,
-    DifferentiableVariable, Division, DivisionBackward, DivisionBackwardLeft,
-    DivisionBackwardRight, Dropout, DropoutBackward, Exp, ExpBackward, Forward, Gradient,
-    GradientOverwrite, Input, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn,
-    LognBackward, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul, MatrixMatrixMulBackward,
-    MatrixMatrixMulBackwardLeft, MatrixMatrixMulT, MatrixMatrixMulTBackward,
-    MatrixMatrixMulTBackwardLeft, MatrixVectorMul, MatrixVectorMulBackward,
-    MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate, MultiConcatenateBackward,
-    MultiStack, MultiStackBackward, Multiplication, MultiplicationBackward,
-    MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Param, Power,
-    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
-    Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack, StackBackward, StackBackwardLeft,
-    Subtraction, SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum,
-    SumBackward, TanH, TanHBackward, Tensor, Transpose, TransposeBackward, Unsqueeze,
-    UnsqueezeBackward, Var, Variable, VecMatMul, VecVecMul, VectorMatrixMul,
-    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorVectorMul, VectorVectorMulBackward,
-    VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
+    Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DifferentiableVariable,
+    Division, DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout,
+    DropoutBackward, Exp, ExpBackward, Forward, Gradient, GradientOverwrite, Input, LeakyReLU,
+    LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatMatMul, MatMatMulT,
+    MatVecMul, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
+    MatrixMatrixMulT, MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixVectorMul,
+    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate,
+    MultiConcatenateBackward, MultiStack, MultiStackBackward, Multiplication,
+    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite,
+    Param, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
+    SoftPlusBackward, Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack, StackBackward,
+    StackBackwardLeft, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
+    SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Tensor, Transpose,
+    TransposeBackward, Unsqueeze, UnsqueezeBackward, Var, VarDiffHistory, Variable, VecMatMul,
+    VecVecMul, VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
+    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use ndarray::{DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
 use std::{
@@ -45,7 +44,7 @@ where
 {
     pub(crate) var: Var<T>,
     pub(crate) node: Rc<U>,
-    pub(crate) past: DiffVarHistory,
+    pub(crate) past: VarDiffHistory,
 }
 
 impl<T, U> Clone for VarDiff<T, U>
@@ -67,7 +66,7 @@ where
     T: Data + Forward + 'static,
     U: Gradient + Overwrite + Backward + 'static,
 {
-    pub(crate) fn from(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
+    pub(crate) fn from(node: U, mut past: VarDiffHistory, var: Var<T>) -> VarDiff<T, U> {
         let node = Rc::new(node);
         past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
 
