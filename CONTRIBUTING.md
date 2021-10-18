@@ -14,7 +14,7 @@ Once you implement and test your feature or bug-fix, please submit a Pull Reques
 ## Codebase structure
 
 * [data](https://github.com/neuronika/neuronika/tree/main/src/data) Data parsing and manipulation utilities.
-* [nn](https://github.com/neuronika/neuronika/tree/main/src/nn) Implementation of neural networks' building blocks.
+* [nn](https://github.com/neuronika/neuronika/tree/main/src/nn) Implementation of neural networks' building blocks and loss functions handles.
 * [optim](https://github.com/neuronika/neuronika/tree/main/src/optim) Optimization algorithms and learning rate schedulers.
 * [variable](https://github.com/neuronika/neuronika/tree/main/src/variable) Core modules of Neuronika. Here are found the implementation of the reverse mode auto-differentiation mechanism and the nodes of the computational graph.
     - [node](https://github.com/neuronika/neuronika/tree/main/src/variable/node) This module contains the implementations of differentiable operators and the chain-rule for auto-differentiation. Files are organized accordingly to the operator's arity.
