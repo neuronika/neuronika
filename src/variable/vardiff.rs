@@ -124,13 +124,29 @@ where
         self.var.forward();
 
         debug_assert!(self.past.buffer().is_empty() || self.past.len() == self.past.buffer().len());
+
         // If the backward buffer isn't empty, then we're doing a `forward -> backward -> forward`
         // chain, thus we must reset the `overwrite` bit of every `backward` node of our past.
-        for node in self.past.buffer() {
-            // Todo: This can be done more efficiently by looking for the first node
-            // that must be reset, in the same way for `forward` and `backward`.
+        self.past.prepare_buffer();
+        let buffer = self.past.buffer();
+        let mut res = buffer.binary_search_by(|n| {
+            if n.can_overwrite() {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        });
 
-            node.set_overwrite(true);
+        if let Err(i) = res {
+            if buffer.get(i).is_some() {
+                res = Ok(i);
+            }
+        };
+
+        if let Ok(pos) = res {
+            for node in &buffer[pos..] {
+                node.set_overwrite(true);
+            }
         }
     }
 }
@@ -162,11 +178,27 @@ where
         }
 
         debug_assert_eq!(self.var.past.len(), self.var.past.buffer().len());
-        for node in self.var.past.buffer() {
-            // Todo: This can be done more efficiently by looking for the first node
-            // Todo: that must be reset, in the same way for `forward`
 
-            node.reset_computation();
+        self.var.past.prepare_buffer();
+        let buffer = self.var.past.buffer();
+        let mut res = buffer.binary_search_by(|n| {
+            if n.was_computed() {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        });
+
+        if let Err(i) = res {
+            if buffer.get(i).is_some() {
+                res = Ok(i);
+            }
+        };
+
+        if let Ok(pos) = res {
+            for node in &buffer[pos..] {
+                node.reset_computation();
+            }
         }
     }
 
