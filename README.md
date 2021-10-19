@@ -50,6 +50,14 @@ The following crate feature flags are available. They configure the [`ndarray`](
 * `matrixmultiply-threading`
   * Enables the `threading` feature in the [`matrixmultiply`](https://github.com/bluss/matrixmultiply) package.
 
+## Contributing
+
+We appreciate and welcome all contributions. If you are planning to contribute back bug-fixes, please do so without any further discussion.
+
+If you plan to contribute new features, utility functions, or extensions to the framework, please first open a discussion and discuss the feature with us. Sending a PR without discussion might end up resulting in a rejected PR because we might be taking the project in a different direction than you might be aware of.
+
+To learn more about making a contribution to Neuronika, please see our [contribution page](CONTRIBUTING.md).
+
 ## Project Status
 
-Neuronika is very young and rapidly evolving, we are continously developing the project and breaking changes are expected during transitions from version to version. We adopt the newest stable Rust's features if we need them.
+Neuronika is very young and rapidly evolving, we are continuously developing the project and breaking changes are expected during transitions from version to version. We adopt the newest stable Rust's features if we need them.
