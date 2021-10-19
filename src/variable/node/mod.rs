@@ -278,10 +278,8 @@ fn sum_axis_inplace(array: &mut DynTensor, axis: Axis) {
 pub fn reduce<D: Dimension, E: Dimension>(target: &Tensor<D>, array: &Tensor<E>) -> DynTensor {
     let mut dyn_rhs = array.clone().into_dyn();
 
-    unsafe {
-        while (*(&dyn_rhs as *const DynTensor)).ndim() > target.ndim() {
-            sum_axis_inplace(&mut dyn_rhs, Axis(0));
-        }
+    while dyn_rhs.ndim() > target.ndim() {
+        sum_axis_inplace(&mut dyn_rhs, Axis(0));
     }
 
     for (axis, size) in target.shape().iter().enumerate() {
