@@ -1,12 +1,12 @@
 use super::{
-    Addition, AdditionBackwardUnary, Cat, Chunk, Concatenate, ConcatenateBackwardRight, Data,
-    Differentiable, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward, Gradient, Input,
-    InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
-    MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
-    MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
-    MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid, SoftPlus,
-    Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
-    Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
+    Addition, AdditionBackwardUnary, Cat, Changeable, Chunk, Concatenate, ConcatenateBackwardRight,
+    Data, Differentiable, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward, Gradient,
+    Input, InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul,
+    MatrixMatrixMul, MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight,
+    MatrixVectorMul, MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack,
+    Multiplication, MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid,
+    SoftPlus, Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum,
+    TanH, Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
     VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
     VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
@@ -151,9 +151,8 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// inside the program. The last call switches all the dropout variables in training mode.
     pub fn train(&self) {
         for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).train();
-            }
+            let Changeable { id: _, node } = changeable;
+            node.train();
         }
     }
 
@@ -165,9 +164,8 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// [`.dropout()`]: Var::dropout()
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).eval();
-            }
+            let Changeable { id: _, node } = changeable;
+            node.train();
         }
     }
 }
@@ -175,8 +173,12 @@ impl<T: Data + Forward + 'static> Var<T> {
 impl<T: Data + Forward + Eval + 'static> Var<T> {
     pub(crate) fn from_changeable(node: T, mut past: VarHistory) -> Self {
         let node = Rc::new(node);
-        past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-        past.append_changeable(node.as_ref() as *const dyn Eval);
+        let id = unsafe { OPERATIONS_COUNTER.next() };
+        past.append_forward(id, node.clone());
+        past.append_changeable(Changeable {
+            id,
+            node: node.clone(),
+        });
 
         Var { node, past }
     }
@@ -376,8 +378,8 @@ impl<T: Data + 'static> Var<T> {
         self.dropout_with_status(p, Rc::new(Cell::new(true)))
     }
 
-    /// Creates a new variable with a status. This method is used in the `Dropout` component of the
-    /// `nn` module.
+    /// Creates a new dropout variable with a status. This method is used in the `Dropout` component
+    ///  of the `nn` module.
     pub(crate) fn dropout_with_status(self, p: f64, status: Rc<Cell<bool>>) -> Var<Dropout<T>> {
         Var::from_changeable(Dropout::new(self.node, p, status), self.past)
     }

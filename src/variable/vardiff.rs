@@ -226,11 +226,8 @@ where
     ///
     /// [`.dropout()`]: VarDiff::dropout()
     pub fn train(&self) {
-        for changeable in &self.var.past.changeables {
-            unsafe {
-                (&**changeable).train();
-            }
-        }
+        // Status is shared.
+        self.var.train();
     }
 
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
@@ -239,13 +236,9 @@ where
     /// See also [`.dropout()`].
     ///
     /// [`.dropout()`]: VarDiff::dropout()
-    ///
-    /// # Examples
-    ///
-    /// The following snippet pictures the effect of several calls placed at different locations
-    /// inside the program. The last call switches all the dropout variables in evaluation mode.
     pub fn eval(&self) {
-        self.var.eval()
+        // Status is shared.
+        self.var.eval();
     }
 }
 
@@ -488,6 +481,7 @@ where
         self.dropout_with_status(p, Rc::new(Cell::new(true)))
     }
 
+    /// Creates a new dropout differentiable variable sharing the status with its internal val.
     pub(crate) fn dropout_with_status(
         self,
         p: f64,

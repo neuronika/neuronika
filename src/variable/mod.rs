@@ -3,7 +3,11 @@ mod var;
 mod vardiff;
 
 use ndarray::{ArrayViewMutD, Dimension, Ix, RawArrayViewMut};
-use std::{collections::BTreeMap, collections::HashSet, rc::Rc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    hash::{Hash, Hasher},
+    rc::Rc,
+};
 pub use var::Var;
 pub use vardiff::VarDiff;
 
@@ -40,7 +44,7 @@ pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter 
 pub struct VarHistory {
     path: BTreeMap<usize, Rc<dyn Forward>>,
     buffer: Vec<Rc<dyn Forward>>,
-    changeables: HashSet<*const dyn Eval>,
+    changeables: HashSet<Changeable>,
 }
 
 impl VarHistory {
@@ -77,9 +81,8 @@ impl VarHistory {
     ///
     /// # Arguments
     ///
-    /// * `id` - id of the new node.
     /// * `next` - node to append.
-    pub(crate) fn append_changeable(&mut self, next: *const dyn Eval) {
+    pub(crate) fn append_changeable(&mut self, next: Changeable) {
         self.changeables.insert(next);
     }
 
@@ -212,6 +215,30 @@ impl Param {
                 RawArrayViewMut::from_shape_ptr(self.shape, self.grad).deref_into_view_mut(),
             )
         }
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Changeable struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[derive(Clone)]
+/// Hashable and comparable wrapper for a computational node that implements the `Eval` trait.
+pub(super) struct Changeable {
+    id: usize,
+    node: Rc<dyn Eval>,
+}
+
+impl PartialEq for Changeable {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Changeable {}
+
+impl Hash for Changeable {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 
