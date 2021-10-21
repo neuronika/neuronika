@@ -159,11 +159,11 @@ where
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn backward(&self) {
-        let reduced = reduce(&self.left.gradient_mut(), &self.gradient());
-        push_gradient(&*self.left, &reduced.as_standard_layout());
+        let reduced = reduce(self.left.gradient().raw_dim(), &self.gradient());
+        push_gradient(&self.left, &reduced);
 
-        let reduced = reduce(&self.right.gradient_mut(), &self.gradient());
         let mut right_grad = self.right.gradient_mut();
+        let reduced = reduce(right_grad.raw_dim(), &self.gradient());
         let zip = Zip::from(&mut *right_grad).and_broadcast(&reduced);
         if self.right.can_overwrite() {
             self.right.set_overwrite(false);
@@ -252,8 +252,8 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     fn backward(&self) {
-        let reduced = reduce(&self.operand.gradient_mut(), &self.gradient());
-        push_gradient(&*self.operand, &reduced.as_standard_layout());
+        let reduced = reduce(self.operand.gradient().raw_dim(), &self.gradient());
+        push_gradient(&self.operand, &reduced);
     }
 
     fn no_grad(&self) {
@@ -336,7 +336,7 @@ where
 {
     fn backward(&self) {
         let mut grad = self.operand.gradient_mut();
-        let reduced = reduce(&*grad, &self.gradient());
+        let reduced = reduce(grad.raw_dim(), &self.gradient());
         let zip = Zip::from(&mut *grad).and_broadcast(&reduced);
         if self.operand.can_overwrite() {
             self.operand.set_overwrite(false);

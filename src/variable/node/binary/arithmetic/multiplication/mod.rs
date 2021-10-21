@@ -191,15 +191,15 @@ where
             .and(&*gradient)
             .and_broadcast(&*self.right_data.data())
             .for_each(|d, g, r| *d = g * r);
-        let reduced = reduce(&self.left_grad.gradient(), &buffer);
-        push_gradient(&*self.left_grad, &reduced.as_standard_layout());
+        let reduced = reduce(self.left_grad.gradient().raw_dim(), &buffer);
+        push_gradient(&*self.left_grad, &reduced);
 
         Zip::from(&mut *buffer)
             .and(&*gradient)
             .and_broadcast(&*self.left_data.data())
             .for_each(|d, g, l| *d = g * l);
-        let reduced = reduce(&self.right_grad.gradient(), &buffer);
-        push_gradient(&*self.right_grad, &reduced.as_standard_layout());
+        let reduced = reduce(self.right_grad.gradient().raw_dim(), &buffer);
+        push_gradient(&*self.right_grad, &reduced);
     }
 
     fn no_grad(&self) {
@@ -292,8 +292,8 @@ where
             .and(&*gradient)
             .and_broadcast(&*self.no_diff_operand.data())
             .for_each(|d, g, v| *d = g * v);
-        let reduced = reduce(&self.diff_operand.gradient_mut(), &buffer);
-        push_gradient(&*self.diff_operand, &reduced.as_standard_layout());
+        let reduced = reduce(self.diff_operand.gradient().raw_dim(), &buffer);
+        push_gradient(&*self.diff_operand, &reduced);
     }
 
     fn no_grad(&self) {

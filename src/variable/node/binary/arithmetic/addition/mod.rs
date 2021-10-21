@@ -159,11 +159,11 @@ where
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn backward(&self) {
-        let reduced = reduce(&self.left.gradient_mut(), &self.gradient());
-        push_gradient(&*self.left, &reduced.as_standard_layout());
+        let reduced = reduce(self.left.gradient().raw_dim(), &self.gradient());
+        push_gradient(&self.left, &reduced);
 
-        let reduced = reduce(&self.right.gradient_mut(), &self.gradient());
-        push_gradient(&*self.right, &reduced.as_standard_layout());
+        let reduced = reduce(self.right.gradient().raw_dim(), &self.gradient());
+        push_gradient(&self.right, &reduced);
     }
 
     fn no_grad(&self) {
@@ -245,8 +245,8 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     fn backward(&self) {
-        let reduced = reduce(&self.operand.gradient(), &self.gradient());
-        push_gradient(&*self.operand, &reduced.as_standard_layout());
+        let reduced = reduce(self.operand.gradient().raw_dim(), &self.gradient());
+        push_gradient(&self.operand, &reduced);
     }
 
     fn no_grad(&self) {

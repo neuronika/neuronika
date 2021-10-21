@@ -268,28 +268,29 @@ fn sum_axis_inplace(array: &mut DynTensor, axis: Axis) {
     array.index_axis_inplace(axis, 0);
 }
 
-/// Reduces `array` to the dimension of `target` by summing along the axes.
+/// Reduces `src` to the desired `dim`ension, reverting the broadcasting mechanic.
 ///
 /// # Arguments
 ///
-/// * `target` - array to reduce `array` to.
-///
-/// * `array` - array to reduce.
-pub fn reduce<D: Dimension, E: Dimension>(target: &Tensor<D>, array: &Tensor<E>) -> DynTensor {
-    let mut dyn_rhs = array.clone().into_dyn();
+/// * `dim` - Desired dimension for the source tensor
+/// * `src` - Tensor to reduce
+pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> {
+    let mut src = src.clone().into_dyn();
 
-    while dyn_rhs.ndim() > target.ndim() {
-        sum_axis_inplace(&mut dyn_rhs, Axis(0));
+    while src.ndim() > dim.ndim() {
+        sum_axis_inplace(&mut src, Axis(0));
     }
 
-    for (axis, size) in target.shape().iter().enumerate() {
+    for (axis, size) in dim.slice().iter().enumerate() {
         if *size == 1 {
-            sum_axis_inplace(&mut dyn_rhs, Axis(axis));
-            dyn_rhs.insert_axis_inplace(Axis(axis));
+            sum_axis_inplace(&mut src, Axis(axis));
+            src.insert_axis_inplace(Axis(axis));
         }
     }
 
-    dyn_rhs
+    debug_assert_eq!(src.raw_dim(), dim.clone().into_dyn());
+    debug_assert!(src.is_standard_layout());
+    src.into_shape(dim.into_pattern()).unwrap()
 }
 
 /// Performs gradient accumulation of `gradient` into `destination_node`.
