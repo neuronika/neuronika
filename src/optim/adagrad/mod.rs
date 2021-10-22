@@ -3,15 +3,15 @@ use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::cell::{Cell, RefCell};
 
-/// The **Adagrad** optimizer.
+/// **Adagrad** optimizer.
 ///
 /// The algorithm has been proposed in [this paper](http://jmlr.org/papers/v12/duchi11a.html).
 pub struct Adagrad<'a, T: Penalty> {
     params: RefCell<Vec<AdagradParam<'a>>>,
     lr: Cell<f32>,
-    lr_decay: f32,
+    lr_decay: Cell<f32>,
     penalty: T,
-    eps: f32,
+    eps: Cell<f32>,
 }
 
 impl<'a, T: Penalty> Adagrad<'a, T> {
@@ -35,10 +35,50 @@ impl<'a, T: Penalty> Adagrad<'a, T> {
         Self {
             params,
             lr,
-            lr_decay,
+            lr_decay: Cell::new(lr_decay),
             penalty,
-            eps,
+            eps: Cell::new(eps),
         }
+    }
+
+    /// Return the current learning rate.
+    pub fn get_lr(&self) -> f32 {
+        Optimizer::get_lr(self)
+    }
+
+    /// Sets `lr` as the  new value for the learning rate.
+    pub fn set_lr(&self, lr: f32) {
+        Optimizer::set_lr(self, lr);
+    }
+
+    /// Return the current learning rate decay parameter.
+    pub fn get_lr_decay(&self) -> f32 {
+        self.lr_decay.get()
+    }
+
+    /// Sets `lr_decay` as the  new value for the learning rate decay parameter.
+    pub fn set_lr_decay(&self, lr_decay: f32) {
+        self.lr_decay.set(lr_decay)
+    }
+
+    /// Return the current *eps* constant.
+    pub fn get_eps(&self) -> f32 {
+        self.eps.get()
+    }
+
+    /// Sets `eps` as the  new value for the *eps* constant.
+    pub fn set_eps(&self, eps: f32) {
+        self.eps.set(eps)
+    }
+
+    /// Performs a single Adagrad optimization step.
+    pub fn step(&self) {
+        Optimizer::step(self);
+    }
+
+    /// Zeroes the gradient of this optimizer's parameters.
+    pub fn zero_grad(&self) {
+        Optimizer::zero_grad(self);
     }
 }
 
@@ -71,9 +111,9 @@ impl<'a, T: Penalty> Optimizer for Adagrad<'a, T> {
         let (mut params, lr, lr_decay, penalty, eps) = (
             self.params.borrow_mut(),
             self.lr.get(),
-            &self.lr_decay,
+            &self.lr_decay.get(),
             &self.penalty,
-            &self.eps,
+            &self.eps.get(),
         );
 
         params.par_iter_mut().for_each(|param| {
@@ -115,3 +155,6 @@ impl<'a, T: Penalty> Optimizer for Adagrad<'a, T> {
         self.lr.set(lr)
     }
 }
+
+#[cfg(test)]
+mod test;

@@ -37,6 +37,14 @@ fn set_dampening() {
 }
 
 #[test]
+fn set_momentum() {
+    let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2)).with_momentum(0.5, 0.0, true);
+    optim.set_momentum(0.3);
+
+    assert_eq!(optim.get_momentum(), 0.3);
+}
+
+#[test]
 fn set_nesterov() {
     let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2)).with_momentum(0.5, 0.0, false);
     optim.set_nesterov(true);
