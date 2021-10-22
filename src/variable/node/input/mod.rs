@@ -19,10 +19,6 @@ impl<D: Dimension> Input<D> {
 
         super::super::Var::new(input)
     }
-
-    pub(crate) fn data_mut(&self) -> RefMut<Tensor<D>> {
-        self.data.borrow_mut()
-    }
 }
 
 impl<D: Dimension> Data for Input<D> {
@@ -51,6 +47,17 @@ impl<D: Dimension> Forward for Input<D> {
     }
 }
 
+impl<D: Dimension> Differentiable for Input<D> {
+    type Output = InputBackward<D>;
+
+    fn differentiable(&self) -> Self::Output {
+        Self::Output {
+            gradient: RefCell::new(Some(Tensor::zeros(self.data().raw_dim()))),
+            overwrite: Cell::new(true),
+        }
+    }
+}
+
 /// The backward component of a differentiable leaf of the computational graph.
 pub struct InputBackward<D: Dimension> {
     gradient: RefCell<Option<Tensor<D>>>,
@@ -60,17 +67,6 @@ pub struct InputBackward<D: Dimension> {
 impl<D: Dimension> InputBackward<D> {
     pub fn zero_grad(&self) {
         expect_tensor_mut(&self.gradient).fill(0.);
-    }
-}
-
-impl<D: Dimension> Differentiable for Input<D> {
-    type Output = InputBackward<D>;
-
-    fn differentiable(&self) -> Self::Output {
-        Self::Output {
-            gradient: RefCell::new(Some(Tensor::zeros(self.data().raw_dim()))),
-            overwrite: Cell::new(true),
-        }
     }
 }
 
@@ -95,3 +91,6 @@ impl<D: Dimension> Overwrite for InputBackward<D> {
         self.overwrite.set(state);
     }
 }
+
+#[cfg(test)]
+mod test;

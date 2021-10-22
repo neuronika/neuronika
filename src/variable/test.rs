@@ -1,5 +1,3 @@
-use std::boxed::Box;
-
 #[test]
 fn data_mut() {
     // Var
@@ -50,6 +48,23 @@ fn add_scalar() {
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+}
+
+#[test]
+fn param_test() {
+    use super::Param;
+
+    let mut data = ndarray::array![[1., 2.], [3., 4.]];
+    let mut grad = ndarray::array![[4., 5.], [6., 7.]];
+
+    let param = Param::new(data.as_mut_ptr(), grad.as_mut_ptr(), data.shape().to_vec());
+
+    let (mut data_view, mut grad_view) = param.get();
+    data_view += 1.;
+    grad_view += 1.;
+
+    assert_eq!(data, ndarray::array![[2., 3.], [4., 5.]]);
+    assert_eq!(grad, ndarray::array![[5., 6.], [7., 8.]]);
 }
 
 #[test]
@@ -504,6 +519,8 @@ fn cat_diff() {
 
 #[test]
 fn multi_cat() {
+    use std::boxed::Box;
+
     let a = crate::ones((2, 2)) + 1.;
     let b = 18. / crate::full((2, 2), 9.);
     let c = crate::full((2, 1), 3.) * 4.;
@@ -515,6 +532,8 @@ fn multi_cat() {
 
 #[test]
 fn multi_cat_diff() {
+    use std::boxed::Box;
+
     let a = crate::ones((2, 2)).requires_grad() + 1.;
     let b = 18. / crate::full((2, 2), 9.).requires_grad();
     let c = crate::full((2, 1), 3.).requires_grad() * 4.;
@@ -556,6 +575,32 @@ fn stack_diff() {
 
     assert_eq!(stack.past.len(), 1);
     assert_eq!(stack.past.parameters.len(), 2);
+}
+
+#[test]
+fn multi_stack() {
+    use std::boxed::Box;
+
+    let a = crate::ones((2, 2)) + 1.;
+    let b = 18. / crate::full((2, 2), 9.);
+    let c = crate::full((2, 2), 3.) * 4.;
+
+    let d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    assert_eq!(d.past.len(), 4);
+    assert!(d.past.changeables.is_empty());
+}
+
+#[test]
+fn multi_stack_diff() {
+    use std::boxed::Box;
+
+    let a = crate::ones((2, 2)).requires_grad() + 1.;
+    let b = 18. / crate::full((2, 2), 9.).requires_grad();
+    let c = crate::full((2, 2), 3.).requires_grad() * 4.;
+
+    let d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    assert_eq!(d.past.len(), 4);
+    assert_eq!(d.past.parameters.len(), 3);
 }
 
 #[test]

@@ -255,11 +255,11 @@ mod backward {
     #[test]
     fn backward_broadcast_right() {
         let lhs = new_backward_input((3, 3), vec![0.; 9]);
-        let rhs = new_backward_input(3, vec![0.; 3]);
+        let rhs = new_backward_input((1, 3), vec![0.; 3]);
         let node = MultiplicationBackward::new(
             new_input((3, 3), vec![3.; 9]),
             lhs.clone(),
-            new_input(3, vec![5.; 3]),
+            new_input((1, 3), vec![5.; 3]),
             rhs.clone(),
         );
 
@@ -270,19 +270,19 @@ mod backward {
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         node.backward();
         assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![9.; 3]));
+        assert_almost_equals(&*rhs.gradient(), &new_tensor((1, 3), vec![9.; 3]));
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         node.backward();
         assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![10.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![18.; 3]));
+        assert_almost_equals(&*rhs.gradient(), &new_tensor((1, 3), vec![18.; 3]));
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         lhs.set_overwrite(true);
         rhs.set_overwrite(true);
         node.backward();
         assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor(3, vec![9.; 3]));
+        assert_almost_equals(&*rhs.gradient(), &new_tensor((1, 3), vec![9.; 3]));
     }
 
     #[test]

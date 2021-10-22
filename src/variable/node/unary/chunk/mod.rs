@@ -1,13 +1,14 @@
 use super::{
     expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
 };
-
+use ndarray::Zip;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     rc::Rc,
 };
 
-use ndarray::Zip;
+#[cfg(test)]
+use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 
 pub struct Chunk<T: Data> {
     operand: Rc<T>,
@@ -51,9 +52,7 @@ impl<T: Data> Forward for Chunk<T> {
             .next()
             .unwrap();
 
-        Zip::from(&mut *data)
-            .and(&operand_data_chunk)
-            .for_each(|chunk_el, operand_data_chunk_el| *chunk_el = *operand_data_chunk_el);
+        data.assign(&operand_data_chunk);
     }
 
     fn was_computed(&self) -> bool {
@@ -151,3 +150,6 @@ impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
+
+#[cfg(test)]
+mod test;

@@ -1,13 +1,11 @@
 use super::{
     expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
 };
-
+use ndarray::Zip;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     rc::Rc,
 };
-
-use ndarray::Zip;
 
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
