@@ -3,9 +3,6 @@ use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::cell::{Cell, RefCell};
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Adagrad ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// The **Adagrad** optimizer.
 ///
 /// The algorithm has been proposed in [this paper](http://jmlr.org/papers/v12/duchi11a.html).

@@ -3,12 +3,8 @@ use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::cell::{Cell, RefCell};
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 #[allow(clippy::upper_case_acronyms)]
-/// The **Stochastic Gradient Descent** optimizer.
+/// **Stochastic Gradient Descent** optimizer.
 pub struct SGD<'a, T> {
     params: RefCell<Vec<SGDParam<'a>>>,
     lr: Cell<f32>,
@@ -16,7 +12,7 @@ pub struct SGD<'a, T> {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-/// A parameter used by the *SDG* optimizer.
+/// The parameter representation used by the *SDG* optimizer.
 pub struct SGDParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -59,7 +55,7 @@ impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
 }
 
 impl<'a, T: Penalty> SGD<'a, T> {
-    /// Creates a new *SGD* optmizer.
+    /// Creates a new *SGD* optimizer.
     ///
     /// # Arguments
     ///
@@ -77,6 +73,26 @@ impl<'a, T: Penalty> SGD<'a, T> {
             lr,
             penalty,
         }
+    }
+
+    /// Return the current learning rate.
+    pub fn get_lr(&self) -> f32 {
+        Optimizer::get_lr(self)
+    }
+
+    /// Sets `lr` as the  new value for the learning rate.
+    pub fn set_lr(&self, lr: f32) {
+        Optimizer::set_lr(self, lr);
+    }
+
+    /// Performs a single stochastic gradient descent optimization step.
+    pub fn step(&self) {
+        Optimizer::step(self);
+    }
+
+    /// Zeroes the gradient of this optimizer's parameters.
+    pub fn zero_grad(&self) {
+        Optimizer::zero_grad(self);
     }
 
     /// Transforms this *SGD* optimizer in the *momentum* version of the algorithm.
@@ -124,29 +140,26 @@ impl<'a, T: Penalty> SGD<'a, T> {
             params,
             lr: self.lr,
             penalty: self.penalty,
-            momentum,
-            dampening,
-            nesterov,
+            momentum: Cell::new(momentum),
+            dampening: Cell::new(dampening),
+            nesterov: Cell::new(nesterov),
         }
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stochastic Gradient Descent with Momentum ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
 /// The momentum variant of the *Stochastic Gradient Descent* optimizer.
 pub struct SGDWithMomentum<'a, T> {
     params: RefCell<Vec<SGDWithMomentumParam<'a>>>,
     lr: Cell<f32>,
     penalty: T,
-    momentum: f32,
-    dampening: f32,
-    nesterov: bool,
+    momentum: Cell<f32>,
+    dampening: Cell<f32>,
+    nesterov: Cell<bool>,
 }
 
 #[allow(clippy::upper_case_acronyms)]
-/// A parameter used by the *SDG* with momentum optimizer.
+/// The  parameter representation used by the *SDG with momentum* optimizer.
 pub struct SGDWithMomentumParam<'a> {
     data: ArrayViewMutD<'a, f32>,
     grad: ArrayViewMutD<'a, f32>,
@@ -176,9 +189,9 @@ impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
         let (lr, penalty, momentum, dampening, nesterov, mut params) = (
             self.lr.get(),
             &self.penalty,
-            &self.momentum,
-            &self.dampening,
-            &self.nesterov,
+            &self.momentum.get(),
+            &self.dampening.get(),
+            &self.nesterov.get(),
             self.params.borrow_mut(),
         );
 
@@ -222,42 +235,56 @@ impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
 }
 
 impl<'a, T: Penalty> SGDWithMomentum<'a, T> {
-    /// Creates a new *SGD* optmizer.
-    ///
-    /// # Arguments
-    ///
-    /// * `params` - vector of [`Param`] to optimize.
-    ///
-    /// * `lr` - learning rate.
-    ///
-    /// * `penalty` - penalty regularization.
-    ///
-    /// * `momentum` - the momentum factor.
-    ///
-    /// * `dampening` - the dampening factor for momentum.
-    ///
-    /// * `nesterov` - enables *Nesterov* momentum.
-    ///
-    /// Nesterov momentum is based on the formula from
-    /// [On the importance of initialization and momentum in deep learning](http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf).
-    pub fn new(
-        parameters: Vec<Param>,
-        lr: f32,
-        penalty: T,
-        momentum: f32,
-        dampening: f32,
-        nesterov: bool,
-    ) -> Self {
-        let params = RefCell::new(Self::build_params(parameters));
-        let lr = Cell::new(lr);
+    /// Returns the current learning rate.
+    pub fn get_lr(&self) -> f32 {
+        Optimizer::get_lr(self)
+    }
 
-        Self {
-            params,
-            lr,
-            penalty,
-            momentum,
-            dampening,
-            nesterov,
-        }
+    /// Sets `lr` as the new value for the learning rate.
+    pub fn set_lr(&self, lr: f32) {
+        Optimizer::set_lr(self, lr);
+    }
+
+    /// Returns the current momentum.
+    pub fn get_momentum(&self) -> f32 {
+        self.momentum.get()
+    }
+
+    /// Sets `momentum` as the new value for the momentum.
+    pub fn set_momentum(&self, momentum: f32) {
+        self.momentum.set(momentum);
+    }
+
+    /// Returns the current dampening value.
+    pub fn get_dampening(&self) -> f32 {
+        self.dampening.get()
+    }
+
+    /// Sets `dampening` as the current dampening value.
+    pub fn set_dampening(&self, dampening: f32) {
+        self.dampening.set(dampening);
+    }
+
+    /// Returns `true` if this optimizer has Nesterov momentum enabled, `false` otherwise.
+    pub fn get_nesterov(&self) -> bool {
+        self.nesterov.get()
+    }
+
+    /// Sets `nesterov` as the new value for the Nesterov momentum flag.
+    pub fn set_nesterov(&self, nesterov: bool) {
+        self.nesterov.set(nesterov);
+    }
+
+    /// Performs a single optimization step.
+    pub fn step(&self) {
+        Optimizer::step(self);
+    }
+
+    /// Zeroes the gradient of this optimizer's parameters.
+    pub fn zero_grad(&self) {
+        Optimizer::zero_grad(self);
     }
 }
+
+#[cfg(test)]
+mod test;

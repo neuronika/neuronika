@@ -65,11 +65,23 @@ pub trait LRScheduler {
     /// Prints the update of the learning rate. It should be called after `.step()`.
     fn print_lr(&self) {
         println!(
-            "epoch {}: learning rate adjusted to {}",
+            "epoch {}: learning rate adjusted to [{}]",
             self.get_current_epoch(),
             self.get_current_lr()
         );
     }
+}
+
+/// Prepares a learning rate scheduler to perform the next update step.
+///
+/// Sets `last_lr` as `current_lr` and increases `current_epoch`.
+fn prepare_step(last_lr: &Cell<f32>, current_lr: &Cell<f32>, current_epoch: &Cell<usize>) {
+    // Set current learning rate as last learning rate.
+    last_lr.set(current_lr.get());
+    // Set current epoch as last epoch.
+    let last_epoch = current_epoch.get();
+    // Increase current epoch.
+    current_epoch.set(last_epoch + 1);
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LambdaLR ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -112,13 +124,10 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> LambdaLR<'a, T, F> {
 
 impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for LambdaLR<'a, T, F> {
     fn step(&self) {
-        self.last_lr.set(self.current_lr.get());
+        prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         self.current_lr
             .set(self.initial_lr.get() * (self.lr_fn)(self.current_epoch.get()));
         self.optimizer.set_lr(self.current_lr.get());
-
-        let last_epoch = self.current_epoch.get();
-        self.current_epoch.set(last_epoch + 1);
     }
 
     fn get_last_lr(&self) -> f32 {
@@ -176,13 +185,10 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> MultiplicativeLR<'a, T, F> {
 
 impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for MultiplicativeLR<'a, T, F> {
     fn step(&self) {
-        self.last_lr.set(self.current_lr.get());
+        prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         self.current_lr
             .set(self.last_lr.get() * (self.lr_fn)(self.current_epoch.get()));
         self.optimizer.set_lr(self.current_lr.get());
-
-        let last_epoch = self.current_epoch.get();
-        self.current_epoch.set(last_epoch + 1);
     }
 
     fn get_last_lr(&self) -> f32 {
@@ -244,13 +250,11 @@ impl<'a, T: Optimizer> StepLR<'a, T> {
 
 impl<'a, T: Optimizer> LRScheduler for StepLR<'a, T> {
     fn step(&self) {
+        prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         if self.current_epoch.get().rem_euclid(self.step_size) == 0 {
-            self.last_lr.set(self.current_lr.get());
             self.current_lr.set(self.last_lr.get() * self.gamma);
             self.optimizer.set_lr(self.current_lr.get());
         }
-        let last_epoch = self.current_epoch.get();
-        self.current_epoch.set(last_epoch + 1);
     }
 
     fn get_last_lr(&self) -> f32 {
@@ -313,17 +317,15 @@ impl<'a, T: Optimizer, const N: usize> MultiStepLR<'a, T, N> {
 
 impl<'a, T: Optimizer, const N: usize> LRScheduler for MultiStepLR<'a, T, N> {
     fn step(&self) {
+        prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         if self
             .milestones
             .iter()
             .any(|milestone| *milestone == self.current_epoch.get())
         {
-            self.last_lr.set(self.current_lr.get());
             self.current_lr.set(self.last_lr.get() * self.gamma);
             self.optimizer.set_lr(self.current_lr.get());
         }
-        let last_epoch = self.current_epoch.get();
-        self.current_epoch.set(last_epoch + 1);
     }
 
     fn get_last_lr(&self) -> f32 {
@@ -381,12 +383,9 @@ impl<'a, T: Optimizer> ExponentialLR<'a, T> {
 
 impl<'a, T: Optimizer> LRScheduler for ExponentialLR<'a, T> {
     fn step(&self) {
-        self.last_lr.set(self.current_lr.get());
+        prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         self.current_lr.set(self.last_lr.get() * self.gamma);
         self.optimizer.set_lr(self.current_lr.get());
-
-        let last_epoch = self.current_epoch.get();
-        self.current_epoch.set(last_epoch + 1);
     }
 
     fn get_last_lr(&self) -> f32 {
@@ -405,9 +404,5 @@ impl<'a, T: Optimizer> LRScheduler for ExponentialLR<'a, T> {
         self.current_epoch.get()
     }
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(test)]
 mod test;
