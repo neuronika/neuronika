@@ -120,6 +120,36 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> LambdaLR<'a, T, F> {
             initial_lr: Cell::new(current_lr),
         }
     }
+
+    /// Sets the learning rate to the initial learning times a given function.
+    pub fn step(&self) {
+        LRScheduler::step(self);
+    }
+
+    /// Returns the last learning rate value computed by this learning rate scheduler.
+    pub fn get_last_lr(&self) -> f32 {
+        LRScheduler::get_last_lr(self)
+    }
+
+    /// Returns the current learning rate value computed by this learning rate scheduler.
+    pub fn get_current_lr(&self) -> f32 {
+        LRScheduler::get_current_lr(self)
+    }
+
+    /// Sets the current epoch for this learning rate scheduler.
+    pub fn set_current_epoch(&self, epoch: usize) {
+        LRScheduler::set_current_epoch(self, epoch);
+    }
+
+    /// Returns the current epoch for this learning rate scheduler.
+    pub fn get_current_epoch(&self) -> usize {
+        LRScheduler::get_current_epoch(self)
+    }
+
+    /// Prints the learning rate update together with the epoch.
+    pub fn print_lr(&self) {
+        LRScheduler::print_lr(self);
+    }
 }
 
 impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for LambdaLR<'a, T, F> {
@@ -180,6 +210,36 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> MultiplicativeLR<'a, T, F> {
             current_lr: Cell::new(current_lr),
             last_lr: Cell::new(0.0),
         }
+    }
+
+    /// Multiplies the learning rate by the factor given in the specified function.
+    pub fn step(&self) {
+        LRScheduler::step(self);
+    }
+
+    /// Returns the last learning rate value computed by this learning rate scheduler.
+    pub fn get_last_lr(&self) -> f32 {
+        LRScheduler::get_last_lr(self)
+    }
+
+    /// Returns the current learning rate value computed by this learning rate scheduler.
+    pub fn get_current_lr(&self) -> f32 {
+        LRScheduler::get_current_lr(self)
+    }
+
+    /// Sets the current epoch for this learning rate scheduler.
+    pub fn set_current_epoch(&self, epoch: usize) {
+        LRScheduler::set_current_epoch(self, epoch);
+    }
+
+    /// Returns the current epoch for this learning rate scheduler.
+    pub fn get_current_epoch(&self) -> usize {
+        LRScheduler::get_current_epoch(self)
+    }
+
+    /// Prints the learning rate update together with the epoch.
+    pub fn print_lr(&self) {
+        LRScheduler::print_lr(self);
     }
 }
 
@@ -245,6 +305,36 @@ impl<'a, T: Optimizer> StepLR<'a, T> {
             current_lr: Cell::new(current_lr),
             last_lr: Cell::new(0.0),
         }
+    }
+
+    /// Decays the learning rate by gamma every `step_size` epochs.
+    pub fn step(&self) {
+        LRScheduler::step(self);
+    }
+
+    /// Returns the last learning rate value computed by this learning rate scheduler.
+    pub fn get_last_lr(&self) -> f32 {
+        LRScheduler::get_last_lr(self)
+    }
+
+    /// Returns the current learning rate value computed by this learning rate scheduler.
+    pub fn get_current_lr(&self) -> f32 {
+        LRScheduler::get_current_lr(self)
+    }
+
+    /// Sets the current epoch for this learning rate scheduler.
+    pub fn set_current_epoch(&self, epoch: usize) {
+        LRScheduler::set_current_epoch(self, epoch);
+    }
+
+    /// Returns the current epoch for this learning rate scheduler.
+    pub fn get_current_epoch(&self) -> usize {
+        LRScheduler::get_current_epoch(self)
+    }
+
+    /// Prints the learning rate update together with the epoch.
+    pub fn print_lr(&self) {
+        LRScheduler::print_lr(self);
     }
 }
 
@@ -313,6 +403,36 @@ impl<'a, T: Optimizer, const N: usize> MultiStepLR<'a, T, N> {
             last_lr: Cell::new(0.0),
         }
     }
+
+    /// Decays the learning rate by gamma once the number of epoch reaches one of the milestones.
+    pub fn step(&self) {
+        LRScheduler::step(self);
+    }
+
+    /// Returns the last learning rate value computed by this learning rate scheduler.
+    pub fn get_last_lr(&self) -> f32 {
+        LRScheduler::get_last_lr(self)
+    }
+
+    /// Returns the current learning rate value computed by this learning rate scheduler.
+    pub fn get_current_lr(&self) -> f32 {
+        LRScheduler::get_current_lr(self)
+    }
+
+    /// Sets the current epoch for this learning rate scheduler.
+    pub fn set_current_epoch(&self, epoch: usize) {
+        LRScheduler::set_current_epoch(self, epoch);
+    }
+
+    /// Returns the current epoch for this learning rate scheduler.
+    pub fn get_current_epoch(&self) -> usize {
+        LRScheduler::get_current_epoch(self)
+    }
+
+    /// Prints the learning rate update together with the epoch.
+    pub fn print_lr(&self) {
+        LRScheduler::print_lr(self);
+    }
 }
 
 impl<'a, T: Optimizer, const N: usize> LRScheduler for MultiStepLR<'a, T, N> {
@@ -378,6 +498,36 @@ impl<'a, T: Optimizer> ExponentialLR<'a, T> {
             current_lr: Cell::new(current_lr),
             last_lr: Cell::new(0.0),
         }
+    }
+
+    /// Decays the learning rate by gamma every epoch.
+    pub fn step(&self) {
+        LRScheduler::step(self);
+    }
+
+    /// Returns the last learning rate value computed by this learning rate scheduler.
+    pub fn get_last_lr(&self) -> f32 {
+        LRScheduler::get_last_lr(self)
+    }
+
+    /// Returns the current learning rate value computed by this learning rate scheduler.
+    pub fn get_current_lr(&self) -> f32 {
+        LRScheduler::get_current_lr(self)
+    }
+
+    /// Sets the current epoch for this learning rate scheduler.
+    pub fn set_current_epoch(&self, epoch: usize) {
+        LRScheduler::set_current_epoch(self, epoch);
+    }
+
+    /// Returns the current epoch for this learning rate scheduler.
+    pub fn get_current_epoch(&self) -> usize {
+        LRScheduler::get_current_epoch(self)
+    }
+
+    /// Prints the learning rate update together with the epoch.
+    pub fn print_lr(&self) {
+        LRScheduler::print_lr(self);
     }
 }
 

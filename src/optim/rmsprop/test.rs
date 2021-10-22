@@ -30,12 +30,18 @@ fn set_lr() {
     optim.set_lr(1e-3);
     assert_eq!(optim.get_lr(), 1e-3);
 
-    let optim = optim.with_momentum(0.5);
+    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).with_momentum(0.5);
 
-    optim.set_lr(1e-2);
-    assert_eq!(optim.get_lr(), 1e-2);
+    optim.set_lr(1e-3);
+    assert_eq!(optim.get_lr(), 1e-3);
 
-    let optim = optim.centered();
+    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered();
+
+    optim.set_lr(1e-3);
+    assert_eq!(optim.get_lr(), 1e-3);
+
+    let optim =
+        RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered_with_momentum(0.5);
 
     optim.set_lr(1e-3);
     assert_eq!(optim.get_lr(), 1e-3);
@@ -48,12 +54,18 @@ fn set_alpha() {
     optim.set_alpha(1e-2);
     assert_eq!(optim.get_alpha(), 1e-2);
 
-    let optim = optim.with_momentum(0.5);
+    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).with_momentum(0.5);
 
-    optim.set_alpha(1e-3);
-    assert_eq!(optim.get_alpha(), 1e-3);
+    optim.set_alpha(1e-2);
+    assert_eq!(optim.get_alpha(), 1e-2);
 
-    let optim = optim.centered();
+    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered();
+
+    optim.set_alpha(1e-2);
+    assert_eq!(optim.get_alpha(), 1e-2);
+
+    let optim =
+        RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered_with_momentum(0.5);
 
     optim.set_alpha(1e-2);
     assert_eq!(optim.get_alpha(), 1e-2);
@@ -66,12 +78,18 @@ fn set_eps() {
     optim.set_eps(1e-9);
     assert_eq!(optim.get_eps(), 1e-9);
 
-    let optim = optim.with_momentum(0.5);
+    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).with_momentum(0.5);
 
-    optim.set_eps(1e-8);
-    assert_eq!(optim.get_eps(), 1e-8);
+    optim.set_eps(1e-9);
+    assert_eq!(optim.get_eps(), 1e-9);
 
-    let optim = optim.centered();
+    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered();
+
+    optim.set_eps(1e-9);
+    assert_eq!(optim.get_eps(), 1e-9);
+
+    let optim =
+        RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered_with_momentum(0.5);
 
     optim.set_eps(1e-9);
     assert_eq!(optim.get_eps(), 1e-9);
@@ -170,8 +188,7 @@ fn step_centered_with_momentum() {
     let mut loss = (x.mm(w.clone()) - z).pow(2).sum();
 
     let optim = RMSProp::new(loss.parameters(), 0.001, 0.99, L2::new(0.0), 1e-8)
-        .with_momentum(0.5)
-        .centered();
+        .centered_with_momentum(0.5);
 
     for _ in 0..EPOCHS {
         loss.forward();
