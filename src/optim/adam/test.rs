@@ -1,34 +1,34 @@
-use super::{super::L2, Adagrad};
+use super::{super::L2, Adam};
 
 #[test]
 fn creation() {
-    let optim = Adagrad::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-10);
+    let optim = Adam::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
 
     assert_eq!(optim.params.borrow().len(), 0);
     assert_eq!(optim.get_lr(), 1e-2);
-    assert_eq!(optim.get_lr_decay(), 1e-3);
-    assert_eq!(optim.get_eps(), 1e-10);
+    assert_eq!(optim.get_betas(), (0.9, 0.999));
+    assert_eq!(optim.get_eps(), 1e-8);
 }
 
 #[test]
 fn set_lr() {
-    let optim = Adagrad::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-10);
+    let optim = Adam::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
 
     optim.set_lr(1e-3);
     assert_eq!(optim.get_lr(), 1e-3);
 }
 
 #[test]
-fn set_lr_decay() {
-    let optim = Adagrad::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-10);
+fn set_betas() {
+    let optim = Adam::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
 
-    optim.set_lr_decay(1e-4);
-    assert_eq!(optim.get_lr_decay(), 1e-4);
+    optim.set_betas((0.91, 0.9991));
+    assert_eq!(optim.get_betas(), (0.91, 0.9991));
 }
 
 #[test]
 fn set_eps() {
-    let optim = Adagrad::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-10);
+    let optim = Adam::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
 
     optim.set_eps(1e-9);
     assert_eq!(optim.get_eps(), 1e-9);
@@ -46,12 +46,12 @@ fn step() {
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w.clone()) - z).pow(2).sum();
 
-    let optim = Adagrad::new(loss.parameters(), 0.075, 1e-9, L2::new(0.0), 1e-10);
+    let optim = Adam::new(loss.parameters(), 0.01, (0.9, 0.999), L2::new(0.0), 1e-8);
 
     for _ in 0..EPOCHS {
         loss.forward();
         loss.backward(1.0);
-        dbg!(loss.data());
+
         optim.step();
         optim.zero_grad();
     }

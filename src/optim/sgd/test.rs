@@ -11,6 +11,7 @@ fn creation() {
 
     assert_eq!(optim.params.borrow().len(), 0);
     assert_eq!(optim.get_lr(), 1e-2);
+    assert_eq!(optim.get_momentum(), 0.5);
     assert_eq!(optim.get_dampening(), 0.0);
     assert!(optim.get_nesterov());
 }
