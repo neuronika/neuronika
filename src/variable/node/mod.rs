@@ -288,7 +288,7 @@ pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> 
         }
     }
 
-    debug_assert_eq!(src.raw_dim(), dim.clone().into_dyn());
+    debug_assert_eq!(src.raw_dim(), dim.into_dyn());
     debug_assert!(src.is_standard_layout());
 
     src.into_dimensionality::<D>().unwrap()
