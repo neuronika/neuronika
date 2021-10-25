@@ -34,8 +34,7 @@ fn set_eps() {
     assert!((optim.get_eps() - 1e-9).abs() <= f32::EPSILON);
 }
 
-const EPOCHS: usize = 2000;
-const TOL: f32 = 1e-3;
+const EPOCHS: usize = 200;
 
 #[test]
 fn step() {
@@ -45,8 +44,10 @@ fn step() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
-    let optim = AMSGrad::new(loss.parameters(), 0.1, (0.9, 0.999), L2::new(0.0), 1e-8);
+    let first_value = loss.data()[0];
+    let optim = AMSGrad::new(loss.parameters(), 0.01, (0.9, 0.999), L2::new(0.0), 1e-8);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -55,5 +56,5 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }

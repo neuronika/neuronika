@@ -53,8 +53,7 @@ fn set_nesterov() {
     assert!(optim.get_nesterov());
 }
 
-const EPOCHS: usize = 1000;
-const TOL: f32 = 1e-3;
+const EPOCHS: usize = 200;
 
 #[test]
 fn step() {
@@ -65,7 +64,9 @@ fn step() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
+    let first_value = loss.data()[0];
     let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.));
 
     for _ in 0..EPOCHS {
@@ -75,7 +76,7 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }
 
 #[test]
@@ -87,7 +88,9 @@ fn step_with_momentum() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
+    let first_value = loss.data()[0];
     let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.)).with_momentum(0.7, 0.0, false);
 
     for _ in 0..EPOCHS {
@@ -97,7 +100,7 @@ fn step_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }
 
 #[test]
@@ -109,7 +112,9 @@ fn step_with_nesterov_momentum() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
+    let first_value = loss.data()[0];
     let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.)).with_momentum(0.7, 0.0, true);
 
     for _ in 0..EPOCHS {
@@ -119,5 +124,5 @@ fn step_with_nesterov_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }

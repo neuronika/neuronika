@@ -108,8 +108,7 @@ fn set_momentum() {
     assert!((optim.get_momentum() - 0.5).abs() <= f32::EPSILON);
 }
 
-const EPOCHS: usize = 2000;
-const TOL: f32 = 1e-3;
+const EPOCHS: usize = 200;
 
 #[test]
 fn step() {
@@ -120,7 +119,9 @@ fn step() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
+    let first_value = loss.data()[0];
     let optim = RMSProp::new(loss.parameters(), 0.01, 0.7, L2::new(0.0), 1e-8);
 
     for _ in 0..EPOCHS {
@@ -130,7 +131,7 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }
 
 #[test]
@@ -142,7 +143,9 @@ fn step_centered() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
+    let first_value = loss.data()[0];
     let optim = RMSProp::new(loss.parameters(), 0.01, 0.7, L2::new(0.0), 1e-8).centered();
 
     for _ in 0..EPOCHS {
@@ -152,7 +155,7 @@ fn step_centered() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }
 
 #[test]
@@ -164,8 +167,10 @@ fn step_with_momentum() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
-    let optim = RMSProp::new(loss.parameters(), 0.001, 0.99, L2::new(0.0), 1e-8).with_momentum(0.5);
+    let first_value = loss.data()[0];
+    let optim = RMSProp::new(loss.parameters(), 0.01, 0.99, L2::new(0.0), 1e-8).with_momentum(0.5);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -174,7 +179,7 @@ fn step_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }
 
 #[test]
@@ -186,9 +191,11 @@ fn step_centered_with_momentum() {
 
     let w = crate::rand((3, 3)).requires_grad();
     let mut loss = (x.mm(w) - z).pow(2).sum();
+    loss.forward();
 
-    let optim = RMSProp::new(loss.parameters(), 0.001, 0.99, L2::new(0.0), 1e-8)
-        .centered_with_momentum(0.5);
+    let first_value = loss.data()[0];
+    let optim =
+        RMSProp::new(loss.parameters(), 0.01, 0.99, L2::new(0.0), 1e-8).centered_with_momentum(0.5);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -197,5 +204,5 @@ fn step_centered_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < TOL);
+    assert!(loss.data()[0] < first_value);
 }
