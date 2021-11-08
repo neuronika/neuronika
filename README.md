@@ -25,6 +25,14 @@
 Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
 use, fast prototyping and performance.
 
+## Add neuronika to your project
+
+```toml
+[dependencies]
+
+neuronika = { git = "https://github.com/neuronika/neuronika" }
+```
+
 ## Dynamic neural networks and auto-differentiation
 
 At the core of Neuronika lies a mechanism called reverse-mode automatic differentiation, that allows you
@@ -57,6 +65,12 @@ We appreciate and welcome all contributions. If you are planning to contribute b
 If you plan to contribute new features, utility functions, or extensions to the framework, please first open a discussion and discuss the feature with us. Sending a PR without discussion might end up resulting in a rejected PR because we might be taking the project in a different direction than you might be aware of.
 
 To learn more about making a contribution to Neuronika, please see our [contribution page](CONTRIBUTING.md).
+
+## Getting Help
+
+First, see if the answer to your question can be found in the [API documentation](https://docs.rs/neuronika). If the answer
+is not there, please ask for help by opening a [discussion](https://github.com/neuronika/neuronika/discussions) with the question. We'll be glad to help you.
+
 
 ## Project Status
 
