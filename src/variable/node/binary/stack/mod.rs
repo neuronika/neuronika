@@ -5,6 +5,7 @@ use super::{
 use ndarray::{stack, Axis, Dimension, RemoveAxis, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
@@ -115,6 +116,31 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for Stack<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("Stack")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for Stack<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
+    }
+}
+
 pub struct StackBackward<Lhs, Rhs>
 where
     Lhs: Gradient + Overwrite,
@@ -222,6 +248,34 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for StackBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("StackBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for StackBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 pub struct StackBackwardLeft<T>
 where
     T: Gradient + Overwrite,
@@ -309,6 +363,32 @@ where
     }
 }
 
+impl<T> Debug for StackBackwardLeft<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("StackBackwardLeft")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T> Display for StackBackwardLeft<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 pub struct StackBackwardRight<T>
 where
     T: Gradient + Overwrite,
@@ -393,6 +473,32 @@ where
 
     fn with_grad(&self) {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
+impl<T> Debug for StackBackwardRight<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("StackBackwardRight")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T> Display for StackBackwardRight<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
     }
 }
 

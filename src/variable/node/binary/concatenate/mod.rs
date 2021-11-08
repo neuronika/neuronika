@@ -5,6 +5,7 @@ use super::{
 use ndarray::{concatenate, Axis, RemoveAxis, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
@@ -105,6 +106,31 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for Concatenate<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("Concatenate")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for Concatenate<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
+    }
+}
+
 pub struct ConcatenateBackward<Lhs, Rhs>
 where
     Lhs: Gradient + Overwrite,
@@ -202,6 +228,34 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for ConcatenateBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("ConcatenateBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for ConcatenateBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 pub struct ConcatenateBackwardLeft<T>
 where
     T: Gradient + Overwrite,
@@ -288,6 +342,32 @@ where
     }
 }
 
+impl<T> Debug for ConcatenateBackwardLeft<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("ConcatenateBackwardLeft")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T> Display for ConcatenateBackwardLeft<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 pub struct ConcatenateBackwardRight<T>
 where
     T: Gradient + Overwrite,
@@ -369,6 +449,32 @@ where
 
     fn with_grad(&self) {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
+impl<T> Debug for ConcatenateBackwardRight<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("ConcatenateBackwardRight")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T> Display for ConcatenateBackwardRight<T>
+where
+    T: Gradient + Overwrite,
+    T::Dim: RemoveAxis,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
     }
 }
 

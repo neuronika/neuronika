@@ -5,6 +5,7 @@ use super::{
 
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
@@ -84,6 +85,31 @@ where
 
     fn reset_computation(&self) {
         self.computed.set(false);
+    }
+}
+
+impl<Lhs, Rhs> Debug for Subtraction<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("Subtraction")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for Subtraction<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
     }
 }
 
@@ -182,6 +208,34 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for SubtractionBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient + Overwrite,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SubtractionBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for SubtractionBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient + Overwrite,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 pub struct SubtractionBackwardLeft<T, U>
 where
     T: Gradient + Overwrite,
@@ -265,6 +319,34 @@ where
     }
 }
 
+impl<T, U> Debug for SubtractionBackwardLeft<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("SubtractionBackwardLeft")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T, U> Display for SubtractionBackwardLeft<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 pub struct SubtractionBackwardRight<T, U>
 where
     T: Gradient + Overwrite,
@@ -342,7 +424,7 @@ where
             self.operand.set_overwrite(false);
             zip.for_each(|operand_el, reduced_el| *operand_el = -reduced_el);
         } else {
-            zip.for_each(|operand_el, reduced_el| *operand_el += -reduced_el);
+            zip.for_each(|operand_el, reduced_el| *operand_el -= reduced_el);
         }
     }
 
@@ -352,6 +434,34 @@ where
 
     fn with_grad(&self) {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
+impl<T, U> Debug for SubtractionBackwardRight<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("SubtractionBackwardRight")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T, U> Display for SubtractionBackwardRight<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
     }
 }
 

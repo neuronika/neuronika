@@ -12,6 +12,7 @@ mod forward {
         let node = Stack::new(left, right, 0);
 
         assert_eq!(*node.data(), Tensor::from_elem((2, 3, 3), 0.));
+        assert_eq!(*node.data_mut(), Tensor::from_elem((2, 3, 3), 0.));
         assert!(!node.was_computed());
     }
 

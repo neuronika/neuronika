@@ -5,6 +5,7 @@ use super::{
 
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
@@ -13,6 +14,7 @@ use ndarray::{DimMax, Dimension, Zip};
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 
+/// Multiplication forward node.
 pub struct Multiplication<Lhs, Rhs>
 where
     Lhs: Data,
@@ -84,6 +86,31 @@ where
 
     fn reset_computation(&self) {
         self.computed.set(false);
+    }
+}
+
+impl<Lhs, Rhs> Debug for Multiplication<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Multiplication")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for Multiplication<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
     }
 }
 
@@ -211,6 +238,40 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Debug for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
+    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiplicationBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Display for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
+    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 pub struct MultiplicationBackwardUnary<T, U>
 where
     T: Gradient + Overwrite,
@@ -305,5 +366,32 @@ where
     }
 }
 
+impl<T, U> Debug for MultiplicationBackwardUnary<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiplicationBackwardUnary")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T, U> Display for MultiplicationBackwardUnary<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
 #[cfg(test)]
 mod test;

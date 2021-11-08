@@ -2,7 +2,10 @@ use super::{
     expect_tensor, expect_tensor_mut, Data, Differentiable, Dimension, Forward, Gradient,
     Overwrite, Tensor,
 };
-use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::{
+    cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
+};
 
 /// The forward component of a leaf of the computational graph.
 pub struct Input<D: Dimension> {
@@ -58,6 +61,21 @@ impl<D: Dimension> Differentiable for Input<D> {
     }
 }
 
+impl<D: Dimension> Debug for Input<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Input")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<D: Dimension> Display for Input<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.data.borrow())
+    }
+}
+
 /// The backward component of a differentiable leaf of the computational graph.
 pub struct InputBackward<D: Dimension> {
     gradient: RefCell<Option<Tensor<D>>>,
@@ -89,6 +107,24 @@ impl<D: Dimension> Overwrite for InputBackward<D> {
 
     fn set_overwrite(&self, state: bool) {
         self.overwrite.set(state);
+    }
+}
+
+impl<D: Dimension> Debug for InputBackward<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Input")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<D: Dimension> Display for InputBackward<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
     }
 }
 

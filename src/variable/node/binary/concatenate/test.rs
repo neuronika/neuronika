@@ -14,6 +14,7 @@ mod forward {
         let node = Concatenate::new(left, right, 0);
 
         assert_eq!(*node.data(), Tensor::from_elem((5, 3), 0.));
+        assert_eq!(*node.data_mut(), Tensor::from_elem((5, 3), 0.));
         assert!(!node.was_computed());
     }
 

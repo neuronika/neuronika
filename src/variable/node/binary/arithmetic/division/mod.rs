@@ -5,6 +5,7 @@ use super::{
 
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
@@ -13,6 +14,7 @@ use ndarray::{DimMax, Dimension, Zip};
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 
+/// Division forward node.
 pub struct Division<Lhs, Rhs>
 where
     Lhs: Data,
@@ -31,6 +33,7 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
+    /// Creates a new `Division` node whose operands are `left` and `right`.
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
 
@@ -87,6 +90,32 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for Division<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Division")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for Division<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.data.borrow())
+    }
+}
+
+// Division backward node.
 pub struct DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
@@ -115,6 +144,8 @@ where
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
+    /// Creates a new `DivisionBackward` node whose operands are `left_data`, `left_grad`,
+    /// `right_data` and `right_grad`.
     pub fn new(
         left_data: Rc<LhsD>,
         left_grad: Rc<LhsG>,
@@ -213,6 +244,43 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Debug for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
+    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("DivisionBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Display for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
+    LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+/// Division backward left node.
+///
+/// Used for computations in which only the `left` operand is differentiable.
 pub struct DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
@@ -233,6 +301,7 @@ where
     LhsG: Gradient + Overwrite,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
+    /// Creates a new `DivisionBackwardLeft` node whose operands are `left_grad` and `right_data`.
     pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
         let gradient = broadcasted_zeros(&left_grad.gradient(), &right_data.data());
         let shape = gradient.raw_dim();
@@ -307,6 +376,37 @@ where
     }
 }
 
+impl<LhsG, RhsD> Debug for DivisionBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("DivisionBackwardLeft")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<LhsG, RhsD> Display for DivisionBackwardLeft<LhsG, RhsD>
+where
+    RhsD: Data,
+    LhsG: Gradient + Overwrite,
+    LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+/// Division backward right node.
+///
+/// Used for computations in which only the `right` operand is differentiable.
 pub struct DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
@@ -330,6 +430,8 @@ where
     RhsG: Gradient + Overwrite,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
+    /// Creates a new `DivisionBackwardLeft` node whose operands are `left_data`, `right_data` and
+    /// `right_grad`.
     pub fn new(left_data: Rc<LhsD>, right_data: Rc<RhsD>, right_grad: Rc<RhsG>) -> Self {
         let gradient = broadcasted_zeros(&left_data.data(), &right_grad.gradient());
         let shape = gradient.raw_dim();
@@ -406,6 +508,36 @@ where
 
     fn with_grad(&self) {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
+impl<LhsD, RhsD, RhsG> Debug for DivisionBackwardRight<LhsD, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("DivisionBackwardRight")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<LhsD, RhsD, RhsG> Display for DivisionBackwardRight<LhsD, RhsD, RhsG>
+where
+    LhsD: Data,
+    RhsD: Data,
+    RhsG: Gradient + Overwrite,
+    LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", gradient),
+            None => write!(f, "None"),
+        }
     }
 }
 

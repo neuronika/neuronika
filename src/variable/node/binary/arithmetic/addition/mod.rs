@@ -5,6 +5,7 @@ use super::{
 
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
@@ -13,6 +14,7 @@ use ndarray::{DimMax, Dimension, Zip};
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 
+/// Addition forward node.
 pub struct Addition<Lhs, Rhs>
 where
     Lhs: Data,
@@ -31,6 +33,7 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
+    /// Creates a new `Addition` node whose operands are `left` and `right`.
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
 
@@ -87,6 +90,32 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for Addition<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Addition")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for Addition<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
+    }
+}
+
+/// Addition backward node.
 pub struct AdditionBackward<Lhs, Rhs>
 where
     Lhs: Gradient + Overwrite,
@@ -106,6 +135,7 @@ where
     Rhs: Gradient + Overwrite,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
+    /// Creates a new `Addition` backward node whose operands are `left` and `right`.
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let gradient = broadcasted_zeros(&left.gradient(), &right.gradient());
         let shape = gradient.raw_dim();
@@ -175,6 +205,37 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for AdditionBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient + Overwrite,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdditionBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for AdditionBackward<Lhs, Rhs>
+where
+    Lhs: Gradient + Overwrite,
+    Rhs: Gradient + Overwrite,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+/// Addition backward unary node.
+///
+/// Used for computations in which only one operand among `left` and `right` is differentiable.
 pub struct AdditionBackwardUnary<T, U>
 where
     T: Gradient + Overwrite,
@@ -255,6 +316,34 @@ where
 
     fn with_grad(&self) {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+    }
+}
+
+impl<T, U> Debug for AdditionBackwardUnary<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("AdditionBackwardUnary")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T, U> Display for AdditionBackwardUnary<T, U>
+where
+    T: Gradient + Overwrite,
+    U: Data,
+    T::Dim: Dimension + DimMax<U::Dim>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
     }
 }
 

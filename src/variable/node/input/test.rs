@@ -13,7 +13,7 @@ mod forward {
         };
         assert!(!input.was_computed());
         assert_eq!(*input.data(), Tensor::from_elem((3, 3), 0.));
-        assert_eq!(*input.data(), Tensor::from_elem((3, 3), 0.));
+        assert_eq!(*input.data_mut(), Tensor::from_elem((3, 3), 0.));
     }
 
     #[test]
