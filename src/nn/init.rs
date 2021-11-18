@@ -19,7 +19,7 @@
 //! xavier_normal(&lin.weight, calculate_gain("relu"));
 //! ```
 use super::Learnable;
-use ndarray::{Axis, Dimension, Ix2};
+use ndarray::{Dimension, Ix2};
 use rand::thread_rng;
 use rand_distr::{Distribution, Normal, Uniform};
 
@@ -63,22 +63,19 @@ pub fn calculate_fan_in_fan_out<D: Dimension>(param: &Learnable<D>) -> (f32, f32
     let data = param.data();
     let shape = data.shape();
 
-    let num_input_fmaps = shape[1] as f32;
-    let num_output_fmaps = shape[0] as f32;
-    let mut receptive_field_size = 1.;
+    let num_input_fmaps = shape[1];
+    let num_output_fmaps = shape[0];
 
-    let no_dim = data.ndim();
-    let mut num_el = 0;
-    if no_dim > 2 {
-        for dim in 2..no_dim {
-            num_el += data.len_of(Axis(dim));
+    let (fan_in, fan_out) = {
+        if shape.len() > 2 {
+            let numel = shape.iter().skip(2).sum::<usize>();
+            (num_input_fmaps * numel, num_output_fmaps * numel)
+        } else {
+            (num_input_fmaps, num_output_fmaps)
         }
-        receptive_field_size = num_el as f32;
-    }
+    };
 
-    let fan_in = num_input_fmaps * receptive_field_size;
-    let fan_out = num_output_fmaps * receptive_field_size;
-    (fan_in, fan_out)
+    (fan_in as f32, fan_out as f32)
 }
 
 /// Fills the differentiable leaf variable with a constant value.

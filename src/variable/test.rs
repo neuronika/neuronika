@@ -1,28 +1,98 @@
 #[test]
+fn data_mut() {
+    // Var
+    let x = crate::ones((2, 2));
+    *x.data_mut() += 1.;
+    assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+    // VarDiff
+    let x = crate::ones((2, 2)).requires_grad();
+    *x.data_mut() += 1.;
+    assert_eq!(*x.data(), ndarray::array![[2., 2.,], [2., 2.,]]);
+}
+
+#[test]
+fn grad_mut() {
+    // Only VarDiff has a gradient.
+    let x = crate::ones((2, 2)).requires_grad();
+    *x.grad_mut() += 1.;
+    assert_eq!(*x.grad(), ndarray::array![[1., 1.,], [1., 1.,]]);
+}
+
+#[test]
 fn add_scalar() {
+    // Var - f32
     let x = crate::ones((2, 2));
     let mut y = x + 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
+    // f32 - Var
+    let x = crate::ones((2, 2));
+    let mut y = 1. + x;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+    // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
     let mut y = x + 1.;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+    // f32 - VarDiff
+    let x = crate::ones((2, 2)).requires_grad();
+    let mut y = 1. + x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 }
 
 #[test]
+fn param_test() {
+    use super::Param;
+
+    let mut data = ndarray::array![[1., 2.], [3., 4.]];
+    let mut grad = ndarray::array![[4., 5.], [6., 7.]];
+
+    let param = Param::new(data.as_mut_ptr(), grad.as_mut_ptr(), data.shape().to_vec());
+
+    let (mut data_view, mut grad_view) = param.get();
+    data_view += 1.;
+    grad_view += 1.;
+
+    assert_eq!(data, ndarray::array![[2., 3.], [4., 5.]]);
+    assert_eq!(grad, ndarray::array![[5., 6.], [7., 8.]]);
+}
+
+#[test]
 fn sub_scalar() {
+    // Var - f32
     let x = crate::ones((2, 2));
     let mut y = x - 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
+    // f32 - Var
+    let x = crate::ones((2, 2));
+    let mut y = 1. - x;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
+
+    // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
     let mut y = x - 1.;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
+
+    // f32 - VarDiff
+    let x = crate::ones((2, 2)).requires_grad();
+    let mut y = 1. - x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
@@ -30,14 +100,30 @@ fn sub_scalar() {
 
 #[test]
 fn mul_scalar() {
+    // Var - f32
     let x = crate::ones((2, 2));
     let mut y = x * 2.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
+    // f32 - Var
+    let x = crate::ones((2, 2));
+    let mut y = 2. * x;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+    // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
     let mut y = x * 2.;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
+
+    // f32 - VarDiff
+    let x = crate::ones((2, 2)).requires_grad();
+    let mut y = 2. * x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
@@ -45,14 +131,30 @@ fn mul_scalar() {
 
 #[test]
 fn div_scalar() {
+    // Var - f32
     let x = crate::full((2, 2), 9.);
     let mut y = x / 3.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
+    // f32 - Var
+    let x = crate::full((2, 2), 3.);
+    let mut y = 9. / x;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
+
+    // VarDiff - f32
     let x = crate::full((2, 2), 9.).requires_grad();
     let mut y = x / 3.;
+    y.forward();
+
+    assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
+
+    // f32 - VarDiff
+    let x = crate::full((2, 2), 3.).requires_grad();
+    let mut y = 9. / x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
@@ -385,20 +487,60 @@ fn unsqueeze_diff() {
 fn cat() {
     let lhs = crate::ones((2, 2));
     let rhs = crate::zeros((2, 2));
-    let cat = super::Stack::stack(lhs, rhs, 1);
+    let cat = super::Cat::cat(lhs, rhs, 1);
 
     assert_eq!(cat.past.len(), 1);
     assert!(cat.past.changeables.is_empty());
+
+    let lhs = crate::ones((2, 2));
+    let rhs = crate::zeros((2, 2)).requires_grad();
+    let cat = super::Cat::cat(lhs, rhs, 1);
+
+    assert_eq!(cat.past.len(), 1);
+    assert_eq!(cat.past.parameters.len(), 1);
 }
 
 #[test]
 fn cat_diff() {
+    let lhs = crate::ones((2, 2)).requires_grad();
+    let rhs = crate::zeros((2, 2));
+    let cat = super::Cat::cat(lhs, rhs, 1);
+
+    assert_eq!(cat.past.len(), 1);
+    assert_eq!(cat.past.parameters.len(), 1);
+
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let cat = super::Cat::cat(lhs, rhs, 1);
 
     assert_eq!(cat.past.len(), 1);
     assert_eq!(cat.past.parameters.len(), 2);
+}
+
+#[test]
+fn multi_cat() {
+    use std::boxed::Box;
+
+    let a = crate::ones((2, 2)) + 1.;
+    let b = 18. / crate::full((2, 2), 9.);
+    let c = crate::full((2, 1), 3.) * 4.;
+
+    let d = a.cat(&[Box::new(b), Box::new(c)], 1);
+    assert_eq!(d.past.len(), 4);
+    assert!(d.past.changeables.is_empty());
+}
+
+#[test]
+fn multi_cat_diff() {
+    use std::boxed::Box;
+
+    let a = crate::ones((2, 2)).requires_grad() + 1.;
+    let b = 18. / crate::full((2, 2), 9.).requires_grad();
+    let c = crate::full((2, 1), 3.).requires_grad() * 4.;
+
+    let d = a.cat(&[Box::new(b), Box::new(c)], 1);
+    assert_eq!(d.past.len(), 4);
+    assert_eq!(d.past.parameters.len(), 3);
 }
 
 #[test]
@@ -409,16 +551,56 @@ fn stack() {
 
     assert_eq!(stack.past.len(), 1);
     assert!(stack.past.changeables.is_empty());
+
+    let lhs = crate::ones((2, 2));
+    let rhs = crate::zeros((2, 2)).requires_grad();
+    let cat = super::Stack::stack(lhs, rhs, 1);
+
+    assert_eq!(cat.past.len(), 1);
+    assert_eq!(cat.past.parameters.len(), 1);
 }
 
 #[test]
 fn stack_diff() {
+    let lhs = crate::ones((2, 2)).requires_grad();
+    let rhs = crate::zeros((2, 2));
+    let cat = super::Stack::stack(lhs, rhs, 1);
+
+    assert_eq!(cat.past.len(), 1);
+    assert_eq!(cat.past.parameters.len(), 1);
+
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let stack = super::Stack::stack(lhs, rhs, 1);
 
     assert_eq!(stack.past.len(), 1);
     assert_eq!(stack.past.parameters.len(), 2);
+}
+
+#[test]
+fn multi_stack() {
+    use std::boxed::Box;
+
+    let a = crate::ones((2, 2)) + 1.;
+    let b = 18. / crate::full((2, 2), 9.);
+    let c = crate::full((2, 2), 3.) * 4.;
+
+    let d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    assert_eq!(d.past.len(), 4);
+    assert!(d.past.changeables.is_empty());
+}
+
+#[test]
+fn multi_stack_diff() {
+    use std::boxed::Box;
+
+    let a = crate::ones((2, 2)).requires_grad() + 1.;
+    let b = 18. / crate::full((2, 2), 9.).requires_grad();
+    let c = crate::full((2, 2), 3.).requires_grad() * 4.;
+
+    let d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    assert_eq!(d.past.len(), 4);
+    assert_eq!(d.past.parameters.len(), 3);
 }
 
 #[test]

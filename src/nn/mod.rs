@@ -436,12 +436,12 @@ impl ModelStatus {
 
     /// Sets the status in training mode.
     pub fn train(&self) {
-        <Self as Eval>::train(&self)
+        <Self as Eval>::train(self)
     }
 
     /// Sets the status in inference mode.
     pub fn eval(&self) {
-        <Self as Eval>::eval(&self)
+        <Self as Eval>::eval(self)
     }
 }
 

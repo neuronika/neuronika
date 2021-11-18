@@ -1,19 +1,20 @@
 use super::{
-    Addition, AdditionBackwardUnary, Cat, Chunk, Concatenate, ConcatenateBackwardRight, Data,
-    DiffVarHistory, Differentiable, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward,
-    Gradient, Input, InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul,
-    MatrixMatrixMul, MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight,
-    MatrixVectorMul, MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack,
-    Multiplication, MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid,
-    SoftPlus, Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum,
-    TanH, Tensor, Transpose, Unsqueeze, VarDiff, VarHistory, Variable, VecMatMul, VecVecMul,
-    VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackwardUnary,
-    OPERATIONS_COUNTER,
+    Addition, AdditionBackwardUnary, Cat, Changeable, Chunk, Concatenate, ConcatenateBackwardRight,
+    Data, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward, Gradient, Input,
+    InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
+    MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
+    MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
+    MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid, SoftPlus,
+    Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
+    Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
+    VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
+    VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use ndarray::{concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
 use std::{
     cell::{Cell, Ref, RefMut},
     collections::HashSet,
+    fmt::{Debug, Display},
     ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
@@ -80,7 +81,7 @@ impl<D: Dimension> Var<Input<D>> {
         VarDiff {
             var: self,
             node: node.clone(),
-            past: DiffVarHistory::new(parameters),
+            past: VarDiffHistory::new(parameters),
         }
     }
 
@@ -151,9 +152,8 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// inside the program. The last call switches all the dropout variables in training mode.
     pub fn train(&self) {
         for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).train();
-            }
+            let Changeable { id: _, node } = changeable;
+            node.train();
         }
     }
 
@@ -165,9 +165,8 @@ impl<T: Data + Forward + 'static> Var<T> {
     /// [`.dropout()`]: Var::dropout()
     pub fn eval(&self) {
         for changeable in &self.past.changeables {
-            unsafe {
-                (&**changeable).eval();
-            }
+            let Changeable { id: _, node } = changeable;
+            node.train();
         }
     }
 }
@@ -175,8 +174,12 @@ impl<T: Data + Forward + 'static> Var<T> {
 impl<T: Data + Forward + Eval + 'static> Var<T> {
     pub(crate) fn from_changeable(node: T, mut past: VarHistory) -> Self {
         let node = Rc::new(node);
-        past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-        past.append_changeable(node.as_ref() as *const dyn Eval);
+        let id = unsafe { OPERATIONS_COUNTER.next() };
+        past.append_forward(id, node.clone());
+        past.append_changeable(Changeable {
+            id,
+            node: node.clone(),
+        });
 
         Var { node, past }
     }
@@ -376,8 +379,8 @@ impl<T: Data + 'static> Var<T> {
         self.dropout_with_status(p, Rc::new(Cell::new(true)))
     }
 
-    /// Creates a new variable with a status. This method is used in the `Dropout` component of the
-    /// `nn` module.
+    /// Creates a new dropout variable with a status. This method is used in the `Dropout` component
+    ///  of the `nn` module.
     pub(crate) fn dropout_with_status(self, p: f64, status: Rc<Cell<bool>>) -> Var<Dropout<T>> {
         Var::from_changeable(Dropout::new(self.node, p, status), self.past)
     }
@@ -587,48 +590,48 @@ where
 impl<T> Add<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Addition<T, Input<Ix1>>>;
+    type Output = Var<Addition<Input<Ix1>, T>>;
 
     fn add(self, rhs: Var<T>) -> Self::Output {
-        rhs + crate::full(1, self)
+        crate::full(1, self) + rhs
     }
 }
 
 impl<T> Sub<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Subtraction<T, Input<Ix1>>>;
+    type Output = Var<Subtraction<Input<Ix1>, T>>;
 
     fn sub(self, rhs: Var<T>) -> Self::Output {
-        rhs - crate::full(1, self)
+        crate::full(1, self) - rhs
     }
 }
 
 impl<T> Mul<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Multiplication<T, Input<Ix1>>>;
+    type Output = Var<Multiplication<Input<Ix1>, T>>;
 
     fn mul(self, rhs: Var<T>) -> Self::Output {
-        rhs * crate::full(1, self)
+        crate::full(1, self) * rhs
     }
 }
 
 impl<T> Div<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    Ix1: DimMax<T::Dim>,
 {
-    type Output = Var<Division<T, Input<Ix1>>>;
+    type Output = Var<Division<Input<Ix1>, T>>;
 
     fn div(self, rhs: Var<T>) -> Self::Output {
-        rhs / crate::full(1, self)
+        crate::full(1, self) / rhs
     }
 }
 
@@ -987,5 +990,24 @@ where
     fn stack(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         let node = StackBackwardRight::new(self.node.clone(), rhs.node, axis);
         VarDiff::from(node, rhs.past, Stack::stack(self, rhs.var, axis))
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + Debug> Debug for Var<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Var")
+            .field("node", &self.node)
+            .field("past", &self.past.len())
+            .finish()
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + Display> Display for Var<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.node)
     }
 }

@@ -112,7 +112,7 @@ pub(super) fn check_conv_args(
         .for_each(|(padded_input_dim, dilated_kernel_dim)| {
             assert!(
                 padded_input_dim >= dilated_kernel_dim,
-                "error: calculated padded input size per channel: {:?}. Kernel size: {:?}. 
+                "error: computed padded input size per channel: {:?}. Kernel size: {:?}. 
                 The kernel size can't be greater than actual input size.",
                 padded_input_size,
                 dilated_kernel_size
@@ -337,45 +337,45 @@ where
         Array::<f32, D>::zeros(padded_shape)
     };
 
-    let (padded_raw_dim, original_raw_dim) = (padded.raw_dim(), array.raw_dim());
+    let (padded_dim, original_dim) = (padded.raw_dim(), array.raw_dim());
 
     // This is the dimension of a single sample in the batch.
-    let (padded_inner_dimensions, original_inner_dimensions) = (
-        padded_raw_dim.slice().iter().skip(2),
-        original_raw_dim.slice().iter().skip(2),
+    let (padded_sample_dim, original_sample_dim) = (
+        padded_dim.slice().iter().skip(2),
+        original_dim.slice().iter().skip(2),
     );
 
     // The number of single samples in the batch.
-    let outer_dimension: usize = original_raw_dim.slice().iter().take(2).product();
+    let outer_dimension: usize = original_dim.slice().iter().take(2).product();
 
     // Reshapes by removing an axis, so that all samples, from all channels, can be iterated on and
     // padded.
-    let (mut padded_view_dimension, mut original_view_dimension): (
+    let (mut cumulative_dim, mut original_dim): (
         <D as Dimension>::Smaller,
         <D as Dimension>::Smaller,
     ) = (
-        <D as Dimension>::Smaller::zeros(padded_raw_dim.ndim() - 1),
-        <D as Dimension>::Smaller::zeros(original_raw_dim.ndim() - 1),
+        <D as Dimension>::Smaller::zeros(padded_dim.ndim() - 1),
+        <D as Dimension>::Smaller::zeros(original_dim.ndim() - 1),
     );
-    padded_view_dimension[0] = outer_dimension;
-    original_view_dimension[0] = outer_dimension;
+    cumulative_dim[0] = outer_dimension;
+    original_dim[0] = outer_dimension;
 
-    padded_view_dimension
+    cumulative_dim
         .slice_mut()
         .iter_mut()
         .skip(1)
-        .zip(padded_inner_dimensions)
+        .zip(padded_sample_dim)
         .for_each(|(view_dim, inner_dim)| *view_dim = *inner_dim);
-    original_view_dimension
+    original_dim
         .slice_mut()
         .iter_mut()
         .skip(1)
-        .zip(original_inner_dimensions)
+        .zip(original_sample_dim)
         .for_each(|(view_dim, inner_dim)| *view_dim = *inner_dim);
 
     let (mut padded_view_mut, original_view) = (
-        padded.view_mut().into_shape(padded_view_dimension).unwrap(),
-        array.view().into_shape(original_view_dimension).unwrap(),
+        padded.view_mut().into_shape(cumulative_dim).unwrap(),
+        array.view().into_shape(original_dim).unwrap(),
     );
 
     padded_view_mut
@@ -402,12 +402,12 @@ fn unpad<'a, S: Data<Elem = f32> + 'a, D: Dimension + 'a>(
     padding: &[usize],
 ) -> ArrayBase<ViewRepr<&'a f32>, D> {
     array.slice_each_axis(|ax| {
-        let (ax_index, ax_len) = (ax.axis.index(), array.len_of(ax.axis));
+        let (index, len) = (ax.axis.index(), array.len_of(ax.axis));
         let range = {
-            if ax_index > 1 && padding[ax_index - 2] != 0 {
-                padding[ax_index - 2] as isize..-(padding[ax_index - 2] as isize)
+            if index > 1 && padding[index - 2] != 0 {
+                padding[index - 2] as isize..-(padding[index - 2] as isize)
             } else {
-                0..ax_len as isize
+                0..len as isize
             }
         };
         Slice::from(range)
@@ -431,10 +431,9 @@ fn compute_rolling_window_shape<D: Dimension, S: Data<Elem = f32>>(
     stride: &[usize],
     dilation: &[usize],
 ) -> Vec<usize> {
-    let mut rolling_window_indices_shape: D =
-        conv_out_shape_padded(input.shape(), window_shape, stride, dilation);
-    rolling_window_indices_shape[1] = 1;
-    rolling_window_indices_shape
+    let mut indices: D = conv_out_shape_padded(input.shape(), window_shape, stride, dilation);
+    indices[1] = 1;
+    indices
         .slice()
         .iter()
         .chain(window_shape.iter().skip(1))
@@ -470,7 +469,7 @@ fn compute_rolling_window_strides<D: Dimension, S: Data<Elem = f32>>(
     };
     // Number of in channels doesn't count for the window's strides,
     // it must be left unchanged.
-    let rolling_window_strides: Vec<isize> = input
+    let window_strides: Vec<isize> = input
         .strides()
         .iter()
         .skip(1) // Skip out channels
@@ -485,7 +484,7 @@ fn compute_rolling_window_strides<D: Dimension, S: Data<Elem = f32>>(
         .collect();
     indexing_strides
         .iter()
-        .chain(rolling_window_strides.iter())
+        .chain(window_strides.iter())
         .map(|s| *s as usize)
         .collect()
 }
@@ -542,31 +541,13 @@ fn as_windows_mut<'a, D: Dimension, S: DataMut<Elem = f32>>(
     let rolling_window_strides: Vec<usize> =
         compute_rolling_window_strides(input, stride, dilation);
 
+    // Care must be taken as there's aliasing.
     unsafe {
         ArrayViewMut::from_shape_ptr(
             rolling_window_shape.strides(rolling_window_strides),
             input.as_mut_ptr(),
         )
     }
-}
-
-/// Puts the axis corresponding to the output channels of the feature map `array`
-/// in the last position and returns the input with swapped axes.
-///
-/// # Arguments
-///
-/// `array` - array to permute the channels in.
-fn permute_channels<D: Dimension>(
-    array: ArrayBase<ViewRepr<&f32>, D>,
-) -> ArrayBase<ViewRepr<&f32>, D> {
-    let mut dim = array.raw_dim();
-    dim.set_last_elem(0);
-    let dim_len = dim.ndim() - 1;
-    dim.slice_mut()
-        .iter_mut()
-        .zip(1..=dim_len)
-        .for_each(|(ax, el)| *ax = el);
-    array.permuted_axes(dim)
 }
 
 /// Computes the shapes of **sig2col**, **im2col** and **vol2col**.
@@ -789,12 +770,12 @@ pub(super) fn convolution<
 ) {
     let (kernel_shape, flattened_kernel) = (
         kernel.shape(),
-        kernel.view().into_shape(flat_shape(&kernel)).unwrap(),
+        kernel.view().into_shape(flat_shape(kernel)).unwrap(),
     );
 
     let input_windows = as_windows(input, kernel_shape, stride, dilation);
     let input_columns = input_windows
-        .to_shape(columns_shape(&input, kernel_shape, stride, dilation))
+        .to_shape(columns_shape(input, kernel_shape, stride, dilation))
         .unwrap();
 
     Zip::from(input_columns.axis_iter(Axis(0)))
@@ -847,7 +828,7 @@ pub(super) fn convolution_backward_input<
 ) {
     let (kernel_shape, flattened_kernel, grad_shape) = (
         kernel.shape(),
-        kernel.view().into_shape(flat_shape(&kernel)).unwrap(),
+        kernel.view().into_shape(flat_shape(kernel)).unwrap(),
         grad.shape(),
     );
 
@@ -934,29 +915,30 @@ pub(super) fn convolution_backward_kernel<
     dilation: &[usize],
     overwrite_kernel_grad: bool,
 ) {
-    let gradient = permute_channels(grad.view());
-    let flat_gradient = gradient.to_shape(flat_shape(&gradient)).unwrap();
-    let beta = if overwrite_kernel_grad { 0. } else { 1. };
-    let kernel_shape = kernel_grad.raw_dim();
-
-    let input_windows = as_windows(&input, kernel_shape.slice(), stride, dilation);
-    let columns_shape = columns_shape(&input, kernel_shape.slice(), stride, dilation);
-
+    let kernel_shape = kernel_grad.shape();
+    let input_windows = as_windows(input, kernel_shape, stride, dilation);
+    let columns_shape = columns_shape(input, kernel_shape, stride, dilation);
     let mut matrix_shape = Ix2::zeros(2);
     matrix_shape[0] = columns_shape[0] * columns_shape[1];
     matrix_shape[1] = columns_shape[2];
     let input_matrix = input_windows.to_shape(matrix_shape).unwrap();
 
-    general_mat_mul(
-        1.,
-        &flat_gradient,
-        &input_matrix,
-        beta,
-        &mut kernel_grad
-            .view_mut()
-            .into_shape((flat_gradient.shape()[0], matrix_shape[1]))
-            .unwrap(),
-    );
+    Zip::from(kernel_grad.axis_iter_mut(Axis(0)))
+        .and(grad.axis_iter(Axis(1)))
+        .par_for_each(|kernel_grad_view_mut, grad_view| {
+            let kernel_grad_numel = kernel_grad_view_mut.shape().iter().product::<usize>();
+            let grad_view_numel = grad_view.shape().iter().product::<usize>();
+
+            general_mat_mul(
+                1.,
+                &grad_view.to_shape((1, grad_view_numel)).unwrap(),
+                &input_matrix,
+                if overwrite_kernel_grad { 0. } else { 1. },
+                &mut kernel_grad_view_mut
+                    .into_shape((1, kernel_grad_numel))
+                    .unwrap(),
+            );
+        });
 }
 
 /// Performs an **n-dimensional grouped** convolution where **n** can be either *1*, *2* or *3*.
@@ -1039,7 +1021,7 @@ pub(super) fn convolution_with_groups_backward<D: Dimension + RemoveAxis>(
     overwrite_kernel_grad: bool,
 ) {
     let (input_grad_groups, kernel_grad_groups, grad_groups, input_groups, kernel_groups) =
-        group_gradients(input_grad, kernel_grad, &grad, &input, &kernel, groups);
+        group_gradients(input_grad, kernel_grad, grad, input, kernel, groups);
 
     grad_groups
         .into_par_iter()
@@ -1108,7 +1090,7 @@ pub(super) fn convolution_with_groups_unary_backward<D: Dimension + RemoveAxis>(
     overwrite_kernel_grad: bool,
 ) {
     let (kernel_grad_groups, grad_groups, input_groups) =
-        group_gradients_unary(kernel_grad, &grad, &input, groups);
+        group_gradients_unary(kernel_grad, grad, input, groups);
 
     grad_groups
         .into_par_iter()

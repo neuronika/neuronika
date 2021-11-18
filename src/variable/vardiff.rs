@@ -1,26 +1,26 @@
 use super::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Cat, Chunk, ChunkBackward,
-    Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DiffVarHistory,
-    DifferentiableVariable, Division, DivisionBackward, DivisionBackwardLeft,
-    DivisionBackwardRight, Dropout, DropoutBackward, Exp, ExpBackward, Forward, Gradient,
-    GradientOverwrite, Input, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn,
-    LognBackward, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul, MatrixMatrixMulBackward,
-    MatrixMatrixMulBackwardLeft, MatrixMatrixMulT, MatrixMatrixMulTBackward,
-    MatrixMatrixMulTBackwardLeft, MatrixVectorMul, MatrixVectorMulBackward,
-    MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate, MultiConcatenateBackward,
-    MultiStack, MultiStackBackward, Multiplication, MultiplicationBackward,
-    MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Param, Power,
-    PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus, SoftPlusBackward,
-    Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack, StackBackward, StackBackwardLeft,
-    Subtraction, SubtractionBackward, SubtractionBackwardLeft, SubtractionBackwardRight, Sum,
-    SumBackward, TanH, TanHBackward, Tensor, Transpose, TransposeBackward, Unsqueeze,
-    UnsqueezeBackward, Var, Variable, VecMatMul, VecVecMul, VectorMatrixMul,
-    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorVectorMul, VectorVectorMulBackward,
-    VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
+    Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DifferentiableVariable,
+    Division, DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout,
+    DropoutBackward, Exp, ExpBackward, Forward, Gradient, GradientOverwrite, Input, LeakyReLU,
+    LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatMatMul, MatMatMulT,
+    MatVecMul, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
+    MatrixMatrixMulT, MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixVectorMul,
+    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate,
+    MultiConcatenateBackward, MultiStack, MultiStackBackward, Multiplication,
+    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite,
+    Param, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
+    SoftPlusBackward, Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack, StackBackward,
+    StackBackwardLeft, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
+    SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Tensor, Transpose,
+    TransposeBackward, Unsqueeze, UnsqueezeBackward, Var, VarDiffHistory, Variable, VecMatMul,
+    VecVecMul, VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
+    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use ndarray::{DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
 use std::{
     cell::{Cell, Ref, RefMut},
+    fmt::{Debug, Display},
     ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
@@ -45,7 +45,7 @@ where
 {
     pub(crate) var: Var<T>,
     pub(crate) node: Rc<U>,
-    pub(crate) past: DiffVarHistory,
+    pub(crate) past: VarDiffHistory,
 }
 
 impl<T, U> Clone for VarDiff<T, U>
@@ -67,7 +67,7 @@ where
     T: Data + Forward + 'static,
     U: Gradient + Overwrite + Backward + 'static,
 {
-    pub(crate) fn from(node: U, mut past: DiffVarHistory, var: Var<T>) -> VarDiff<T, U> {
+    pub(crate) fn from(node: U, mut past: VarDiffHistory, var: Var<T>) -> VarDiff<T, U> {
         let node = Rc::new(node);
         past.append_backward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
 
@@ -108,7 +108,7 @@ where
     ///
     /// At the differentiable variable's creation the gradient is filled with zeros. You can
     /// populate it with a call to [`.backward()`](VarDiff::backward()).
-    pub fn grad_mut(&mut self) -> RefMut<Tensor<U::Dim>> {
+    pub fn grad_mut(&self) -> RefMut<Tensor<U::Dim>> {
         self.node.gradient_mut()
     }
 }
@@ -124,13 +124,29 @@ where
         self.var.forward();
 
         debug_assert!(self.past.buffer().is_empty() || self.past.len() == self.past.buffer().len());
+
         // If the backward buffer isn't empty, then we're doing a `forward -> backward -> forward`
         // chain, thus we must reset the `overwrite` bit of every `backward` node of our past.
-        for node in self.past.buffer() {
-            // Todo: This can be done more efficiently by looking for the first node
-            // that must be reset, in the same way for `forward` and `backward`.
+        self.past.prepare_buffer();
+        let buffer = self.past.buffer();
+        let mut res = buffer.binary_search_by(|n| {
+            if n.can_overwrite() {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        });
 
-            node.set_overwrite(true);
+        if let Err(i) = res {
+            if buffer.get(i).is_some() {
+                res = Ok(i);
+            }
+        };
+
+        if let Ok(pos) = res {
+            for node in &buffer[pos..] {
+                node.set_overwrite(true);
+            }
         }
     }
 }
@@ -162,11 +178,27 @@ where
         }
 
         debug_assert_eq!(self.var.past.len(), self.var.past.buffer().len());
-        for node in self.var.past.buffer() {
-            // Todo: This can be done more efficiently by looking for the first node
-            // Todo: that must be reset, in the same way for `forward`
 
-            node.reset_computation();
+        self.var.past.prepare_buffer();
+        let buffer = self.var.past.buffer();
+        let mut res = buffer.binary_search_by(|n| {
+            if n.was_computed() {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        });
+
+        if let Err(i) = res {
+            if buffer.get(i).is_some() {
+                res = Ok(i);
+            }
+        };
+
+        if let Ok(pos) = res {
+            for node in &buffer[pos..] {
+                node.reset_computation();
+            }
         }
     }
 
@@ -195,11 +227,8 @@ where
     ///
     /// [`.dropout()`]: VarDiff::dropout()
     pub fn train(&self) {
-        for changeable in &self.var.past.changeables {
-            unsafe {
-                (&**changeable).train();
-            }
-        }
+        // Status is shared.
+        self.var.train();
     }
 
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
@@ -208,13 +237,9 @@ where
     /// See also [`.dropout()`].
     ///
     /// [`.dropout()`]: VarDiff::dropout()
-    ///
-    /// # Examples
-    ///
-    /// The following snippet pictures the effect of several calls placed at different locations
-    /// inside the program. The last call switches all the dropout variables in evaluation mode.
     pub fn eval(&self) {
-        self.var.eval()
+        // Status is shared.
+        self.var.eval();
     }
 }
 
@@ -457,6 +482,7 @@ where
         self.dropout_with_status(p, Rc::new(Cell::new(true)))
     }
 
+    /// Creates a new dropout differentiable variable sharing the status with its internal val.
     pub(crate) fn dropout_with_status(
         self,
         p: f64,
@@ -1182,5 +1208,30 @@ where
         self.past.merge(rhs.past);
         let node = StackBackward::new(self.node, rhs.node, axis);
         VarDiff::from(node, self.past, Stack::stack(self.var, rhs.var, axis))
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T, U> Debug for VarDiff<T, U>
+where
+    T: Data + Debug,
+    U: Gradient<Dim = T::Dim> + Overwrite + Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VarDiff")
+            .field("var", &self.var)
+            .field("node", &self.node)
+            .field("past", &self.past.len())
+            .field("parameters", &self.parameters().len())
+            .finish()
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + Display, U: Gradient + Overwrite + Display> Display for VarDiff<T, U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.var)
     }
 }

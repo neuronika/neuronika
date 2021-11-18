@@ -3,7 +3,11 @@ mod var;
 mod vardiff;
 
 use ndarray::{ArrayViewMutD, Dimension, Ix, RawArrayViewMut};
-use std::{collections::BTreeMap, collections::HashSet, rc::Rc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    hash::{Hash, Hasher},
+    rc::Rc,
+};
 pub use var::Var;
 pub use vardiff::VarDiff;
 
@@ -40,7 +44,7 @@ pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter 
 pub struct VarHistory {
     path: BTreeMap<usize, Rc<dyn Forward>>,
     buffer: Vec<Rc<dyn Forward>>,
-    changeables: HashSet<*const dyn Eval>,
+    changeables: HashSet<Changeable>,
 }
 
 impl VarHistory {
@@ -77,9 +81,8 @@ impl VarHistory {
     ///
     /// # Arguments
     ///
-    /// * `id` - id of the new node.
     /// * `next` - node to append.
-    pub(crate) fn append_changeable(&mut self, next: *const dyn Eval) {
+    pub(crate) fn append_changeable(&mut self, next: Changeable) {
         self.changeables.insert(next);
     }
 
@@ -110,14 +113,14 @@ impl VarHistory {
 #[derive(Clone)]
 /// The computational backward-history of a variable. It keeps track of the computation up to the
 /// variable to whom the struct belongs.
-pub struct DiffVarHistory {
+pub struct VarDiffHistory {
     path: BTreeMap<usize, Rc<dyn Backward>>,
     buffer: Vec<Rc<dyn Backward>>,
     parameters: HashSet<Param>,
 }
 
-impl DiffVarHistory {
-    /// Returns a new, empty, `VarHistory` with  parameters `parameters`.
+impl VarDiffHistory {
+    /// Returns a new, empty, `VarDiffHistory` with  parameters `parameters`.
     ///
     /// # Arguments
     ///
@@ -134,8 +137,8 @@ impl DiffVarHistory {
     ///
     /// # Arguments
     ///
-    /// `other` - other DiffVarHistory.
-    pub(crate) fn merge(&mut self, mut other: DiffVarHistory) {
+    /// `other` - other VarDiffHistory.
+    pub(crate) fn merge(&mut self, mut other: VarDiffHistory) {
         self.path.append(&mut other.path);
         self.parameters.extend(other.parameters);
     }
@@ -212,6 +215,30 @@ impl Param {
                 RawArrayViewMut::from_shape_ptr(self.shape, self.grad).deref_into_view_mut(),
             )
         }
+    }
+}
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Changeable struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#[derive(Clone)]
+/// Hashable and comparable wrapper for a computational node that implements the `Eval` trait.
+pub(super) struct Changeable {
+    id: usize,
+    node: Rc<dyn Eval>,
+}
+
+impl PartialEq for Changeable {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Changeable {}
+
+impl Hash for Changeable {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 
@@ -345,7 +372,7 @@ impl<T: Data<Dim = D>, D: Dimension> Variable<D> for Var<T> {
 pub trait DifferentiableVariable<D: Dimension> {
     fn get_var(&self) -> Box<dyn Variable<D>>;
     fn get_node(&self) -> Rc<dyn GradientOverwrite<D>>;
-    fn get_past(&self) -> DiffVarHistory;
+    fn get_past(&self) -> VarDiffHistory;
 }
 
 impl<T: Data<Dim = D>, U: GradientOverwrite<D>, D: Dimension> DifferentiableVariable<D>
@@ -359,7 +386,7 @@ impl<T: Data<Dim = D>, U: GradientOverwrite<D>, D: Dimension> DifferentiableVari
         self.node.clone()
     }
 
-    fn get_past(&self) -> DiffVarHistory {
+    fn get_past(&self) -> VarDiffHistory {
         self.past.clone()
     }
 }
