@@ -1,12 +1,12 @@
 use super::{
     Addition, AdditionBackwardUnary, Cat, Changeable, Chunk, Concatenate, ConcatenateBackwardRight,
-    Data, Differentiable, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward, Gradient,
-    Input, InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul,
-    MatrixMatrixMul, MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight,
-    MatrixVectorMul, MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack,
-    Multiplication, MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid,
-    SoftPlus, Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum,
-    TanH, Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
+    Data, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward, Gradient, Input,
+    InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
+    MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
+    MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
+    MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid, SoftPlus,
+    Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
+    Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
     VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
     VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
@@ -14,6 +14,7 @@ use ndarray::{concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix1, I
 use std::{
     cell::{Cell, Ref, RefMut},
     collections::HashSet,
+    fmt::{Debug, Display},
     ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
@@ -989,5 +990,24 @@ where
     fn stack(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
         let node = StackBackwardRight::new(self.node.clone(), rhs.node, axis);
         VarDiff::from(node, rhs.past, Stack::stack(self, rhs.var, axis))
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + Debug> Debug for Var<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Var")
+            .field("node", &self.node)
+            .field("past", &self.past.len())
+            .finish()
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + Display> Display for Var<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.node)
     }
 }

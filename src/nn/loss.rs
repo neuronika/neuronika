@@ -32,9 +32,10 @@ use super::{
     Data, Gradient, Var, VarDiff,
 };
 use ndarray::Dimension;
+use std::fmt::Debug;
 
 /// Specifies the reduction to apply to the *loss* output.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Reduction {
     /// The output will be summed.
     Sum,

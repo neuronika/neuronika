@@ -1,20 +1,19 @@
+#[cfg(test)]
+use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     broadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
     BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
 };
-
+use ndarray::{DimMax, Dimension, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
     rc::Rc,
 };
 
-use ndarray::{DimMax, Dimension, Zip};
-
-#[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-
-/// Division forward node.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Division ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct Division<Lhs, Rhs>
 where
     Lhs: Data,
@@ -33,7 +32,6 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    /// Creates a new `Division` node whose operands are `left` and `right`.
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
 
@@ -115,7 +113,9 @@ where
     }
 }
 
-// Division backward node.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
@@ -144,8 +144,6 @@ where
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
-    /// Creates a new `DivisionBackward` node whose operands are `left_data`, `left_grad`,
-    /// `right_data` and `right_grad`.
     pub fn new(
         left_data: Rc<LhsD>,
         left_grad: Rc<LhsG>,
@@ -278,9 +276,9 @@ where
     }
 }
 
-/// Division backward left node.
-///
-/// Used for computations in which only the `left` operand is differentiable.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
@@ -301,7 +299,6 @@ where
     LhsG: Gradient + Overwrite,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
-    /// Creates a new `DivisionBackwardLeft` node whose operands are `left_grad` and `right_data`.
     pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
         let gradient = broadcasted_zeros(&left_grad.gradient(), &right_data.data());
         let shape = gradient.raw_dim();
@@ -404,9 +401,9 @@ where
     }
 }
 
-/// Division backward right node.
-///
-/// Used for computations in which only the `right` operand is differentiable.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
@@ -541,5 +538,8 @@ where
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(test)]
 mod test;

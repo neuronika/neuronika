@@ -1,3 +1,5 @@
+#[cfg(test)]
+use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     expect_tensor, expect_tensor_mut, push_mat_vec_gradient, push_vec_mat_gradient, Backward, Data,
     DotDim, Forward, Gradient, Overwrite, Tensor,
@@ -5,12 +7,13 @@ use super::{
 use ndarray::{linalg::general_mat_vec_mul, s, Ix1, Ix2, NewAxis};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
-#[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct VectorMatrixMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix1>,
@@ -85,6 +88,32 @@ where
     }
 }
 
+impl<Lhs, Rhs> Debug for VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix2>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VectorMatrixMul")
+            .field("data", &self.data.borrow())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<Lhs, Rhs> Display for VectorMatrixMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix2>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
@@ -191,6 +220,39 @@ where
     }
 }
 
+impl<LhsD, LhsG, RhsD, RhsG> Debug for VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VectorMatrixMulBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<LhsD, LhsG, RhsD, RhsG> Display for VectorMatrixMulBackward<LhsD, LhsG, RhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsD: Data<Dim = Ix2>,
+    LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct VectorMatrixMulBackwardLeft<LhsG, RhsD>
 where
     LhsG: Gradient<Dim = Ix1> + Overwrite,
@@ -269,6 +331,35 @@ where
     }
 }
 
+impl<LhsG, RhsD> Debug for VectorMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsD: Data<Dim = Ix2>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VectorMatrixMulBackwardLeft")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<LhsG, RhsD> Display for VectorMatrixMulBackwardLeft<LhsG, RhsD>
+where
+    LhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsD: Data<Dim = Ix2>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct VectorMatrixMulBackwardRight<LhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
@@ -351,5 +442,34 @@ where
     }
 }
 
+impl<LhsD, RhsG> Debug for VectorMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VectorMatrixMulBackwardRight")
+            .field("gradient", &self.gradient.borrow())
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<LhsD, RhsG> Display for VectorMatrixMulBackwardRight<LhsD, RhsG>
+where
+    LhsD: Data<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix2> + Overwrite,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(test)]
 mod test;

@@ -20,6 +20,7 @@ use super::{
 use ndarray::{DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
 use std::{
     cell::{Cell, Ref, RefMut},
+    fmt::{Debug, Display},
     ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
@@ -1207,5 +1208,30 @@ where
         self.past.merge(rhs.past);
         let node = StackBackward::new(self.node, rhs.node, axis);
         VarDiff::from(node, self.past, Stack::stack(self.var, rhs.var, axis))
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T, U> Debug for VarDiff<T, U>
+where
+    T: Data + Debug,
+    U: Gradient<Dim = T::Dim> + Overwrite + Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VarDiff")
+            .field("var", &self.var)
+            .field("node", &self.node)
+            .field("past", &self.past.len())
+            .field("parameters", &self.parameters().len())
+            .finish()
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T: Data + Display, U: Gradient + Overwrite + Display> Display for VarDiff<T, U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.var)
     }
 }

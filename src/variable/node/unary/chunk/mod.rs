@@ -1,15 +1,18 @@
+#[cfg(test)]
+use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
-#[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Chunk ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct Chunk<T: Data> {
     operand: Rc<T>,
     chunk_no: usize,
@@ -76,16 +79,35 @@ impl<T: Data> Data for Chunk<T> {
     }
 }
 
+impl<T: Data> Debug for Chunk<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Chunk")
+            .field("data", &self.data.borrow())
+            .field("chunk_no", &self.chunk_no)
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<T: Data> Display for Chunk<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ChunkBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct ChunkBackward<T: Gradient + Overwrite> {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
     shape: T::Dim,
     overwrite: Cell<bool>,
     operand: Rc<T>,
-    chunk_id: usize,
+    chunk_no: usize,
 }
 
 impl<T: Gradient + Overwrite> ChunkBackward<T> {
-    pub fn new(operand: Rc<T>, grad_chunk: Tensor<T::Dim>, chunk_id: usize) -> Self {
+    pub fn new(operand: Rc<T>, grad_chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
         let shape = grad_chunk.raw_dim();
 
         Self {
@@ -93,7 +115,7 @@ impl<T: Gradient + Overwrite> ChunkBackward<T> {
             shape,
             overwrite: Cell::new(true),
             operand,
-            chunk_id,
+            chunk_no,
         }
     }
 }
@@ -122,13 +144,13 @@ impl<T: Gradient + Overwrite> Overwrite for ChunkBackward<T> {
 
 impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
     fn backward(&self) {
-        let (mut diff_operand, grad, chunk_id) =
-            (self.operand.gradient_mut(), self.gradient(), self.chunk_id);
+        let (mut diff_operand, grad, chunk_no) =
+            (self.operand.gradient_mut(), self.gradient(), self.chunk_no);
 
         let mut op_gradient_chunk = diff_operand
             .exact_chunks_mut(self.shape.clone())
             .into_iter()
-            .skip(chunk_id)
+            .skip(chunk_no)
             .take(1)
             .next()
             .unwrap();
@@ -151,5 +173,27 @@ impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
     }
 }
 
+impl<T: Gradient + Overwrite> Debug for ChunkBackward<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChunkBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("chunk_no", &self.chunk_no)
+            .field("overwrite", &self.overwrite.get())
+            .finish()
+    }
+}
+
+impl<T: Gradient + Overwrite> Display for ChunkBackward<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(test)]
 mod test;

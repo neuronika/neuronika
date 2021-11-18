@@ -1,17 +1,19 @@
+#[cfg(test)]
+use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient,
     GradientOverwrite, Overwrite, Tensor,
 };
-
-#[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-
 use ndarray::{Axis, Dimension, RemoveAxis, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     rc::Rc,
 };
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiStack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct MultiStack<D: Dimension + RemoveAxis + 'static> {
     operands: Vec<Rc<dyn Data<Dim = D>>>,
     axis: usize,
@@ -77,6 +79,26 @@ impl<D: Dimension + RemoveAxis> Forward for MultiStack<D> {
     }
 }
 
+impl<D: Dimension + RemoveAxis> Debug for MultiStack<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiStack")
+            .field("data", &self.data.borrow())
+            .field("axis", &self.axis)
+            .field("operands", &self.operands.len())
+            .field("computed", &self.computed.get())
+            .finish()
+    }
+}
+
+impl<D: Dimension + RemoveAxis> Display for MultiStack<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &self.data.borrow())
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiStackBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct MultiStackBackward<D: Dimension + RemoveAxis> {
     gradient: RefCell<Option<Tensor<D::Larger>>>,
     shape: D::Larger,
@@ -147,5 +169,28 @@ impl<D: Dimension + RemoveAxis> Backward for MultiStackBackward<D> {
     }
 }
 
+impl<D: Dimension + RemoveAxis> Debug for MultiStackBackward<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiStackBackward")
+            .field("gradient", &self.gradient.borrow())
+            .field("operands", &self.operands.len())
+            .field("axis", &self.axis)
+            .field("overwrite", &self.overwrite)
+            .finish()
+    }
+}
+
+impl<D: Dimension + RemoveAxis> Display for MultiStackBackward<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &*self.gradient.borrow() {
+            Some(gradient) => write!(f, "{}", &gradient),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(test)]
 mod test;

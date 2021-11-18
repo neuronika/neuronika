@@ -1,7 +1,11 @@
-use super::*;
+use super::{
+    conv_out_shape, new_backward_input, new_input, Backward, Convolution, ConvolutionBackward,
+    Forward, Gradient, GroupedConvolution, GroupedConvolutionBackward, NData, Overwrite, Tensor,
+    Zero,
+};
 
 mod forward {
-    use super::*;
+    use super::{conv_out_shape, new_input, Convolution, Forward, NData, Tensor, Zero};
 
     #[test]
     fn creation() {
@@ -71,7 +75,11 @@ mod forward_grouped {
 }
 
 mod backward {
-    use super::*;
+    use super::{
+        conv_out_shape, new_backward_input, new_input, Backward, ConvolutionBackward, Gradient,
+        Overwrite, Tensor, Zero,
+    };
+
     #[test]
     fn creation() {
         let node = ConvolutionBackward::new(
@@ -162,7 +170,11 @@ mod backward {
 }
 
 mod backward_grouped {
-    use super::*;
+    use super::{
+        conv_out_shape, new_backward_input, new_input, Backward, Gradient,
+        GroupedConvolutionBackward, Overwrite, Tensor, Zero,
+    };
+
     #[test]
     fn creation() {
         let node = GroupedConvolutionBackward::new(

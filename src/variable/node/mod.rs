@@ -164,14 +164,6 @@ pub trait Backward: Overwrite {
     fn with_grad(&self);
 }
 
-/// Specifies the nodes that can be made differentiable.
-pub(crate) trait Differentiable {
-    type Output: Gradient + Overwrite;
-
-    /// Returns the differentiable counterpart of `self`.
-    fn differentiable(&self) -> Self::Output;
-}
-
 /// Eval mode behavior.
 ///
 /// This trait is implemented by all the variables and all the components that admit multiple

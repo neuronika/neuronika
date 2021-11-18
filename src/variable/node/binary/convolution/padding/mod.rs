@@ -1,7 +1,8 @@
 use ndarray::{Array, ArrayBase, Data, DataMut, Dimension, IntoDimension, Ix1, Ix2, Ix3, Slice};
+use std::fmt::Debug;
 
 /// Padding modes logic.
-pub trait PaddingMode: Send + Sync + Clone {
+pub trait PaddingMode: Send + Sync + Clone + Debug {
     fn pad_inplace<D: ReflPad + ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
         array: &mut ArrayBase<S, D>,
@@ -19,12 +20,12 @@ pub trait PaddingMode: Send + Sync + Clone {
 /// Zero padding.
 ///
 /// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Zero;
 /// Constant padding.
 ///
 /// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Constant {
     pub value: f32,
 }
@@ -37,12 +38,12 @@ impl Constant {
 /// Reflective padding.
 ///
 /// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Reflective;
 /// Replicative padding.
 ///
 /// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Replicative;
 
 impl PaddingMode for Zero {

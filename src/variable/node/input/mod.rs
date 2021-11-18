@@ -1,11 +1,14 @@
 use super::{
-    expect_tensor, expect_tensor_mut, Data, Differentiable, Dimension, Forward, Gradient,
-    Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Data, Dimension, Forward, Gradient, Overwrite, Tensor,
 };
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
 };
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// The forward component of a leaf of the computational graph.
 pub struct Input<D: Dimension> {
@@ -21,6 +24,13 @@ impl<D: Dimension> Input<D> {
         };
 
         super::super::Var::new(input)
+    }
+
+    pub(crate) fn differentiable(&self) -> InputBackward<D> {
+        InputBackward {
+            gradient: RefCell::new(Some(Tensor::zeros(self.data().raw_dim()))),
+            overwrite: Cell::new(true),
+        }
     }
 }
 
@@ -50,17 +60,6 @@ impl<D: Dimension> Forward for Input<D> {
     }
 }
 
-impl<D: Dimension> Differentiable for Input<D> {
-    type Output = InputBackward<D>;
-
-    fn differentiable(&self) -> Self::Output {
-        Self::Output {
-            gradient: RefCell::new(Some(Tensor::zeros(self.data().raw_dim()))),
-            overwrite: Cell::new(true),
-        }
-    }
-}
-
 impl<D: Dimension> Debug for Input<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Input")
@@ -75,6 +74,10 @@ impl<D: Dimension> Display for Input<D> {
         write!(f, "{}", self.data.borrow())
     }
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ InputBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// The backward component of a differentiable leaf of the computational graph.
 pub struct InputBackward<D: Dimension> {
@@ -112,7 +115,7 @@ impl<D: Dimension> Overwrite for InputBackward<D> {
 
 impl<D: Dimension> Debug for InputBackward<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Input")
+        f.debug_struct("InputBackward")
             .field("gradient", &self.gradient.borrow())
             .field("overwrite", &self.overwrite.get())
             .finish()
@@ -128,5 +131,8 @@ impl<D: Dimension> Display for InputBackward<D> {
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(test)]
 mod test;

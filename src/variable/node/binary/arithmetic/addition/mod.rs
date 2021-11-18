@@ -1,20 +1,18 @@
+#[cfg(test)]
+use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     broadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
     BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
 };
-
+use ndarray::{DimMax, Dimension, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
     rc::Rc,
 };
-
-use ndarray::{DimMax, Dimension, Zip};
-
-#[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-
-/// Addition forward node.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Addition ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct Addition<Lhs, Rhs>
 where
     Lhs: Data,
@@ -33,7 +31,6 @@ where
     Rhs: Data,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    /// Creates a new `Addition` node whose operands are `left` and `right`.
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
 
@@ -115,7 +112,9 @@ where
     }
 }
 
-/// Addition backward node.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AdditionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct AdditionBackward<Lhs, Rhs>
 where
     Lhs: Gradient + Overwrite,
@@ -135,7 +134,6 @@ where
     Rhs: Gradient + Overwrite,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
-    /// Creates a new `Addition` backward node whose operands are `left` and `right`.
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
         let gradient = broadcasted_zeros(&left.gradient(), &right.gradient());
         let shape = gradient.raw_dim();
@@ -233,9 +231,9 @@ where
     }
 }
 
-/// Addition backward unary node.
-///
-/// Used for computations in which only one operand among `left` and `right` is differentiable.
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AdditionBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct AdditionBackwardUnary<T, U>
 where
     T: Gradient + Overwrite,
@@ -347,5 +345,8 @@ where
     }
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(test)]
 mod test;

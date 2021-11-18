@@ -1,4 +1,4 @@
-//! The `neuronika` crate provides autodifferentiation and dynamic neural networks.
+//! The `neuronika` crate provides auto-differentiation and dynamic neural networks.
 //!
 //! Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
 //! use, fast experimentation and performance.
