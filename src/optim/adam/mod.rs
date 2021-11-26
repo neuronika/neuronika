@@ -30,7 +30,7 @@ impl<'a, T: Penalty> Adam<'a, T> {
     /// * `penalty` - penalty regularization.
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
-    pub fn new(params: Vec<Param>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
+    pub fn new(params: Vec<Param<'a>>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
         let params = RefCell::new(Self::build_params(params));
         let lr = Cell::new(lr);
 
@@ -93,9 +93,9 @@ pub struct AdamParam<'a> {
     exp_avg_sq: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for AdamParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for AdamParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let step = 0;
         let (exp_avg, exp_avg_sq) =
             { (ArrayD::zeros(grad.raw_dim()), ArrayD::zeros(grad.raw_dim())) };
@@ -109,7 +109,7 @@ impl<'a> From<Param> for AdamParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer for Adam<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for Adam<'a, T> {
     type ParamRepr = AdamParam<'a>;
 
     fn step(&self) {

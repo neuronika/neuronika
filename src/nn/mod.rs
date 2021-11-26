@@ -1,8 +1,8 @@
 //! Basic building blocks for neural networks.
 //!
 //! Neuronika provides some pre-assembled components, you can either use them individually or
-//! combine them into a bigger architecture. Feel free to take a look at the
-//! [complete list](#layers).
+//! combine them into a bigger architecture. Take a look at the [complete list](#layers) to know
+//! more.
 //!
 //! You can also customize the initialization of the parameters of such components, and that of any
 //! other differentiable variable, by picking the function that best fits your needs from the
@@ -141,7 +141,7 @@
 //! // Random data to be given in input to the model.
 //! let fictitious_data = neuronika::rand((200, 25));
 //!
-//! let mut out = model.forward(fictitious_data);
+//! let out = model.forward(fictitious_data);
 //! out.forward(); // Always remember to call forward() !
 //! # assert_eq!(out.data().shape(), &[200, 5]);
 //! ```
@@ -204,7 +204,7 @@
 //! assert_eq!(out.parameters().len(), 7); // 7 leaf ancestors !
 //! ```
 //!
-//! You can notice how, if we give in input to the multilayer perceptron the result of an
+//! You may notice how, if we feed in input to the multilayer perceptron the result of an
 //! addition operation, in which one of the operands is a differentiable variable, and then
 //! request the *mlp* output's differentiable ancestors, we are given a vector containing 7
 //! [`Param`](struct@Param).
@@ -381,8 +381,8 @@
 use super::{Input, InputBackward, Param};
 use crate::variable::{
     self, Backward, Convolve, ConvolveWithGroups, Data, Dropout as DropoutNode,
-    DropoutBackward as DropoutBackwardNode, Eval, Forward, Gradient, MatMatMulT, Overwrite, Tensor,
-    Var, VarDiff,
+    DropoutBackward as DropoutBackwardNode, Eval, Forward, Gradient, MatMatMulT, Overwrite,
+    RawParam, Tensor, Var, VarDiff,
 };
 pub use crate::variable::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
@@ -403,7 +403,7 @@ pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 /// This struct stores all the [`Learnable`] associated to a given model and the model's status. It
 /// is suggested to perform the registration of the layers at the model construction.
 pub struct ModelStatus {
-    params: Vec<Param>,
+    params: Vec<RawParam>,
     train: Rc<Cell<bool>>,
 }
 
@@ -413,14 +413,18 @@ impl ModelStatus {
     ///
     /// Conceptually, this method behaves similarly to [`.parameters()`](VarDiff::parameters()) when
     /// called on the differentiable variable outputted by the network. The key difference lies in
-    /// the fact that, while the differentiable variable's `.parameters()` method would return *all*
+    /// that, while the differentiable variable's `.parameters()` method would return *all*
     /// the differentiable leaves that took part in the computation of the output, possibly also
     /// the weights of another network, `ModelStatus`'s `.parameters()` method returns *only* the
     /// leaves that have been associated with it at the model's instantiation.
     ///
     /// Usually the result of this method is passed to an optimizer.
-    pub fn parameters(&self) -> Vec<Param> {
-        self.params.to_vec()
+    pub fn parameters(&self) -> Vec<Param<'_>> {
+        self.params
+            .iter()
+            .cloned()
+            .map(RawParam::into_param)
+            .collect()
     }
 
     /// Registers a component.
@@ -502,7 +506,7 @@ where
 /// Registration for neuronika's components.
 pub trait Register {
     /// Registers `self`'s parameters to the model's  status parameters `params`.
-    fn register_params(&self, params: &mut Vec<Param>);
+    fn register_params(&self, params: &mut Vec<RawParam>);
 
     /// Register `self`'s status to the model's status state `status`.
     fn register_status(&mut self, status: Rc<Cell<bool>>);
@@ -559,7 +563,7 @@ impl Register for Dropout {
         self.status = status;
     }
 
-    fn register_params(&self, _: &mut Vec<Param>) {}
+    fn register_params(&self, _: &mut Vec<RawParam>) {}
 }
 
 /// Applies a **linear transformation** to the incoming data.
@@ -618,9 +622,9 @@ impl Linear {
 
 impl Register for Linear {
     /// Registers the weight and the bias of this `Linear` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight.parameters());
-        params.extend(self.bias.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight.register_params(params);
+        self.bias.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -730,11 +734,11 @@ impl LSTMCell {
 
 impl Register for LSTMCell {
     /// Registers the weights and the biases of this LSTMCell instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight_hh.parameters());
-        params.extend(self.weight_ih.parameters());
-        params.extend(self.bias_hh.parameters());
-        params.extend(self.bias_ih.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight_hh.register_params(params);
+        self.weight_ih.register_params(params);
+        self.bias_hh.register_params(params);
+        self.bias_ih.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -833,11 +837,11 @@ impl GRUCell {
 
 impl Register for GRUCell {
     /// Registers the weights and the biases of this `GRUCell` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight_hh.parameters());
-        params.extend(self.weight_ih.parameters());
-        params.extend(self.bias_hh.parameters());
-        params.extend(self.bias_ih.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight_hh.register_params(params);
+        self.weight_ih.register_params(params);
+        self.bias_hh.register_params(params);
+        self.bias_ih.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -947,9 +951,9 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
 
 impl<Pad: PaddingMode> Register for Conv1d<Pad> {
     /// Registers the weight and the bias of this `Conv1d` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight.parameters());
-        params.extend(self.bias.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight.register_params(params);
+        self.bias.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -1077,9 +1081,9 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
 
 impl<Pad: PaddingMode> Register for GroupedConv1d<Pad> {
     /// Registers the weight and the bias of this `GroupedConv1d` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight.parameters());
-        params.extend(self.bias.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight.register_params(params);
+        self.bias.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -1201,9 +1205,9 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
 
 impl<Pad: PaddingMode> Register for Conv2d<Pad> {
     /// Registers the weight and the bias of this `Conv2d` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight.parameters());
-        params.extend(self.bias.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight.register_params(params);
+        self.bias.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -1338,9 +1342,9 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
 
 impl<Pad: PaddingMode> Register for GroupedConv2d<Pad> {
     /// Registers the weight and the bias of this `GroupedConv2d` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight.parameters());
-        params.extend(self.bias.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight.register_params(params);
+        self.bias.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -1465,9 +1469,9 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
 
 impl<Pad: PaddingMode> Register for Conv3d<Pad> {
     /// Registers the weight and the bias of this `Conv3d` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight.parameters());
-        params.extend(self.bias.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight.register_params(params);
+        self.bias.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
@@ -1604,9 +1608,9 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
 
 impl<Pad: PaddingMode> Register for GroupedConv3d<Pad> {
     /// Registers the weight and the bias of this `GroupedConv3d` instance.
-    fn register_params(&self, params: &mut Vec<Param>) {
-        params.extend(self.weight.parameters());
-        params.extend(self.bias.parameters());
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        self.weight.register_params(params);
+        self.bias.register_params(params);
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}

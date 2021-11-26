@@ -23,28 +23,28 @@ fn grad_mut() {
 fn add_scalar() {
     // Var - f32
     let x = crate::ones((2, 2));
-    let mut y = x + 1.;
+    let y = x + 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
     // f32 - Var
     let x = crate::ones((2, 2));
-    let mut y = 1. + x;
+    let y = 1. + x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
     // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
-    let mut y = x + 1.;
+    let y = x + 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
     // f32 - VarDiff
     let x = crate::ones((2, 2)).requires_grad();
-    let mut y = 1. + x;
+    let y = 1. + x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
@@ -52,16 +52,17 @@ fn add_scalar() {
 
 #[test]
 fn param_test() {
-    use super::Param;
+    use super::RawParam;
 
     let mut data = ndarray::array![[1., 2.], [3., 4.]];
     let mut grad = ndarray::array![[4., 5.], [6., 7.]];
 
-    let param = Param::new(data.as_mut_ptr(), grad.as_mut_ptr(), data.shape().to_vec());
-
-    let (mut data_view, mut grad_view) = param.get();
-    data_view += 1.;
-    grad_view += 1.;
+    {
+        let raw_param = RawParam::new(data.as_mut_ptr(), grad.as_mut_ptr(), data.shape().to_vec());
+        let mut param = raw_param.into_param();
+        param.data += 1.;
+        param.grad += 1.;
+    }
 
     assert_eq!(data, ndarray::array![[2., 3.], [4., 5.]]);
     assert_eq!(grad, ndarray::array![[5., 6.], [7., 8.]]);
@@ -71,28 +72,28 @@ fn param_test() {
 fn sub_scalar() {
     // Var - f32
     let x = crate::ones((2, 2));
-    let mut y = x - 1.;
+    let y = x - 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
     // f32 - Var
     let x = crate::ones((2, 2));
-    let mut y = 1. - x;
+    let y = 1. - x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
     // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
-    let mut y = x - 1.;
+    let y = x - 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
     // f32 - VarDiff
     let x = crate::ones((2, 2)).requires_grad();
-    let mut y = 1. - x;
+    let y = 1. - x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
@@ -102,28 +103,28 @@ fn sub_scalar() {
 fn mul_scalar() {
     // Var - f32
     let x = crate::ones((2, 2));
-    let mut y = x * 2.;
+    let y = x * 2.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
     // f32 - Var
     let x = crate::ones((2, 2));
-    let mut y = 2. * x;
+    let y = 2. * x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
     // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
-    let mut y = x * 2.;
+    let y = x * 2.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
     // f32 - VarDiff
     let x = crate::ones((2, 2)).requires_grad();
-    let mut y = 2. * x;
+    let y = 2. * x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
@@ -133,28 +134,28 @@ fn mul_scalar() {
 fn div_scalar() {
     // Var - f32
     let x = crate::full((2, 2), 9.);
-    let mut y = x / 3.;
+    let y = x / 3.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
     // f32 - Var
     let x = crate::full((2, 2), 3.);
-    let mut y = 9. / x;
+    let y = 9. / x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
     // VarDiff - f32
     let x = crate::full((2, 2), 9.).requires_grad();
-    let mut y = x / 3.;
+    let y = x / 3.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
     // f32 - VarDiff
     let x = crate::full((2, 2), 3.).requires_grad();
-    let mut y = 9. / x;
+    let y = 9. / x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);

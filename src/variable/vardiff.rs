@@ -1,3 +1,5 @@
+use crate::nn::Register;
+
 use super::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Cat, Chunk, ChunkBackward,
     Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DifferentiableVariable,
@@ -9,7 +11,7 @@ use super::{
     MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate,
     MultiConcatenateBackward, MultiStack, MultiStackBackward, Multiplication,
     MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite,
-    Param, Power, PowerBackward, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
+    Param, Power, PowerBackward, RawParam, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
     SoftPlusBackward, Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack, StackBackward,
     StackBackwardLeft, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
     SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Tensor, Transpose,
@@ -120,7 +122,7 @@ where
 {
     /// Propagates the computations forwards and populates all the variables and differentiable
     /// variables from the leaves of the graph to `self`.   
-    pub fn forward(&mut self) {
+    pub fn forward(&self) {
         self.var.forward();
 
         debug_assert!(self.past.buffer().is_empty() || self.past.len() == self.past.buffer().len());
@@ -167,7 +169,7 @@ where
     /// vector of [`Param`] returned by [`.parameters()`].
     ///
     ///  [`.parameters()`]: VarDiff::parameters()
-    pub fn backward(&mut self, seed: f32) {
+    pub fn backward(&self, seed: f32) {
         debug_assert!(!self.past.is_empty());
 
         self.node.gradient_mut().fill(seed);
@@ -204,18 +206,18 @@ where
 
     /// Disables gradient computation and de-allocates the gradient for `self` and all of its
     /// ancestors.
-    pub fn no_grad(&mut self) {
+    pub fn no_grad(&self) {
         self.past.prepare_buffer();
-        for node in &self.past.buffer {
+        for node in self.past.buffer.borrow().iter() {
             node.no_grad();
         }
     }
 
     /// Re-enables gradient computation and re-allocates the gradient for `self` and all of its
     /// ancestors.
-    pub fn with_grad(&mut self) {
+    pub fn with_grad(&self) {
         self.past.prepare_buffer();
-        for node in &self.past.buffer {
+        for node in self.past.buffer.borrow().iter() {
             node.with_grad();
         }
     }
@@ -330,19 +332,28 @@ where
     /// ```
     /// use neuronika;
     ///
+    /// // x has 2 parameters, as it is the result of an addition.
     /// let x = neuronika::rand((3,3)).requires_grad() + neuronika::rand((3,3)).requires_grad();
+    /// // The same holds for y.
     /// let y = neuronika::rand(3).requires_grad() + neuronika::rand(1).requires_grad();
     ///
     /// assert!(x.parameters().len() == y.parameters().len() && y.parameters().len() == 2);
     ///
+    /// // z is the result of an addition between x and y, so it will have 4 parameters.
     /// let z = x.clone() + y;
     /// assert_eq!(z.parameters().len(), 4);
     ///
+    /// // If we add x to z there still will be 4 parameters, as x is already present among them.
     /// let w = z + x;
     /// assert_eq!(w.parameters().len(), 4);
     /// ```
-    pub fn parameters(&self) -> Vec<Param> {
-        self.past.parameters.iter().cloned().collect()
+    pub fn parameters(&self) -> Vec<Param<'_>> {
+        self.past
+            .parameters
+            .iter()
+            .cloned()
+            .map(RawParam::into_param)
+            .collect()
     }
 
     /// Returns the sum of all elements in `self`.
@@ -1209,6 +1220,20 @@ where
         let node = StackBackward::new(self.node, rhs.node, axis);
         VarDiff::from(node, self.past, Stack::stack(self.var, rhs.var, axis))
     }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Register ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<T, U> Register for VarDiff<T, U>
+where
+    T: Data + 'static,
+    U: Gradient + Overwrite + 'static,
+{
+    fn register_params(&self, params: &mut Vec<RawParam>) {
+        params.extend(self.past.parameters.iter().cloned())
+    }
+
+    fn register_status(&mut self, _: Rc<Cell<bool>>) {}
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

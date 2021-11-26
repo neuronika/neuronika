@@ -5,21 +5,21 @@
 //!
 //! # Highlights
 //!
-//! * Define by run computational graphs
-//! * Reverse-mode automatic differentiation
-//! * Dynamic neural networks
+//! * Define by run computational graphs.
+//! * Reverse-mode automatic differentiation.
+//! * Dynamic neural networks.
 //!
 //! # Variables
 //!
 //! The main building blocks of neuronika are *variables* and *differentiable variables*.
-//! This means that when you use this crate you are handling and manipulating instances of [`Var`]
+//! This means that when using this crate you will be handling and manipulating instances of [`Var`]
 //! and [`VarDiff`].
 //!
 //! Variables are lean and powerful abstractions over the computational graph's nodes. Neuronika
 //! empowers you with the ability of imperatively building and differentiating such graphs with
 //! minimal amount of code and effort.
 //!
-//! Both differentiable and non-differentiable variables can be understood as *tensors*, you
+//! Both differentiable and non-differentiable variables can be understood as *tensors*. You
 //! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
 //! Refer to [`Var`] and [`VarDiff`] for a complete list of the available operations.
 //!
@@ -29,10 +29,45 @@
 //! The provided API is linear in thought and minimal as it is carefully tailored around you, the
 //! user.
 //!
+//! ### Quickstart
+//!
+//! If you’re familiar with Pytorch or Numpy, you will easily follow these example. If not, brace
+//! yourself and follow along.
+//!
+//! First thing first, you should import neuronika.
+//!
+//! ```
+//! use neuronika;
+//! ```
+//!
+//! Neuronika's variables can be initialized in many ways. In the following, we will show some of
+//! the possible alternatives:
+//!
+//! **With random or constant values**:
+//!
+//! Here `shape` determines the dimensionality of the output variable.
+//! ```
+//! let shape = [3, 4];
+//!
+//! let rand_variable = neuronika::rand(shape);
+//! let ones_variable = neuronika::ones(shape);
+//! let constant_variable = neuronika::full(shape, 7.);
+//! ```
+//!
+//! **From a ndarray array**
+//!
+//! ```
+//! use ndarray::array;
+//!
+//! let array = array![1., 2.];
+//! let x_ndarray = neuronika::from_ndarray(array);
+//! ```
+//!
 //! ## Leaf Variables
 //!
 //! You can create leaf variables by using one of the many provided functions, such as [`zeros()`],
-//! [`ones()`], [`full()`] and [`rand()`]. Feel free to refer to the [complete list](#functions).
+//! [`ones()`], [`full()`] and [`rand()`]. Refer to the [complete list](#functions) for additional
+//! information.
 //!
 //! Leaf variables are so called because they form the *leaves* of the computational graph, as are
 //! not the result of any computation.
@@ -92,21 +127,20 @@
 //! # extern crate blas_src;
 //!use neuronika;
 //!
-//!let x = neuronika::rand(5);          //----+
-//!let q = neuronika::rand((5, 5));     //    |- Those lines build the graph.
-//!                                     //    |
-//!let mut y = x.clone().vm(q).vv(x);   //----+
-//!                                     //
-//!y.forward();                         // After .forward() is called y
-//!                                     // contains the result.
+//!let x = neuronika::rand(5);      //----+
+//!let q = neuronika::rand((5, 5)); //    |- Those lines build the graph.
+//!                                 //    |
+//!let y = x.clone().vm(q).vv(x);   //----+
+//!                                 //
+//!y.forward();                     // After .forward() is called y contains the result.
 //!```
 //!
 //! ## Freeing and keeping the graph
 //!
-//! By default, computational graphs will persist in the program's memory. If you want to be more
-//! conservative about this aspect you can place any arbitrary subset of the computations in an
-//! inner scope. This allows for the corresponding portion of the graph to be freed when the end of
-//! the scope is reached by your program.
+//! By default, computational graphs will persist in the program's memory. If you want or need to be
+//! more conservative about that you can wrap any arbitrary subset of the computations in an inner
+//! scope. This allows for the corresponding portion of the graph to be freed when the end of
+//! the scope is reached by the execution of your program.
 //!
 //!```
 //! # #[cfg(feature = "blas")]
@@ -118,7 +152,7 @@
 //!let x = neuronika::rand((10, 3));                // -----------------+- Leaves are created
 //!                                                 //                  
 //!{                                                // ---+             
-//!     let mut h = x.mm(w.t()) + b;                //    | w's and b's
+//!     let h = x.mm(w.t()) + b;                    //    | w's and b's
 //!     h.forward();                                //    | grads are   
 //!     h.backward(1.0);                            //    | accumulated
 //!}                                                // ---+             |- Graph is freed and

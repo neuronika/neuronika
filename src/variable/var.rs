@@ -4,7 +4,7 @@ use super::{
     InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
     MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
     MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
-    MultiplicationBackwardUnary, Negation, Overwrite, Param, Power, ReLU, Sigmoid, SoftPlus,
+    MultiplicationBackwardUnary, Negation, Overwrite, Power, RawParam, ReLU, Sigmoid, SoftPlus,
     Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
     Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
     VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
@@ -72,7 +72,7 @@ impl<D: Dimension> Var<Input<D>> {
         let node = Rc::new(self.node.differentiable());
         let mut gradient = node.gradient_mut();
         let mut parameters = HashSet::new();
-        parameters.insert(Param::new(
+        parameters.insert(RawParam::new(
             self.node.data_mut().as_mut_ptr(),
             gradient.as_mut_ptr(),
             gradient.shape().to_vec(),
@@ -98,12 +98,12 @@ impl<D: Dimension> Var<Input<D>> {
 impl<T: Data + Forward + 'static> Var<T> {
     /// Propagates the computations forwards and populates all the variables from the leaves of the
     /// graph to `self`.
-    pub fn forward(&mut self) {
+    pub fn forward(&self) {
         if self.node.was_computed() {
             // If the user has already called `.forward()` on this var,
             // then he wants to recompute it.
             assert_eq!(self.past.len(), self.past.buffer().len());
-            for node in self.past.buffer() {
+            for node in self.past.buffer().iter() {
                 node.reset_computation();
             }
         }

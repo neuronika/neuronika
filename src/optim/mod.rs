@@ -87,9 +87,9 @@
 //!     grad: ArrayViewMutD<'a, f32>,
 //! }
 //!
-//! impl<'a> From<Param> for SGDParam<'a> {
-//!     fn from(param: Param) -> Self {
-//!         let (data, grad) = param.get();
+//! impl<'a> From<Param<'a>> for SGDParam<'a> {
+//!     fn from(param: Param<'a>) -> Self {
+//!         let Param { data, grad } = param;
 //!         Self { data, grad }
 //!     }
 //! }
@@ -140,14 +140,14 @@
 //! #     data: ArrayViewMutD<'a, f32>,
 //! #     grad: ArrayViewMutD<'a, f32>,
 //! # }
-//! # impl<'a> From<Param> for SGDParam<'a> {
-//! #     fn from(param: Param) -> Self {
-//! #         let (data, grad) = param.get();
+//! # impl<'a> From<Param<'a>> for SGDParam<'a> {
+//! #     fn from(param: Param<'a>) -> Self {
+//! #         let Param { data, grad } = param;
 //! #         Self { data, grad }
 //! #     }
 //! # }
 //!
-//! impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
+//! impl<'a, T: Penalty> Optimizer<'a> for SGD<'a, T> {
 //!     type ParamRepr = SGDParam<'a>;
 //!
 //!     fn step(&self) {
@@ -180,7 +180,7 @@
 //!
 //! // Simple constructor.
 //! impl<'a, T: Penalty> SGD<'a, T> {
-//!   pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
+//!   pub fn new(parameters: Vec<Param<'a>>, lr: f32, penalty: T) -> Self {
 //!       Self {
 //!           params: RefCell::new(Self::build_params(parameters)),
 //!           lr: Cell::new(lr),
@@ -223,9 +223,9 @@ pub use sgd::{SGDParam, SGDWithMomentum, SGDWithMomentumParam, SGD};
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Optimizer trait, defines the optimizer's logic.
-pub trait Optimizer {
+pub trait Optimizer<'a> {
     /// The type for the internal representation of the optimizer's parameters.
-    type ParamRepr: From<Param>;
+    type ParamRepr: From<Param<'a>>;
 
     /// Performs a single optimization step.
     fn step(&self);
@@ -253,6 +253,7 @@ pub trait Optimizer {
     /// Sets this optimizer's learning rate.
     fn set_lr(&self, lr: f32);
 }
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Penalty Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
