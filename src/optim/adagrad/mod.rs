@@ -28,7 +28,7 @@ impl<'a, T: Penalty> Adagrad<'a, T> {
     /// * `penalty` - penalty regularization.
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-10*.
-    pub fn new(params: Vec<Param>, lr: f32, lr_decay: f32, penalty: T, eps: f32) -> Self {
+    pub fn new(params: Vec<Param<'a>>, lr: f32, lr_decay: f32, penalty: T, eps: f32) -> Self {
         let params = RefCell::new(Self::build_params(params));
         let lr = Cell::new(lr);
 
@@ -90,9 +90,9 @@ pub struct AdagradParam<'a> {
     grad_sq: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for AdagradParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for AdagradParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let step = 0;
         let grad_sq = ArrayD::zeros(grad.raw_dim());
 
@@ -105,7 +105,7 @@ impl<'a> From<Param> for AdagradParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer for Adagrad<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for Adagrad<'a, T> {
     type ParamRepr = AdagradParam<'a>;
     fn step(&self) {
         let (mut params, lr, lr_decay, penalty, eps) = (

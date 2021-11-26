@@ -18,14 +18,14 @@ pub struct SGDParam<'a> {
     grad: ArrayViewMutD<'a, f32>,
 }
 
-impl<'a> From<Param> for SGDParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for SGDParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         Self { data, grad }
     }
 }
 
-impl<'a, T: Penalty> Optimizer for SGD<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for SGD<'a, T> {
     type ParamRepr = SGDParam<'a>;
 
     fn step(&self) {
@@ -64,7 +64,7 @@ impl<'a, T: Penalty> SGD<'a, T> {
     /// * `lr` - learning rate.
     ///
     /// * `penalty` - penalty regularization.
-    pub fn new(parameters: Vec<Param>, lr: f32, penalty: T) -> Self {
+    pub fn new(parameters: Vec<Param<'a>>, lr: f32, penalty: T) -> Self {
         let params = RefCell::new(Self::build_params(parameters));
         let lr = Cell::new(lr);
 
@@ -166,9 +166,9 @@ pub struct SGDWithMomentumParam<'a> {
     buffer: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for SGDWithMomentumParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for SGDWithMomentumParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let buffer = ArrayD::zeros(grad.raw_dim());
         Self { data, grad, buffer }
     }
@@ -182,7 +182,7 @@ impl<'a> From<SGDParam<'a>> for SGDWithMomentumParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer for SGDWithMomentum<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for SGDWithMomentum<'a, T> {
     type ParamRepr = SGDWithMomentumParam<'a>;
 
     fn step(&self) {

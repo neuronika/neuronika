@@ -91,7 +91,7 @@ fn prepare_step(last_lr: &Cell<f32>, current_lr: &Cell<f32>, current_epoch: &Cel
 ///```text
 /// lrₜ = lr₀ * lr_fn(t)
 ///```
-pub struct LambdaLR<'a, T: Optimizer, F: Fn(usize) -> f32> {
+pub struct LambdaLR<'a, T: Optimizer<'a>, F: Fn(usize) -> f32> {
     optimizer: &'a T,
     lr_fn: F,
     current_epoch: Cell<usize>,
@@ -100,7 +100,7 @@ pub struct LambdaLR<'a, T: Optimizer, F: Fn(usize) -> f32> {
     initial_lr: Cell<f32>,
 }
 
-impl<'a, T: Optimizer, F: Fn(usize) -> f32> LambdaLR<'a, T, F> {
+impl<'a, T: Optimizer<'a>, F: Fn(usize) -> f32> LambdaLR<'a, T, F> {
     /// Creates a new LambdaLR scheduler.
     ///
     /// # Arguments
@@ -152,7 +152,7 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> LambdaLR<'a, T, F> {
     }
 }
 
-impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for LambdaLR<'a, T, F> {
+impl<'a, T: Optimizer<'a>, F: Fn(usize) -> f32> LRScheduler for LambdaLR<'a, T, F> {
     fn step(&self) {
         prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         self.current_lr
@@ -184,7 +184,7 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for LambdaLR<'a, T, F> {
 ///```text
 /// lrₜ = lrₜ₋₁ * lr_fn(t)
 ///```
-pub struct MultiplicativeLR<'a, T: Optimizer, F: Fn(usize) -> f32> {
+pub struct MultiplicativeLR<'a, T: Optimizer<'a>, F: Fn(usize) -> f32> {
     optimizer: &'a T,
     lr_fn: F,
     current_epoch: Cell<usize>,
@@ -192,7 +192,7 @@ pub struct MultiplicativeLR<'a, T: Optimizer, F: Fn(usize) -> f32> {
     last_lr: Cell<f32>,
 }
 
-impl<'a, T: Optimizer, F: Fn(usize) -> f32> MultiplicativeLR<'a, T, F> {
+impl<'a, T: Optimizer<'a>, F: Fn(usize) -> f32> MultiplicativeLR<'a, T, F> {
     /// Creates a new MultiplicativeLR scheduler.
     ///
     /// # Arguments
@@ -243,7 +243,7 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> MultiplicativeLR<'a, T, F> {
     }
 }
 
-impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for MultiplicativeLR<'a, T, F> {
+impl<'a, T: Optimizer<'a>, F: Fn(usize) -> f32> LRScheduler for MultiplicativeLR<'a, T, F> {
     fn step(&self) {
         prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         self.current_lr
@@ -275,7 +275,7 @@ impl<'a, T: Optimizer, F: Fn(usize) -> f32> LRScheduler for MultiplicativeLR<'a,
 ///```text
 /// lrₜ = lrₜ₋₁ * gamma if t mod step_size == 0 else lrₜ₋₁
 ///```
-pub struct StepLR<'a, T: Optimizer> {
+pub struct StepLR<'a, T: Optimizer<'a>> {
     optimizer: &'a T,
     gamma: f32,
     step_size: usize,
@@ -284,7 +284,7 @@ pub struct StepLR<'a, T: Optimizer> {
     last_lr: Cell<f32>,
 }
 
-impl<'a, T: Optimizer> StepLR<'a, T> {
+impl<'a, T: Optimizer<'a>> StepLR<'a, T> {
     /// Creates a new StepLR scheduler.
     ///
     /// # Arguments
@@ -338,7 +338,7 @@ impl<'a, T: Optimizer> StepLR<'a, T> {
     }
 }
 
-impl<'a, T: Optimizer> LRScheduler for StepLR<'a, T> {
+impl<'a, T: Optimizer<'a>> LRScheduler for StepLR<'a, T> {
     fn step(&self) {
         prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         if self.current_epoch.get().rem_euclid(self.step_size) == 0 {
@@ -372,7 +372,7 @@ impl<'a, T: Optimizer> LRScheduler for StepLR<'a, T> {
 ///```text
 /// lrₜ = lrₜ₋₁ * gamma if t is a milestone else lrₜ₋₁
 ///```
-pub struct MultiStepLR<'a, T: Optimizer, const N: usize> {
+pub struct MultiStepLR<'a, T: Optimizer<'a>, const N: usize> {
     optimizer: &'a T,
     gamma: f32,
     milestones: [usize; N],
@@ -381,7 +381,7 @@ pub struct MultiStepLR<'a, T: Optimizer, const N: usize> {
     last_lr: Cell<f32>,
 }
 
-impl<'a, T: Optimizer, const N: usize> MultiStepLR<'a, T, N> {
+impl<'a, T: Optimizer<'a>, const N: usize> MultiStepLR<'a, T, N> {
     /// Creates a new MultiStepLR scheduler.
     ///
     /// # Arguments
@@ -435,7 +435,7 @@ impl<'a, T: Optimizer, const N: usize> MultiStepLR<'a, T, N> {
     }
 }
 
-impl<'a, T: Optimizer, const N: usize> LRScheduler for MultiStepLR<'a, T, N> {
+impl<'a, T: Optimizer<'a>, const N: usize> LRScheduler for MultiStepLR<'a, T, N> {
     fn step(&self) {
         prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         if self
@@ -472,7 +472,7 @@ impl<'a, T: Optimizer, const N: usize> LRScheduler for MultiStepLR<'a, T, N> {
 ///```text
 /// lrₜ = lrₜ₋₁ * gamma
 ///```
-pub struct ExponentialLR<'a, T: Optimizer> {
+pub struct ExponentialLR<'a, T: Optimizer<'a>> {
     optimizer: &'a T,
     gamma: f32,
     current_epoch: Cell<usize>,
@@ -480,7 +480,7 @@ pub struct ExponentialLR<'a, T: Optimizer> {
     last_lr: Cell<f32>,
 }
 
-impl<'a, T: Optimizer> ExponentialLR<'a, T> {
+impl<'a, T: Optimizer<'a>> ExponentialLR<'a, T> {
     /// Creates a new ExponentialLR scheduler.
     ///
     /// # Arguments
@@ -531,7 +531,7 @@ impl<'a, T: Optimizer> ExponentialLR<'a, T> {
     }
 }
 
-impl<'a, T: Optimizer> LRScheduler for ExponentialLR<'a, T> {
+impl<'a, T: Optimizer<'a>> LRScheduler for ExponentialLR<'a, T> {
     fn step(&self) {
         prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
         self.current_lr.set(self.last_lr.get() * self.gamma);

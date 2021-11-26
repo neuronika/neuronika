@@ -118,7 +118,7 @@ fn step() {
     let z = x.clone().mm(y);
 
     let w = crate::rand((3, 3)).requires_grad();
-    let mut loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
     let first_value = loss.data()[0];
@@ -142,7 +142,7 @@ fn step_centered() {
     let z = x.clone().mm(y);
 
     let w = crate::rand((3, 3)).requires_grad();
-    let mut loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
     let first_value = loss.data()[0];
@@ -166,7 +166,7 @@ fn step_with_momentum() {
     let z = x.clone().mm(y);
 
     let w = crate::rand((3, 3)).requires_grad();
-    let mut loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
     let first_value = loss.data()[0];
@@ -190,7 +190,7 @@ fn step_centered_with_momentum() {
     let z = x.clone().mm(y);
 
     let w = crate::rand((3, 3)).requires_grad();
-    let mut loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
     let first_value = loss.data()[0];

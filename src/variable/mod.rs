@@ -4,6 +4,7 @@ mod vardiff;
 
 use ndarray::{ArrayViewMutD, Dimension, Ix, RawArrayViewMut};
 use std::{
+    cell::{Ref, RefCell},
     collections::{BTreeMap, HashSet},
     hash::{Hash, Hasher},
     rc::Rc,
@@ -43,7 +44,7 @@ pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter 
 /// variable to whom the struct belongs.
 pub struct VarHistory {
     path: BTreeMap<usize, Rc<dyn Forward>>,
-    buffer: Vec<Rc<dyn Forward>>,
+    buffer: RefCell<Vec<Rc<dyn Forward>>>,
     changeables: HashSet<Changeable>,
 }
 
@@ -52,7 +53,7 @@ impl VarHistory {
     pub(crate) fn new() -> Self {
         Self {
             path: BTreeMap::new(),
-            buffer: Vec::new(),
+            buffer: RefCell::new(Vec::new()),
             changeables: HashSet::new(),
         }
     }
@@ -74,7 +75,7 @@ impl VarHistory {
     /// * `next` - node to append.
     pub(crate) fn append_forward(&mut self, id: usize, next: Rc<dyn Forward>) {
         self.path.insert(id, next);
-        self.buffer.truncate(0);
+        self.buffer.borrow_mut().truncate(0);
     }
 
     /// Appends a new eval computational node to `self`. The new node has id `id`.
@@ -98,15 +99,15 @@ impl VarHistory {
 
     /// Prepares the buffer. Clones and transfers the content of the forward path
     /// into a vector. Such vector will be used to perform the actual forward pass.
-    pub(crate) fn prepare_buffer(&mut self) {
-        if self.buffer.is_empty() {
-            self.buffer = self.path.values().cloned().collect();
+    pub(crate) fn prepare_buffer(&self) {
+        if self.buffer.borrow().is_empty() {
+            *self.buffer.borrow_mut() = self.path.values().cloned().collect();
         }
     }
 
     /// Returns a reference to the buffer.
-    pub(crate) fn buffer(&self) -> &Vec<Rc<dyn Forward>> {
-        &self.buffer
+    pub(crate) fn buffer(&self) -> Ref<[Rc<dyn Forward>]> {
+        Ref::map(self.buffer.borrow(), |vec| &vec[..])
     }
 }
 
@@ -115,8 +116,8 @@ impl VarHistory {
 /// variable to whom the struct belongs.
 pub struct VarDiffHistory {
     path: BTreeMap<usize, Rc<dyn Backward>>,
-    buffer: Vec<Rc<dyn Backward>>,
-    parameters: HashSet<Param>,
+    buffer: RefCell<Vec<Rc<dyn Backward>>>,
+    parameters: HashSet<RawParam>,
 }
 
 impl VarDiffHistory {
@@ -125,10 +126,10 @@ impl VarDiffHistory {
     /// # Arguments
     ///
     /// ` parameters` - parameters to store.
-    pub(crate) fn new(parameters: HashSet<Param>) -> Self {
+    pub(crate) fn new(parameters: HashSet<RawParam>) -> Self {
         Self {
             path: BTreeMap::new(),
-            buffer: Vec::new(),
+            buffer: RefCell::new(Vec::new()),
             parameters,
         }
     }
@@ -151,7 +152,7 @@ impl VarDiffHistory {
     /// * `next` - node to append.
     pub(crate) fn append_backward(&mut self, id: usize, next: Rc<dyn Backward>) {
         self.path.insert(id, next);
-        self.buffer.truncate(0);
+        self.buffer.borrow_mut().truncate(0);
     }
 
     /// Returns the length of the backward path.
@@ -166,36 +167,31 @@ impl VarDiffHistory {
 
     /// Prepares the buffer. Clones and transfers the content of the backward path
     /// into a vector. Such vector will be used to perform the actual backward pass.
-    pub(crate) fn prepare_buffer(&mut self) {
-        if self.buffer.is_empty() {
-            self.buffer = self.path.values().cloned().collect();
+    pub(crate) fn prepare_buffer(&self) {
+        if self.buffer.borrow().is_empty() {
+            *self.buffer.borrow_mut() = self.path.values().cloned().collect();
         }
     }
 
     /// Returns a reference to the buffer.
-    pub(crate) fn buffer(&self) -> &Vec<Rc<dyn Backward>> {
-        &self.buffer
+    pub(crate) fn buffer(&self) -> Ref<[Rc<dyn Backward>]> {
+        Ref::map(self.buffer.borrow(), |vec| &vec[..])
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Param Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RawParam Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// A builder of mutable views over a differentiable variable's data and gradient.
-///
-/// See also [`.parameters()`] and [`ModelStatus`] for more informations.
-///
-/// [`.parameters()`]: VarDiff::parameters()
-/// [`ModelStatus`]: crate::nn::ModelStatus
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Param {
+pub struct RawParam {
     data: *mut f32,
     grad: *mut f32,
     shape: Vec<Ix>,
 }
 
-impl Param {
+impl RawParam {
     pub(crate) fn new(data: *mut f32, grad: *mut f32, shape: Vec<Ix>) -> Self {
         Self { data, grad, shape }
     }
@@ -203,20 +199,40 @@ impl Param {
     /// Consumes the Param, yelding mutable views over the data and the gradient of the
     /// differentiable variable that it refers to. The lifetime `'a` is for the
     /// scope of the borrow.
-    ///
-    /// The views are [`ndarray::ArrayViewMutD`].
-    ///
-    /// [`ndarray::ArrayViewMutD`]: ndarray::ArrayViewMutD
-    pub fn get<'a>(self) -> (ArrayViewMutD<'a, f32>, ArrayViewMutD<'a, f32>) {
+
+    pub(crate) fn into_param<'a>(self) -> Param<'a> {
+        let shape = self.shape;
+
         unsafe {
-            (
-                RawArrayViewMut::from_shape_ptr(self.shape.clone(), self.data)
-                    .deref_into_view_mut(),
-                RawArrayViewMut::from_shape_ptr(self.shape, self.grad).deref_into_view_mut(),
-            )
+            let raw_data = RawArrayViewMut::from_shape_ptr(shape.clone(), self.data);
+            let raw_grad = RawArrayViewMut::from_shape_ptr(shape, self.grad);
+            let data = raw_data.deref_into_view_mut();
+            let grad = raw_grad.deref_into_view_mut();
+            Param { data, grad }
         }
     }
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Param Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/// Mutable views over a differentiable variable's data and gradient.
+///
+/// See also [`.parameters()`] and [`ModelStatus`] for more details.
+///
+///
+/// The views are [`ndarray::ArrayViewMutD`].
+///
+/// [`ndarray::ArrayViewMutD`]: ndarray::ArrayViewMutD
+///
+/// [`.parameters()`]: VarDiff::parameters()
+/// [`ModelStatus`]: crate::nn::ModelStatus
+pub struct Param<'a> {
+    pub data: ArrayViewMutD<'a, f32>,
+    pub grad: ArrayViewMutD<'a, f32>,
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Changeable struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

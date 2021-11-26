@@ -31,7 +31,7 @@ impl<'a, T: Penalty> AMSGrad<'a, T> {
     /// * `penalty` - penalty regularization.
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
-    pub fn new(params: Vec<Param>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
+    pub fn new(params: Vec<Param<'a>>, lr: f32, betas: (f32, f32), penalty: T, eps: f32) -> Self {
         let params = RefCell::new(Self::build_params(params));
         let lr = Cell::new(lr);
 
@@ -96,9 +96,9 @@ pub struct AMSGradParam<'a> {
     max_exp_avg_sq: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for AMSGradParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for AMSGradParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let step = 0;
         let (exp_avg, exp_avg_sq, max_exp_avg_sq) = {
             (
@@ -119,7 +119,7 @@ impl<'a> From<Param> for AMSGradParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer for AMSGrad<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for AMSGrad<'a, T> {
     type ParamRepr = AMSGradParam<'a>;
 
     fn step(&self) {

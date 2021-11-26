@@ -38,7 +38,7 @@ impl<'a, T: Penalty> RMSProp<'a, T> {
     /// * `penalty` - penalty regularization.
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-8*.
-    pub fn new(params: Vec<Param>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
+    pub fn new(params: Vec<Param<'a>>, lr: f32, alpha: f32, penalty: T, eps: f32) -> Self {
         let params = RefCell::new(Self::build_params(params));
         let lr = Cell::new(lr);
 
@@ -157,9 +157,9 @@ pub struct RMSPropParam<'a> {
     square_avg: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for RMSPropParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for RMSPropParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let square_avg = ArrayD::zeros(grad.raw_dim());
 
         Self {
@@ -170,7 +170,7 @@ impl<'a> From<Param> for RMSPropParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer for RMSProp<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for RMSProp<'a, T> {
     type ParamRepr = RMSPropParam<'a>;
 
     fn step(&self) {
@@ -310,9 +310,9 @@ impl<'a, T: Penalty> RMSPropWithMomentum<'a, T> {
     }
 }
 
-impl<'a> From<Param> for RMSPropWithMomentumParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for RMSPropWithMomentumParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let (square_avg, buffer) = (ArrayD::zeros(grad.raw_dim()), ArrayD::zeros(grad.raw_dim()));
         Self {
             data,
@@ -337,7 +337,7 @@ impl<'a> From<RMSPropParam<'a>> for RMSPropWithMomentumParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer for RMSPropWithMomentum<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for RMSPropWithMomentum<'a, T> {
     type ParamRepr = RMSPropWithMomentumParam<'a>;
 
     fn step(&self) {
@@ -474,9 +474,9 @@ pub struct RMSPropCenteredParam<'a> {
     grad_avg: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for RMSPropCenteredParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for RMSPropCenteredParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let (square_avg, grad_avg) = (ArrayD::zeros(grad.raw_dim()), ArrayD::zeros(grad.raw_dim()));
 
         Self {
@@ -502,7 +502,7 @@ impl<'a> From<RMSPropParam<'a>> for RMSPropCenteredParam<'a> {
     }
 }
 
-impl<'a, T: Penalty> Optimizer for RMSPropCentered<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for RMSPropCentered<'a, T> {
     type ParamRepr = RMSPropCenteredParam<'a>;
 
     fn step(&self) {
@@ -635,9 +635,9 @@ pub struct RMSPropCenteredWithMomentumParam<'a> {
     buffer: ArrayD<f32>,
 }
 
-impl<'a> From<Param> for RMSPropCenteredWithMomentumParam<'a> {
-    fn from(param: Param) -> Self {
-        let (data, grad) = param.get();
+impl<'a> From<Param<'a>> for RMSPropCenteredWithMomentumParam<'a> {
+    fn from(param: Param<'a>) -> Self {
+        let Param { data, grad } = param;
         let (square_avg, grad_avg, buffer) = (
             ArrayD::zeros(grad.raw_dim()),
             ArrayD::zeros(grad.raw_dim()),
@@ -700,7 +700,7 @@ impl<'a> From<RMSPropWithMomentumParam<'a>> for RMSPropCenteredWithMomentumParam
     }
 }
 
-impl<'a, T: Penalty> Optimizer for RMSPropCenteredWithMomentum<'a, T> {
+impl<'a, T: Penalty> Optimizer<'a> for RMSPropCenteredWithMomentum<'a, T> {
     type ParamRepr = RMSPropCenteredWithMomentumParam<'a>;
     fn step(&self) {
         let (mut params, lr, alpha, penalty, eps, momentum) = (
