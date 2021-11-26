@@ -228,6 +228,7 @@ impl RawParam {
 ///
 /// [`.parameters()`]: VarDiff::parameters()
 /// [`ModelStatus`]: crate::nn::ModelStatus
+#[derive(Debug)]
 pub struct Param<'a> {
     pub data: ArrayViewMutD<'a, f32>,
     pub grad: ArrayViewMutD<'a, f32>,
