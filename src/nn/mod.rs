@@ -391,6 +391,9 @@ use std::{cell::Cell, rc::Rc};
 pub mod init;
 pub mod loss;
 
+#[cfg(feature = "serialize")]
+use serde::{Deserialize, Serialize};
+
 /// A generic parameter of a neural component.
 pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 
@@ -571,6 +574,7 @@ impl Register for Dropout {
 /// ```text
 /// ʏ = xAᵀ + b
 /// ```
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct Linear {
     pub weight: Learnable<Ix2>,
     pub bias: Learnable<Ix1>,
@@ -631,6 +635,7 @@ impl Register for Linear {
 }
 
 /// A **long short-term memory (LSTM)** cell.
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[allow(clippy::upper_case_acronyms)]
 pub struct LSTMCell {
     pub weight_ih: Learnable<Ix2>,
@@ -745,6 +750,7 @@ impl Register for LSTMCell {
 }
 
 /// A **gated recurrent unit (GRU)** cell.
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[allow(clippy::upper_case_acronyms)]
 pub struct GRUCell {
     pub weight_ih: Learnable<Ix2>,
@@ -850,6 +856,7 @@ impl Register for GRUCell {
 /// Applies a **temporal convolution** over an input signal composed of several input planes.
 ///
 /// See also [`GroupedConv1d`].
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct Conv1d<Pad: PaddingMode> {
     pub padding: usize,
     pub padding_mode: Pad,
@@ -961,6 +968,7 @@ impl<Pad: PaddingMode> Register for Conv1d<Pad> {
 
 /// Applies a **grouped temporal convolution** over an input signal composed of several input
 /// planes.
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct GroupedConv1d<Pad: PaddingMode> {
     pub padding: usize,
     pub padding_mode: Pad,
@@ -1092,6 +1100,7 @@ impl<Pad: PaddingMode> Register for GroupedConv1d<Pad> {
 /// Applies a **spatial convolution** over an input signal composed of several input planes.
 ///
 /// See also [`GroupedConv2d`].
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct Conv2d<Pad: PaddingMode> {
     pub padding: (usize, usize),
     pub padding_mode: Pad,
@@ -1214,6 +1223,7 @@ impl<Pad: PaddingMode> Register for Conv2d<Pad> {
 }
 
 /// Applies a **spatial grouped convolution** over an input signal composed of several input planes.
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct GroupedConv2d<Pad: PaddingMode> {
     pub padding: (usize, usize),
     pub padding_mode: Pad,
@@ -1353,6 +1363,7 @@ impl<Pad: PaddingMode> Register for GroupedConv2d<Pad> {
 /// Applies a **volumetric convolution** over an input signal composed of several input planes.
 ///
 /// See also [`GroupedConv3d`].
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct Conv3d<Pad: PaddingMode> {
     pub padding: (usize, usize, usize),
     pub padding_mode: Pad,
@@ -1479,6 +1490,7 @@ impl<Pad: PaddingMode> Register for Conv3d<Pad> {
 
 /// Applies a **grouped volumetric convolution** over an input signal composed of several input
 /// planes.
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct GroupedConv3d<Pad: PaddingMode> {
     pub padding: (usize, usize, usize),
     pub padding_mode: Pad,
