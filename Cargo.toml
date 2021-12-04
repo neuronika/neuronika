@@ -16,11 +16,18 @@ ndarray-rand = "0.14.0"
 itertools = "0.10.1"
 rand = "0.8.4"
 rand_distr = "0.4.0"
-serde = { version="1.0.130", features = ["derive","rc"] }
+serde = { version="1.0.130", features = ["derive"] }
 csv = "1.1.6"
 
+[dev-dependencies]
+serde_json = "1.0.72"
+
+[[example]]
+name = "simple"
+required-features = ["serialize"]
+features = ["serialize"]
+
 [features]
-default = ["serialize"]
 blas = ["ndarray/blas"]
 matrixmultiply-threading = ["ndarray/matrixmultiply-threading"]
 serialize = ["ndarray/serde"]

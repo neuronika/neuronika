@@ -228,7 +228,7 @@
 //!     lin1: Linear,
 //!     lin2: Linear,
 //!     lin3: Linear,
-//!     status: ModelStatus,     
+//!     status: ModelStatus,
 //!  }
 //!
 //!  impl MLP {
@@ -439,6 +439,16 @@ impl ModelStatus {
         component.register_params(&mut self.params);
         component.register_status(self.train.clone());
         component
+    }
+
+    /// Registers a component.
+    ///
+    /// # Arguments
+    ///
+    /// `component` - layer to be registered.
+    pub fn register_ref<T: Register>(&mut self, component: &mut T) {
+        component.register_params(&mut self.params);
+        component.register_status(self.train.clone());
     }
 
     /// Sets the status in training mode.
