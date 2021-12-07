@@ -489,7 +489,7 @@ mod tests {
         use super::{eye, Array2};
         let tensor = eye(3);
 
-        assert_eq!(*tensor.data(), Array2::eye(3));
+        assert_eq!(*tensor.data(), Array2::<f32>::eye(3));
     }
 
     #[test]

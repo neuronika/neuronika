@@ -1,23 +1,30 @@
 [package]
-name = "neuronika"
-version = "0.1.0"
 authors = ["frjnn <f.iannelli.francesco229@gmail.com>", "stepac <stefanopacchini@mail.com>"]
-edition = "2021"
 description = "Tensors and dynamic neural networks."
-keywords = ["deep-learning", "auto-differentiation", "machine-learning", "tensors"]
-repository = "https://github.com/neuronika/neuronika"
-license = "MPL-2.0"
+edition = "2021"
 exclude = ["misc/*"]
+keywords = ["deep-learning", "auto-differentiation", "machine-learning", "tensors"]
+license = "MPL-2.0"
+name = "neuronika"
+repository = "https://github.com/neuronika/neuronika"
+version = "0.1.0"
 
 [dependencies]
-ndarray = {version = "0.15.3", features = ["rayon"]}
-rayon = "1.5.1"
-ndarray-rand = "0.14.0"
+csv = "1.1.6"
 itertools = "0.10.1"
+ndarray = {version = "0.15.3", features = ["rayon"]}
+ndarray-rand = "0.14.0"
 rand = "0.8.4"
 rand_distr = "0.4.0"
-serde = "1.0.130"
-csv = "1.1.6"
+rayon = "1.5.1"
+serde = {version = "1.0.130", features = ["derive"]}
+
+[dev-dependencies]
+serde_json = "1.0.72"
+
+[[example]]
+name = "quickstart"
+required-features = ["serialize"]
 
 [features]
 blas = ["ndarray/blas"]
