@@ -441,16 +441,6 @@ impl ModelStatus {
         component
     }
 
-    /// Registers a component.
-    ///
-    /// # Arguments
-    ///
-    /// `component` - layer to be registered.
-    pub fn register_ref<T: Register>(&mut self, component: &mut T) {
-        component.register_params(&mut self.params);
-        component.register_status(self.train.clone());
-    }
-
     /// Sets the status in training mode.
     pub fn train(&self) {
         <Self as Eval>::train(self)
