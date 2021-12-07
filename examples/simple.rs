@@ -1,7 +1,6 @@
 use neuronika::nn::{ModelStatus, Linear, Learnable};
 use neuronika::{ Param, VarDiff, Data, Gradient, Forward, Overwrite, Backward, MatMatMulT };
-use ndarray::{Array, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Ix1, Ix2, Ix3};
-use ndarray_rand::{RandomExt};
+use ndarray::{ Ix2 };
 use serde::{Serialize, Deserialize};
 use serde_json;
 
@@ -98,16 +97,18 @@ fn main()
     let mut model : MLP = MLP::new();
 
     // Load model from a string.
-    //model = load_model();
+    if std::env::args().len() > 1 {
+        model = load_model();
+    }
 
     // Setup optimizer
-    let mut optimizer = neuronika::optim::SGD::new(model.parameters(), 0.01, neuronika::optim::L2::new(0.0));
+    let optimizer = neuronika::optim::SGD::new(model.parameters(), 0.01, neuronika::optim::L2::new(0.0));
 
     // Train network
     for epoch in 0..5 {
-        let batchedData = dataset.shuffle().batch(2).drop_last();
+        let batched_data = dataset.shuffle().batch(2).drop_last();
         let mut total_loss:f32  = 0.0;
-        for (input_array, target_array) in batchedData {
+        for (input_array, target_array) in batched_data {
             let input = neuronika::from_ndarray(input_array.to_owned());
             let target = neuronika::from_ndarray(target_array.to_owned());
             let result = model.forward(input);

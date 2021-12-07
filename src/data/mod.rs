@@ -153,7 +153,7 @@ impl<D: RemoveAxis> Dataset<D> {
     ///
     /// If the sum of the input lengths do not cover the whole dataset.
     pub fn split(self, lengths: &[usize]) -> Vec<Dataset<D>> {
-        if self.len() != lengths.iter().sum() {
+        if self.len() != lengths.iter().sum::<usize>() {
             panic!("error: input lengths do not cover the whole dataset.");
         }
 
@@ -642,7 +642,7 @@ impl<D1: RemoveAxis, D2: RemoveAxis> LabeledDataset<D1, D2> {
     ///
     /// If the sum of the input lengths do not cover the whole dataset.
     pub fn split(self, lengths: &[usize]) -> Vec<LabeledDataset<D1, D2>> {
-        if self.len() != lengths.iter().sum() {
+        if self.len() != lengths.iter().sum::<usize>() {
             panic!("error: input lengths do not cover the whole dataset.");
         }
 

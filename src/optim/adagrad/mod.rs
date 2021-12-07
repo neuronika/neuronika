@@ -2,8 +2,6 @@ use super::{Optimizer, Param, Penalty};
 use ndarray::{ArrayD, ArrayViewMutD, Zip};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::cell::{Cell, RefCell};
-#[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
 
 /// **Adagrad** optimizer.
 ///

@@ -1,12 +1,5 @@
 use ndarray::Dimension;
-//#[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
-
-use crate::variable::{
-    self, Backward, Convolve, ConvolveWithGroups, Data,
-    Eval, Forward, Gradient, MatMatMulT, Overwrite,
-    RawParam, Tensor, Var, VarDiff,
-};
+use crate::variable::{ VarDiff, };
 use crate::variable::node::{ Input, InputBackward };
 
 /// Implement serialize and deserialize for Learnable parameters
@@ -38,12 +31,12 @@ where
 }
 
 mod tests {
-    use crate::nn::{Linear, ModelStatus};
-    use serde::{Serialize, Deserialize};
-
 
     #[test]
-    fn test_modelio() {
+    fn test_model_io() {
+        use crate::nn::{Linear};
+        use serde::{Serialize, Deserialize};
+
         // Construct an example network
         #[derive(Serialize, Deserialize)]
         struct MLP {
