@@ -36,3 +36,39 @@ where
         Ok(Input::new(data).requires_grad())
     }
 }
+
+mod tests {
+    use crate::nn::{Linear, ModelStatus};
+    use serde::{Serialize, Deserialize};
+
+
+    #[test]
+    fn test_modelio() {
+        // Construct an example network
+        #[derive(Serialize, Deserialize)]
+        struct MLP {
+            lin1: Linear,
+            lin2: Linear,
+            lin3: Linear,
+        }
+
+        let mlp = MLP {
+            lin1: Linear::new(2, 3),
+            lin2: Linear::new(3, 2),
+            lin3: Linear::new(2, 1),
+        };
+
+        // Convert to json
+        let mlp_as_json = serde_json::to_string(&mlp).unwrap();
+
+        // Convert from json back.
+        let mlp_from_json : MLP = serde_json::from_str(&mlp_as_json).unwrap();
+
+        // Did we get the same thing?  Floating point values may not be exactly preserved,
+        // but the tensors should have the same shape.
+        assert_eq!(mlp.lin1.weight.data().dim(), mlp_from_json.lin1.weight.data().dim());
+        assert_eq!(mlp.lin2.weight.data().dim(), mlp_from_json.lin2.weight.data().dim());
+        assert_eq!(mlp.lin3.weight.data().dim(), mlp_from_json.lin3.weight.data().dim());
+    }
+
+}
