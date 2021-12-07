@@ -2,9 +2,6 @@ mod node;
 mod var;
 mod vardiff;
 
-#[cfg(feature = "serialize")]
-mod serde;
-
 use ndarray::{ArrayViewMutD, Dimension, Ix, RawArrayViewMut};
 use std::{
     cell::{Ref, RefCell},
