@@ -175,9 +175,8 @@ use ndarray_rand::RandomExt;
 pub use variable::{
     Backward, Cat, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, MatMatMul,
     MatMatMulT, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
-    Input
 };
-use variable::{ InputBackward};
+use variable::{Input, InputBackward};
 
 /// Creates a variable from a **[ndarray]** array that owns its data.
 ///

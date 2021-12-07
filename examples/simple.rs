@@ -112,8 +112,8 @@ fn main()
         let batchedData = dataset.shuffle().batch(2).drop_last();
         let mut total_loss:f32  = 0.0;
         for (input_array, target_array) in batchedData {
-            let input = neuronika::Input::new(input_array.to_owned());
-            let target = neuronika::Input::new(target_array.to_owned());
+            let input = neuronika::from_ndarray(input_array.to_owned());
+            let target = neuronika::from_ndarray(target_array.to_owned());
             let result = model.forward(input);
             let loss = neuronika::nn::loss::mse_loss(result.clone(), target.clone(), neuronika::nn::loss::Reduction::Mean);
             loss.forward();
