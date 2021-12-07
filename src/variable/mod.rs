@@ -196,10 +196,9 @@ impl RawParam {
         Self { data, grad, shape }
     }
 
-    /// Consumes the Param, yelding mutable views over the data and the gradient of the
+    /// Consumes the RawParam, yielding mutable views over the data and the gradient of the
     /// differentiable variable that it refers to. The lifetime `'a` is for the
     /// scope of the borrow.
-
     pub(crate) fn into_param<'a>(self) -> Param<'a> {
         let shape = self.shape;
 
