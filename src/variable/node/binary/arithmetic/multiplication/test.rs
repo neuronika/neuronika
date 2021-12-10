@@ -104,6 +104,26 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Multiplication::new(left, right);
+
+        let output = "Multiplication { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Multiplication::new(left, right);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 mod backward {
     use super::{
@@ -359,5 +379,53 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        {
+            let node = MultiplicationBackward::new(
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+            );
+
+            let output = "MultiplicationBackward { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+            assert_eq!(output, format!("{:?}", node));
+        }
+    }
+
+    #[test]
+    fn debug_unary() {
+        let node = MultiplicationBackwardUnary::new(
+            new_backward_input(1, vec![0.]),
+            new_input(1, vec![0.]),
+        );
+
+        let output = "MultiplicationBackwardUnary { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        {
+            let node = MultiplicationBackward::new(
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+            );
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
+
+    #[test]
+    fn display_unary() {
+        let node = MultiplicationBackwardUnary::new(
+            new_backward_input(1, vec![0.]),
+            new_input(1, vec![0.]),
+        );
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }

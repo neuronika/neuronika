@@ -11,11 +11,11 @@ version = "0.1.0"
 
 [dependencies]
 csv = "1.1.6"
-itertools = "0.10.1"
-ndarray = {version = "0.15.3", features = ["rayon"]}
+itertools = "0.10.3"
+ndarray = {version = "0.15.4", features = ["rayon"]}
 ndarray-rand = "0.14.0"
 rand = "0.8.4"
-rand_distr = "0.4.0"
+rand_distr = "0.4.2"
 rayon = "1.5.1"
 serde = {version = "1.0.130", features = ["derive"]}
 

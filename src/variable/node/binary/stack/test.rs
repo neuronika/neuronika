@@ -160,6 +160,26 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Stack::new(left, right, 0);
+
+        let output = "Stack { data: [[0.0],\n [0.0]], shape=[2, 1], strides=[1, 1], layout=CFcf (0xf), const ndim=2, axis: 0, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Stack::new(left, right, 0);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -426,5 +446,68 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        {
+            let node = StackBackward::new(
+                new_backward_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+                0,
+            );
+
+            let output = "StackBackward { gradient: Some([[0.0],\n [0.0]], shape=[2, 1], strides=[1, 1], layout=CFcf (0xf), const ndim=2), axis: 0, overwrite: true }";
+            assert_eq!(output, format!("{:?}", node));
+        }
+    }
+
+    #[test]
+    fn debug_left() {
+        let node =
+            StackBackwardLeft::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]), 0);
+
+        let output = "StackBackwardLeft { gradient: Some([[0.0],\n [0.0]], shape=[2, 1], strides=[1, 1], layout=CFcf (0xf), const ndim=2), axis: 0, overwrite: true }";
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn debug_right() {
+        let node =
+            StackBackwardRight::new(new_input(1, vec![0.]), new_backward_input(1, vec![0.]), 0);
+
+        let output = "StackBackwardRight { gradient: Some([[0.0],\n [0.0]], shape=[2, 1], strides=[1, 1], layout=CFcf (0xf), const ndim=2), axis: 0, overwrite: true }";
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        {
+            let node = StackBackward::new(
+                new_backward_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+                0,
+            );
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
+
+    #[test]
+    fn display_left() {
+        {
+            let node =
+                StackBackwardLeft::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]), 0);
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
+
+    #[test]
+    fn display_right() {
+        {
+            let node =
+                StackBackwardRight::new(new_input(1, vec![0.]), new_backward_input(1, vec![0.]), 0);
+
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
     }
 }

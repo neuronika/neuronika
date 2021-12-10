@@ -338,7 +338,6 @@ mod backward {
 
     #[test]
     fn no_grad() {
-        // AdditionBackward
         let node = AdditionBackward::new(
             new_backward_input((3, 3), vec![0.; 9]),
             new_backward_input((3, 3), vec![0.; 9]),
@@ -350,7 +349,6 @@ mod backward {
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
 
-        // AdditionBackwardUnary
         let node = AdditionBackwardUnary::new(
             new_backward_input((3, 3), vec![0.; 9]),
             new_input((3, 3), vec![0.; 9]),
