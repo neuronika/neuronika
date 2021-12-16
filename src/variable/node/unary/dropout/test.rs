@@ -121,6 +121,24 @@ mod forward {
             &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
         );
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Dropout::new(input.clone(), 0., Rc::new(Cell::new(true)));
+
+        let output = "Dropout { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, p: 0.0, noise: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, train: true, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Dropout::new(input.clone(), 0., Rc::new(Cell::new(true)));
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -285,5 +303,41 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        let input = new_backward_input((3, 3), vec![0.; 9]);
+        let node = DropoutBackward::new(
+            input.clone(),
+            Rc::new(Dropout::new(
+                new_input((3, 3), vec![1.; 9]),
+                0.,
+                Rc::new(Cell::new(true)),
+            )),
+            0.,
+            Rc::new(Cell::new(true)),
+        );
+
+        let output = "DropoutBackward { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), p: 0.0, overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_backward_input((3, 3), vec![0.; 9]);
+        let node = DropoutBackward::new(
+            input.clone(),
+            Rc::new(Dropout::new(
+                new_input((3, 3), vec![1.; 9]),
+                0.,
+                Rc::new(Cell::new(true)),
+            )),
+            0.,
+            Rc::new(Cell::new(true)),
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }

@@ -406,6 +406,12 @@ impl<T: Data + 'static> Var<T> {
             })
             .collect()
     }
+
+    /// Returns a new variable with a dimension of size one inserted at the position specified by
+    /// `axis`.
+    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
+        Var::from(Unsqueeze::new(self.node, axis), self.past)
+    }
 }
 
 impl<T> Var<T>
@@ -413,12 +419,6 @@ where
     T: Data + 'static,
     T::Dim: RemoveAxis,
 {
-    /// Returns a new variable with a dimension of size one inserted at the position specified by
-    /// `axis`.
-    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
-        Var::from(Unsqueeze::new(self.node, axis), self.past)
-    }
-
     /// Concatenates the given sequence of non-differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a non-differentiable variable with the results.
     ///

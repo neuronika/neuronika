@@ -66,7 +66,7 @@ fn step() {
     let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data()[0];
+    let first_value = loss.data().clone().into_scalar();
     let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.));
 
     for _ in 0..EPOCHS {
@@ -76,7 +76,7 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < first_value);
+    assert!(loss.data().clone().into_scalar() < first_value.clone());
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn step_with_momentum() {
     let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data()[0];
+    let first_value = loss.data().clone().into_scalar();
     let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.)).with_momentum(0.7, 0.0, false);
 
     for _ in 0..EPOCHS {
@@ -100,7 +100,7 @@ fn step_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < first_value);
+    assert!(loss.data().clone().into_scalar() < first_value.clone());
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn step_with_nesterov_momentum() {
     let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data()[0];
+    let first_value = loss.data().clone().into_scalar();
     let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.)).with_momentum(0.7, 0.0, true);
 
     for _ in 0..EPOCHS {
@@ -124,5 +124,5 @@ fn step_with_nesterov_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < first_value);
+    assert!(loss.data().clone().into_scalar() < first_value.clone());
 }

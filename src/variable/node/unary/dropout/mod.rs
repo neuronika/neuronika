@@ -128,6 +128,7 @@ impl<T: Data> Debug for Dropout<T> {
             .field("data", &self.data.borrow())
             .field("p", &self.p)
             .field("noise", &self.noise.borrow())
+            .field("train", &self.train.get())
             .field("computed", &self.computed.get())
             .finish()
     }

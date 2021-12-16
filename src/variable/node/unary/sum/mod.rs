@@ -3,7 +3,7 @@ use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
 };
-use ndarray::{Ix1, Zip};
+use ndarray::{arr0, Ix0, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
@@ -15,13 +15,13 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct Sum<T: Data> {
     operand: Rc<T>,
-    data: RefCell<Tensor<Ix1>>,
+    data: RefCell<Tensor<Ix0>>,
     computed: Cell<bool>,
 }
 
 impl<T: Data> Sum<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(1));
+        let data = RefCell::new(arr0(0.));
 
         Self {
             operand,
@@ -38,7 +38,7 @@ impl<T: Data> Forward for Sum<T> {
         }
 
         self.computed.set(true);
-        self.data.borrow_mut()[0] = self.operand.data().sum();
+        *self.data.borrow_mut() = arr0(self.operand.data().sum());
     }
 
     fn was_computed(&self) -> bool {
@@ -51,7 +51,7 @@ impl<T: Data> Forward for Sum<T> {
 }
 
 impl<T: Data> Data for Sum<T> {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
@@ -81,7 +81,7 @@ impl<T: Data> Display for Sum<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SumBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct SumBackward<T: Gradient + Overwrite> {
-    gradient: RefCell<Option<Tensor<Ix1>>>,
+    gradient: RefCell<Option<Tensor<Ix0>>>,
     overwrite: Cell<bool>,
     operand: Rc<T>,
 }
@@ -90,14 +90,14 @@ impl<T: Gradient + Overwrite> SumBackward<T> {
     pub fn new(operand: Rc<T>) -> Self {
         Self {
             operand,
-            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            gradient: RefCell::new(Some(arr0(0.))),
             overwrite: Cell::new(true),
         }
     }
 }
 
 impl<T: Gradient + Overwrite> Gradient for SumBackward<T> {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
         expect_tensor(&self.gradient)
@@ -137,7 +137,7 @@ impl<T: Gradient + Overwrite> Backward for SumBackward<T> {
     }
 
     fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 

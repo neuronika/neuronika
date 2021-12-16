@@ -3,7 +3,7 @@ use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
 };
-use ndarray::{Ix1, Zip};
+use ndarray::{arr0, Ix0, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
@@ -15,13 +15,13 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct Mean<T: Data> {
     operand: Rc<T>,
-    data: RefCell<Tensor<Ix1>>,
+    data: RefCell<Tensor<Ix0>>,
     computed: Cell<bool>,
 }
 
 impl<T: Data> Mean<T> {
     pub fn new(operand: Rc<T>) -> Self {
-        let data = RefCell::new(Tensor::zeros(1));
+        let data = RefCell::new(arr0(0.));
 
         Self {
             operand,
@@ -38,7 +38,7 @@ impl<T: Data> Forward for Mean<T> {
         }
 
         self.computed.set(true);
-        self.data.borrow_mut()[0] = self.operand.data().mean().unwrap();
+        *self.data.borrow_mut() = arr0(self.operand.data().mean().unwrap());
     }
 
     fn was_computed(&self) -> bool {
@@ -51,7 +51,7 @@ impl<T: Data> Forward for Mean<T> {
 }
 
 impl<T: Data> Data for Mean<T> {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
@@ -81,7 +81,7 @@ impl<T: Data> Display for Mean<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MeanBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pub struct MeanBackward<T: Gradient + Overwrite> {
-    gradient: RefCell<Option<Tensor<Ix1>>>,
+    gradient: RefCell<Option<Tensor<Ix0>>>,
     overwrite: Cell<bool>,
     operand: Rc<T>,
 }
@@ -90,14 +90,14 @@ impl<T: Gradient + Overwrite> MeanBackward<T> {
     pub fn new(operand: Rc<T>) -> Self {
         Self {
             operand,
-            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            gradient: RefCell::new(Some(arr0(0.))),
             overwrite: Cell::new(true),
         }
     }
 }
 
 impl<T: Gradient + Overwrite> Gradient for MeanBackward<T> {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
         expect_tensor(&self.gradient)
@@ -138,7 +138,7 @@ impl<T: Gradient + Overwrite> Backward for MeanBackward<T> {
     }
 
     fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 

@@ -533,14 +533,7 @@ where
             })
             .collect()
     }
-}
 
-impl<T, U> VarDiff<T, U>
-where
-    T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: RemoveAxis,
-{
     /// Returns a new differentiable variable with a dimension of size one inserted at the position
     /// specified by `axis`.
     pub fn unsqueeze(self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
@@ -550,7 +543,14 @@ where
             self.var.unsqueeze(axis),
         )
     }
+}
 
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + 'static,
+    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    T::Dim: RemoveAxis,
+{
     /// Concatenates the given sequence of differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a differentiable variable with the results.
     ///

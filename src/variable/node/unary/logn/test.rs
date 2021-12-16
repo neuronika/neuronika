@@ -86,6 +86,24 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+        let node = Logn::new(input);
+
+        let output = "Logn { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+        let node = Logn::new(input);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -181,5 +199,27 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        let node = LognBackward::new(
+            new_backward_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+        );
+
+        let output = "LognBackward { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let node = LognBackward::new(
+            new_backward_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }

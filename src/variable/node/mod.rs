@@ -200,20 +200,10 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DotDim implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl DotDim<Ix1> for Ix1 {
-    type Output = Ix1;
-
-    fn shape(_: Self, _: Ix1) -> <Self as DotDim<Ix1>>::Output {
-        let mut res_shape = Ix1::zeros(1);
-        res_shape[0] = 1;
-        res_shape
-    }
-}
-
 impl DotDim<Ix2> for Ix1 {
     type Output = Ix1;
 
-    fn shape(_: Self, rhs: Ix2) -> <Self as DotDim<Ix1>>::Output {
+    fn shape(_: Self, rhs: Ix2) -> <Self as DotDim<Ix2>>::Output {
         let mut res_shape = Ix1::zeros(1);
         res_shape[0] = rhs.last_elem();
         res_shape

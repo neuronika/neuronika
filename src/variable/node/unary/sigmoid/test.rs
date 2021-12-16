@@ -84,6 +84,24 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Sigmoid::new(input.clone());
+
+        let output = "Sigmoid { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Sigmoid::new(input.clone());
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -177,6 +195,28 @@ mod backward {
             &*diff.gradient(),
             &new_tensor(3, vec![0.1966, 0.105, 0.0452]),
         );
+    }
+
+    #[test]
+    fn debug() {
+        let diff = new_backward_input(3, vec![0.; 3]);
+        let not_diff = Rc::new(Sigmoid::new(new_input(3, vec![1., 2., 3.])));
+        not_diff.forward();
+        let node = SigmoidBackward::new(diff.clone(), not_diff);
+
+        let output = "SigmoidBackward { gradient: Some([0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let diff = new_backward_input(3, vec![0.; 3]);
+        let not_diff = Rc::new(Sigmoid::new(new_input(3, vec![1., 2., 3.])));
+        not_diff.forward();
+        let node = SigmoidBackward::new(diff.clone(), not_diff);
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 
     #[test]

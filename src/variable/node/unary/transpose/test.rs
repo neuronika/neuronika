@@ -70,6 +70,24 @@ mod forward {
             &new_tensor((3, 3), vec![2., 5., 8., 3., 6., 9., 4., 7., 10.]),
         );
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Transpose::new(input.clone());
+
+        let output = "Transpose { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Transpose::new(input.clone());
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -146,6 +164,24 @@ mod backward {
         diff.set_overwrite(true);
         node.backward();
         assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+    }
+
+    #[test]
+    fn debug() {
+        let diff = new_backward_input((4, 3), vec![0.; 12]);
+        let node = TransposeBackward::new(diff.clone());
+
+        let output = "TransposeBackward { gradient: Some([[0.0, 0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0, 0.0]], shape=[3, 4], strides=[4, 1], layout=Cc (0x5), const ndim=2), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let diff = new_backward_input((4, 3), vec![0.; 12]);
+        let node = TransposeBackward::new(diff.clone());
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 
     #[test]

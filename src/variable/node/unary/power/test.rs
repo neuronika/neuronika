@@ -73,6 +73,24 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Power::new(input.clone(), 3);
+
+        let output = "Power { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, exp: 3, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let node = Power::new(input.clone(), 3);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -153,6 +171,24 @@ mod backward {
         diff.set_overwrite(true);
         node.backward();
         assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![3., 12., 27.]));
+    }
+
+    #[test]
+    fn debug() {
+        let diff = new_backward_input(3, vec![0.; 3]);
+        let node = PowerBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]), 3);
+
+        let output = "PowerBackward { gradient: Some([0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let diff = new_backward_input(3, vec![0.; 3]);
+        let node = PowerBackward::new(diff.clone(), new_input(3, vec![1., 2., 3.]), 3);
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 
     #[test]
