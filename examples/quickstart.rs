@@ -1,14 +1,12 @@
 use ndarray::Ix2;
 use neuronika::{
     data::DataLoader,
-    nn::{self, Learnable, Linear, ModelStatus},
+    nn::{self, loss, Learnable, Linear, ModelStatus},
     optim, Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, Param, VarDiff,
 };
-use serde::{Deserialize, Serialize};
-use serde_json;
 
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-struct MLP {
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+struct NeuralNetwork {
     lin1: Linear,
     lin2: Linear,
     lin3: Linear,
@@ -16,7 +14,7 @@ struct MLP {
     status: ModelStatus,
 }
 
-impl MLP {
+impl NeuralNetwork {
     fn new() -> Self {
         let mut status = ModelStatus::default();
 
@@ -44,14 +42,13 @@ impl MLP {
     {
         let out1 = self.lin1.forward(input).relu();
         let out2 = self.lin2.forward(out1).relu();
-        let out3 = self.lin3.forward(out2);
-        out3
+        self.lin3.forward(out2)
     }
 }
 
 /// Loads model from a string.
-fn load_model() -> MLP {
-    let MLP {
+fn load_model() -> NeuralNetwork {
+    let NeuralNetwork {
         lin1,
         lin2,
         lin3,
@@ -176,7 +173,7 @@ fn load_model() -> MLP {
     )
     .unwrap();
 
-    MLP {
+    NeuralNetwork {
         lin1: status.register(lin1),
         lin2: status.register(lin2),
         lin3: status.register(lin3),
@@ -218,17 +215,20 @@ fn main() {
     for epoch in 0..5 {
         let batched_data = dataset.shuffle().batch(2).drop_last();
         let mut total_loss: f32 = 0.0;
+
         for (input_array, target_array) in batched_data {
             let input = neuronika::from_ndarray(input_array.to_owned());
             let target = neuronika::from_ndarray(target_array.to_owned());
+
             let result = model.forward(input);
-            let loss =
-                nn::loss::mse_loss(result.clone(), target.clone(), nn::loss::Reduction::Mean);
+
+            let loss = loss::mse_loss(result.clone(), target.clone(), loss::Reduction::Mean);
             loss.forward();
             total_loss += loss.data().clone().into_scalar();
             loss.backward(1.0);
             optimizer.step();
         }
+
         println!("Loss for epoch {} : {} ", epoch, total_loss);
     }
 }
