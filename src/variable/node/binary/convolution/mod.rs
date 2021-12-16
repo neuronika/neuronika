@@ -630,7 +630,7 @@ where
     Pad: PaddingMode,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Convolution")
+        f.debug_struct("GroupedConvolution")
             .field("data", &self.data.borrow())
             .field("stride", &self.stride)
             .field("dilation", &self.dilation)
