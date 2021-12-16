@@ -5,8 +5,7 @@
 //! complete list can be found [here](#algorithms).
 //!
 //! An optimizer holds a state, in the form of a *representation*, for each of the parameters to
-//! optimize and it updates such parameters accordingly to the computed gradient and the state
-//! itself.
+//! optimize and it updates them accordingly to both their gradient and the state itself.
 //!
 //! # Using an optimizer
 //!
@@ -14,20 +13,23 @@
 //!
 //! ## Constructing it
 //!
-//! To construct an optimizer you have to give it a vector of [`Param`](struct@Param) referring to
-//! the parameters to optimize and to pass optimizer-specific setting such as the learning rate,
-//! the regularization, etc.
+//! To construct an optimizer you have to pass it a vector of [`Param`](struct@Param) referring to
+//! the parameters you whish to optimize. Depending on the kind of optimizer you may also need to
+//! pass several optimizer-specific setting such as the learning rate, the momentum, etc.
+//!
+//! The optimization algorithms provided by neuronika are designed to work both with variables and
+//! neural networks.
 //!
 //! ```
 //! # use neuronika::Param;
 //! # use neuronika::nn::{ModelStatus, Linear, Learnable};
-//! # struct MLP {
+//! # struct NeuralNetwork {
 //! #     lin1: Linear,
 //! #     lin2: Linear,
 //! #     lin3: Linear,
 //! #     status: ModelStatus,     
 //! # }
-//! # impl MLP {
+//! # impl NeuralNetwork {
 //! #     // Basic constructor.
 //! #     fn new() -> Self {
 //! #         let mut status = ModelStatus::default();
@@ -54,7 +56,7 @@
 //! let y = p * x + q;
 //! let optim = SGD::new(y.parameters(), 0.01, L1::new(0.05));
 //!
-//! let model = MLP::new();
+//! let model = NeuralNetwork::new();
 //! let model_optim = Adam::new(model.parameters(), 0.01, (0.9, 0.999), L2::new(0.01), 1e-8);
 //! ```
 //!
@@ -74,7 +76,7 @@
 //!
 //! 3. Implement the [`Optimizer`] trait.
 //!
-//! Let's go through them by implementing the vanilla version of the stochastic gradient descent.
+//! Let's go through them by implementing the classic version of the stochastic gradient descent.
 //!
 //! Firstly, we define the SGD parameter's struct and the conversion from `Param`.
 //!
@@ -95,11 +97,11 @@
 //! }
 //! ```
 //!
-//! Being a basic optimizer, the `SGDParam` struct will only contain the gradient and the data for
-//! each of the parameters to optimize.
+//! Being a basic optimizer, the `SGDParam` struct will only contain the gradient and the data views
+//! for each of the parameters to optimize.
 //!
 //! Nevertheless, do note that an optimizer's parameter representation acts as a container for the
-//! additional informations, such as adaptive learning rates and moments of any kind, that may be
+//! additional information, such as adaptive learning rates and moments of any kind, that may be
 //! needed for the learning steps of more complex algorithms.
 //!
 //! Then, we define the SGD's struct.
@@ -178,7 +180,7 @@
 //!     }
 //! }
 //!
-//! // Simple constructor.
+//! /// Simple constructor.
 //! impl<'a, T: Penalty> SGD<'a, T> {
 //!   pub fn new(parameters: Vec<Param<'a>>, lr: f32, penalty: T) -> Self {
 //!       Self {

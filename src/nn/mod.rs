@@ -26,8 +26,8 @@
 //! ```
 //! use neuronika::nn;
 //!
-//! // MLP definition.
-//! struct MLP {
+//! // Network definition.
+//! struct NeuralNetwork {
 //!     lin1: nn::Linear,
 //!     lin2: nn::Linear,
 //!     lin3: nn::Linear,     
@@ -38,12 +38,12 @@
 //!
 //! ```
 //! # use neuronika::nn;
-//! # struct MLP {
+//! # struct NeuralNetwork {
 //! #    lin1: nn::Linear,
 //! #    lin2: nn::Linear,
 //! #    lin3: nn::Linear,     
 //! # }
-//! impl MLP {
+//! impl NeuralNetwork {
 //!     // Basic constructor.
 //!     fn new() -> Self {
 //!         Self {
@@ -63,13 +63,13 @@
 //! use neuronika::nn::Learnable;
 //!
 //! # use neuronika::nn;
-//! # struct MLP {
+//! # struct NeuralNetwork {
 //! #     lin1: nn::Linear,
 //! #     lin2: nn::Linear,
 //! #     lin3: nn::Linear,     
 //! # }
-//! impl MLP {
-//!     // MLP behavior. Notice the presence of the ReLU non-linearity.
+//! impl NeuralNetwork {
+//!     // NeuralNetwork behavior. Notice the presence of the ReLU non-linearity.
 //!     fn forward<I, T, U>(
 //!         &self,
 //!         input: I,
@@ -100,12 +100,12 @@
 //! # use neuronika::nn::Learnable;
 //! # #[cfg(feature = "blas")]
 //! # extern crate blas_src;
-//! # struct MLP {
+//! # struct NeuralNetwork {
 //! #    lin1: nn::Linear,
 //! #    lin2: nn::Linear,
 //! #    lin3: nn::Linear,     
 //! # }
-//! # impl MLP {
+//! # impl NeuralNetwork {
 //! #     // Basic constructor.
 //! #     fn new() -> Self {
 //! #         Self {
@@ -115,8 +115,8 @@
 //! #         }
 //! #     }
 //! # }
-//! # impl MLP {
-//! #     // MLP behavior. Notice the presence of the ReLU non-linearity.
+//! # impl NeuralNetwork {
+//! #     // NeuralNetwork behavior. Notice the presence of the ReLU non-linearity.
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
@@ -136,7 +136,7 @@
 //! #         out3
 //! #     }
 //! # }
-//! let model = MLP::new();
+//! let model = NeuralNetwork::new();
 //!
 //! // Random data to be given in input to the model.
 //! let fictitious_data = neuronika::rand((200, 25));
@@ -157,12 +157,12 @@
 //! # use neuronika::nn::Learnable;
 //! # #[cfg(feature = "blas")]
 //! # extern crate blas_src;
-//! # struct MLP {
+//! # struct NeuralNetwork {
 //! #    lin1: nn::Linear,
 //! #    lin2: nn::Linear,
 //! #    lin3: nn::Linear,     
 //! # }
-//! # impl MLP {
+//! # impl NeuralNetwork {
 //! #     // Basic constructor.
 //! #     fn new() -> Self {
 //! #         Self {
@@ -172,8 +172,8 @@
 //! #         }
 //! #     }
 //! # }
-//! # impl MLP {
-//! #     // MLP behavior. Notice the presence of the ReLU non-linearity.
+//! # impl NeuralNetwork {
+//! #     // NeuralNetwork behavior. Notice the presence of the ReLU non-linearity.
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
@@ -193,7 +193,7 @@
 //! #         out3
 //! #     }
 //! # }
-//! let model = MLP::new();
+//! let model = NeuralNetwork::new();
 //!
 //! let some_other_variable = neuronika::rand((1, 25)).requires_grad();
 //!
@@ -204,9 +204,9 @@
 //! assert_eq!(out.parameters().len(), 7); // 7 leaf ancestors !
 //! ```
 //!
-//! You may notice how, if we feed in input to the multilayer perceptron the result of an
-//! addition operation, in which one of the operands is a differentiable variable, and then
-//! request the *mlp* output's differentiable ancestors, we are given a vector containing 7
+//! You may notice how, if we feed in input to our neural network the result of an addition
+//! operation, in which one of the operands is a differentiable variable, and then
+//! request the network output's differentiable ancestors, we are given a vector containing 7
 //! [`Param`](struct@Param).
 //!
 //! By doing some quick math: 7 = 2 * 3 + 1, and by noticing that each of the three linear layers
@@ -214,27 +214,33 @@
 //! bias vector, we can conclude that the presence of the seventh ancestors is due to the addition
 //! between `fictitious_data` and `some_other_variable`.
 //!
+//! In fact, neuronika automatically tracks all the differentiable leaves that are involved in the
+//! computation of the output variable when assembling the computational graph corresponding to
+//! the issued operations.
+//!
 //! If you need to distinguish between the parameters of a model and another differentiable variable
 //! or between the parameters of several different models, you can use [`ModelStatus`].
 //!
-//! With `ModelStatus` you can build the exact same multilayer perceptron only varying the
-//! implementation so slightly.
+//! With `ModelStatus` you can build the exact same neural network only varying the implementation
+//! so slightly.
 //!
 //! ```
 //!  use neuronika::Param;
 //!  use neuronika::nn::{ModelStatus, Linear};
 //!
-//!  struct MLP {
+//!  struct NeuralNetwork {
 //!     lin1: Linear,
 //!     lin2: Linear,
 //!     lin3: Linear,
 //!     status: ModelStatus,
 //!  }
 //!
-//!  impl MLP {
+//!  impl NeuralNetwork {
 //!      fn new() -> Self {
+//!          // Initialize an empty model status.
 //!          let mut status = ModelStatus::default();
-//!
+//!          
+//!          // We register each component whilst at the same time building the network.
 //!          Self {
 //!              lin1: status.register(Linear::new(25, 30)),
 //!              lin2: status.register(Linear::new(30, 35)),
@@ -242,26 +248,28 @@
 //!              status,
 //!          }
 //!      }
-//!
+//!      
+//!      /// Returns the model's parameters.
 //!      fn parameters(&self) -> Vec<Param> {
+//!          // We are now able to access the parameter of the neural network.
 //!          self.status.parameters()
 //!      }
 //!  }
 //! ```
 //!
-//! Let's verify that the number of registered parameters for the new version of our multilayer
-//! perceptron is indeed 6.
+//! At last, we verify that the number of registered parameters for the new version of our neural
+//! network is indeed 6.
 //!
 //! ```
 //! # use neuronika::Param;
 //! # use neuronika::nn::{ModelStatus, Linear, Learnable};
-//! # struct MLP {
+//! # struct NeuralNetwork {
 //! #     lin1: Linear,
 //! #     lin2: Linear,
 //! #     lin3: Linear,
 //! #     status: ModelStatus,     
 //! # }
-//! # impl MLP {
+//! # impl NeuralNetwork {
 //! #     // Basic constructor.
 //! #     fn new() -> Self {
 //! #         let mut status = ModelStatus::default();
@@ -278,7 +286,7 @@
 //! #        self.status.parameters()
 //! #     }
 //! # }
-//! let model = MLP::new();
+//! let model = NeuralNetwork::new();
 //! assert_eq!(model.parameters().len(), 6);
 //! ```
 //! Do also note that in spite of the introduction of `ModelStatus`, the implementation of the
@@ -298,7 +306,7 @@
 //! Do also note that switching the status by using `ModelStatus` is the only way that allows for
 //! selectively training and evaluating multiple models.
 //!
-//! Let's picture it with simple example.
+//! Let's picture it with a simple example.
 //!
 //! [`.eval()`]: VarDiff::eval()
 //! [`.train()`]: VarDiff::train()
@@ -307,17 +315,23 @@
 //!  use neuronika::Param;
 //!  use neuronika::nn::{ModelStatus, Linear, Dropout};
 //!
-//!  struct MLP {
+//!  struct NeuralNetwork {
 //!     lin1: Linear,
 //!     drop: Dropout,
 //!     lin2: Linear,
 //!     status: ModelStatus,     
 //!  }
 //!
-//!  impl MLP {
+//!  impl NeuralNetwork {
 //!      fn new() -> Self {
 //!          let mut status = ModelStatus::default();
-//!
+//!          
+//!          // Similarly to what we did before, we register the components
+//!          // to the network's status.
+//!          // Now the dropout layer, and every other changeable
+//!          // component, can be directly controlled by interacting
+//!          // with the model itself, as it is synced with the one of
+//!          // ModelStatus.
 //!          Self {
 //!              lin1: status.register(Linear::new(25, 35)),
 //!              drop: status.register(Dropout::new(0.5)),
@@ -329,11 +343,13 @@
 //!      fn parameters(&self) -> Vec<Param> {
 //!          self.status.parameters()
 //!      }
-//!
+//!      
+//!      /// Switches the network in training mode.
 //!      fn train(&self) {
 //!          self.status.train()
 //!      }
-//!
+//!      
+//!      /// Switches the network in inference mode.
 //!      fn eval(&self) {
 //!          self.status.eval()
 //!      }
