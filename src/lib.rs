@@ -86,9 +86,9 @@
 //! ```
 //! let dim = (2, 2);
 //!
-//! let x = neuronika::rand(shape);
+//! let x = neuronika::rand(dim);
 //!
-//! assert_eq(x.data().dim(), shape);
+//! assert_eq!(x.data().dim(), dim);
 //! ```
 //!
 //! ## Leaf Variables
