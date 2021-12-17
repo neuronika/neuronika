@@ -52,7 +52,7 @@ fn step() {
     for _ in 0..EPOCHS {
         loss.forward();
         loss.backward(1.0);
-        dbg!(loss.data());
+
         optim.step();
         optim.zero_grad();
     }
