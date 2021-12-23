@@ -40,7 +40,8 @@
 //! use neuronika;
 //! ```
 //!
-//! Neuronika's variables can be initialized in many ways. In the following, we will show some of
+//! Neuronika's variables are designed to work with the [`f32`] data type, although this may change in
+//! the future, and can be initialized in many ways. In the following, we will show some of
 //! the possible alternatives:
 //!
 //! **With random or constant values**:
@@ -52,6 +53,16 @@
 //! let rand_variable = neuronika::rand(shape);
 //! let ones_variable = neuronika::ones(shape);
 //! let constant_variable = neuronika::full(shape, 7.);
+//!
+//! print!("Full variable:\n{}", constant_variable);
+//! ```
+//!
+//! Out:
+//!
+//! ```text
+//! [[7, 7, 7, 7],
+//! [7, 7, 7, 7],
+//! [7, 7, 7, 7]]
 //! ```
 //!
 //! **From a ndarray array**
@@ -61,6 +72,23 @@
 //!
 //! let array = array![1., 2.];
 //! let x_ndarray = neuronika::from_ndarray(array);
+//!
+//! print!("From ndarray:\n{}", x_ndarray);
+//! ```
+//! Out:
+//!
+//! ```text
+//! [1, 2]
+//! ```
+//!
+//! Accessing the underlying data is possible by using [`.data()`](crate::Data):
+//!
+//! ```
+//! let dim = (2, 2);
+//!
+//! let x = neuronika::rand(dim);
+//!
+//! assert_eq!(x.data().dim(), dim);
 //! ```
 //!
 //! ## Leaf Variables
@@ -489,7 +517,7 @@ mod tests {
         use super::{eye, Array2};
         let tensor = eye(3);
 
-        assert_eq!(*tensor.data(), Array2::eye(3));
+        assert_eq!(*tensor.data(), Array2::<f32>::eye(3));
     }
 
     #[test]
@@ -524,4 +552,10 @@ mod tests {
         let tensor = range(0., 5., 1.);
         assert!(*tensor.data() == ndarray::arr1(&[0., 1., 2., 3., 4.]))
     }
+}
+
+#[test]
+fn kcckk() {
+    let n = crate::from_ndarray(ndarray::array![1., 2.]);
+    println!("{}", n);
 }

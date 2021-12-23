@@ -1,10 +1,10 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_vec_vec_gradient, Backward, Data, DotDim, Forward,
-    Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, push_vec_vec_gradient, Backward, Data, Forward, Gradient,
+    Overwrite, Tensor,
 };
-use ndarray::Ix1;
+use ndarray::{arr0, Ix0, Ix1};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
@@ -21,7 +21,7 @@ where
 {
     left: Rc<Lhs>,
     right: Rc<Rhs>,
-    data: RefCell<Tensor<Ix1>>,
+    data: RefCell<Tensor<Ix0>>,
     computed: Cell<bool>,
 }
 
@@ -31,8 +31,7 @@ where
     Rhs: Data<Dim = Ix1>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
-        let shape = DotDim::shape(left.data().raw_dim(), right.data().raw_dim());
-        let data = RefCell::new(Tensor::zeros(shape[0]));
+        let data = RefCell::new(arr0(0.));
 
         Self {
             left,
@@ -48,7 +47,7 @@ where
     Lhs: Data<Dim = Ix1>,
     Rhs: Data<Dim = Ix1>,
 {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
@@ -70,7 +69,7 @@ where
         }
 
         self.computed.set(true);
-        self.data.borrow_mut()[0] = self.left.data().dot(&*self.right.data());
+        *self.data.borrow_mut() = arr0(self.left.data().dot(&*self.right.data()));
     }
 
     fn was_computed(&self) -> bool {
@@ -115,8 +114,7 @@ where
     LhsG: Gradient<Dim = Ix1> + Overwrite,
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
-    gradient: RefCell<Option<Tensor<Ix1>>>,
-    shape: Ix1,
+    gradient: RefCell<Option<Tensor<Ix0>>>,
     overwrite: Cell<bool>,
     left_data: Rc<LhsD>,
     left_grad: Rc<LhsG>,
@@ -137,14 +135,8 @@ where
         right_data: Rc<RhsD>,
         right_grad: Rc<RhsG>,
     ) -> Self {
-        let shape = DotDim::shape(
-            left_grad.gradient().raw_dim(),
-            right_grad.gradient().raw_dim(),
-        );
-
         Self {
-            gradient: RefCell::new(Some(Tensor::zeros(shape))),
-            shape,
+            gradient: RefCell::new(Some(arr0(0.))),
             overwrite: Cell::new(true),
             left_data,
             left_grad,
@@ -161,7 +153,7 @@ where
     LhsG: Gradient<Dim = Ix1> + Overwrite,
     RhsG: Gradient<Dim = Ix1> + Overwrite,
 {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
         expect_tensor(&self.gradient)
@@ -197,8 +189,16 @@ where
 {
     fn backward(&self) {
         let gradient = self.gradient();
-        push_vec_vec_gradient(&*self.left_grad, &self.right_data.data(), &gradient[0]);
-        push_vec_vec_gradient(&*self.right_grad, &self.left_data.data(), &gradient[0]);
+        push_vec_vec_gradient(
+            &*self.left_grad,
+            &self.right_data.data(),
+            &gradient.clone().into_scalar(),
+        );
+        push_vec_vec_gradient(
+            &*self.right_grad,
+            &self.left_data.data(),
+            &gradient.clone().into_scalar(),
+        );
     }
 
     fn no_grad(&self) {
@@ -206,7 +206,7 @@ where
     }
 
     fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 
@@ -248,8 +248,7 @@ where
     T: Gradient<Dim = Ix1> + Overwrite,
     U: Data<Dim = Ix1>,
 {
-    gradient: RefCell<Option<Tensor<Ix1>>>,
-    shape: Ix1,
+    gradient: RefCell<Option<Tensor<Ix0>>>,
     overwrite: Cell<bool>,
     diff_operand: Rc<T>,
     no_diff_operand: Rc<U>,
@@ -261,14 +260,8 @@ where
     U: Data<Dim = Ix1>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
-        let shape = DotDim::shape(
-            diff_operand.gradient().raw_dim(),
-            no_diff_operand.data().raw_dim(),
-        );
-
         Self {
-            gradient: RefCell::new(Some(Tensor::zeros(shape))),
-            shape,
+            gradient: RefCell::new(Some(arr0(0.))),
             overwrite: Cell::new(true),
             diff_operand,
             no_diff_operand,
@@ -281,7 +274,7 @@ where
     T: Gradient<Dim = Ix1> + Overwrite,
     U: Data<Dim = Ix1>,
 {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
         expect_tensor(&self.gradient)
@@ -315,7 +308,7 @@ where
         push_vec_vec_gradient(
             &*self.diff_operand,
             &self.no_diff_operand.data(),
-            &self.gradient()[0],
+            &self.gradient().clone().into_scalar(),
         );
     }
 
@@ -324,7 +317,7 @@ where
     }
 
     fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
+        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 

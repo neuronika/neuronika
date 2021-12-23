@@ -64,6 +64,26 @@ mod forward {
         node.forward();
         assert_almost_equals(&*node.data(), &new_tensor(3, vec![-12., -30., -48.]));
     }
+
+    #[test]
+    fn debug() {
+        let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let right = new_input(3, vec![1.; 3]);
+        let node = MatrixVectorMul::new(left, right.clone());
+
+        let output = "MatrixVectorMul { data: [0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let right = new_input(3, vec![1.; 3]);
+        let node = MatrixVectorMul::new(left, right.clone());
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -192,6 +212,36 @@ mod backward {
     }
 
     #[test]
+    fn debug() {
+        let lhs = new_backward_input((3, 3), vec![0.; 9]);
+        let rhs = new_backward_input(3, vec![0.; 3]);
+        let node = MatrixVectorMulBackward::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            lhs,
+            new_input(3, vec![1., 2., 3.]),
+            rhs,
+        );
+
+        let output = "MatrixVectorMulBackward { gradient: Some([0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let lhs = new_backward_input((3, 3), vec![0.; 9]);
+        let rhs = new_backward_input(3, vec![0.; 3]);
+        let node = MatrixVectorMulBackward::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            lhs,
+            new_input(3, vec![1., 2., 3.]),
+            rhs,
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+    }
+
+    #[test]
     fn backward_left() {
         let diff = new_backward_input((3, 3), vec![0.; 9]);
         let node = MatrixVectorMulBackwardLeft::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
@@ -224,6 +274,24 @@ mod backward {
     }
 
     #[test]
+    fn debug_left() {
+        let diff = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixVectorMulBackwardLeft::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
+
+        let output = "MatrixVectorMulBackwardLeft { gradient: Some([0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display_left() {
+        let diff = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixVectorMulBackwardLeft::new(diff.clone(), new_input(3, vec![1., 2., 3.]));
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+    }
+
+    #[test]
     fn backward_right() {
         let diff = new_backward_input(3, vec![0.; 3]);
         let node = MatrixVectorMulBackwardRight::new(
@@ -247,6 +315,30 @@ mod backward {
         diff.set_overwrite(true);
         node.backward();
         assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![12., 15., 18.]));
+    }
+
+    #[test]
+    fn debug_right() {
+        let diff = new_backward_input(3, vec![0.; 3]);
+        let node = MatrixVectorMulBackwardRight::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            diff,
+        );
+
+        let output = "MatrixVectorMulBackwardRight { gradient: Some([0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display_right() {
+        let diff = new_backward_input(3, vec![0.; 3]);
+        let node = MatrixVectorMulBackwardRight::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            diff.clone(),
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 
     #[test]

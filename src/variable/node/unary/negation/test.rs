@@ -71,6 +71,24 @@ mod forward {
             &new_tensor((3, 3), vec![3., 2., 1., 0., -1., -2., -3., -4., -5.]),
         );
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+        let node = Negation::new(input);
+
+        let output = "Negation { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+        let node = Negation::new(input);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -155,6 +173,24 @@ mod backward {
         input.set_overwrite(true);
         node.backward();
         assert_almost_equals(&*input.gradient(), &new_tensor((3, 3), vec![-1.; 9]));
+    }
+
+    #[test]
+    fn debug() {
+        let backward_input = new_backward_input((3, 3), vec![0.; 9]);
+        let node = NegationBackward::new(backward_input);
+
+        let output = "NegationBackward { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let backward_input = new_backward_input((3, 3), vec![0.; 9]);
+        let node = NegationBackward::new(backward_input);
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 
     #[test]

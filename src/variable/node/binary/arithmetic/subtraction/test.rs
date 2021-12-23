@@ -109,6 +109,26 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Subtraction::new(left, right);
+
+        let output = "Subtraction { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Subtraction::new(left, right);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -399,5 +419,70 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        {
+            let node = SubtractionBackward::new(
+                new_backward_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+            );
+
+            let output = "SubtractionBackward { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+            assert_eq!(output, format!("{:?}", node));
+        }
+    }
+
+    #[test]
+    fn debug_left() {
+        let node =
+            SubtractionBackwardLeft::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]));
+
+        let output = "SubtractionBackwardLeft { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn debug_right() {
+        let node =
+            SubtractionBackwardRight::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]));
+
+        let output = "SubtractionBackwardRight { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        {
+            let node = SubtractionBackward::new(
+                new_backward_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+            );
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
+
+    #[test]
+    fn display_left() {
+        {
+            let node = SubtractionBackwardLeft::new(
+                new_backward_input(1, vec![0.]),
+                new_input(1, vec![0.]),
+            );
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
+
+    #[test]
+    fn display_right() {
+        {
+            let node = SubtractionBackwardRight::new(
+                new_backward_input(1, vec![0.]),
+                new_input(1, vec![0.]),
+            );
+
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
     }
 }

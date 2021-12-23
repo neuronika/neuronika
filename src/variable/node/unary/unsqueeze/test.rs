@@ -153,6 +153,24 @@ mod forward {
             &new_tensor((3, 3, 1), vec![-3., -2., -1., 0., 1., 2., 3., 4., 5.]),
         );
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+        let node = Unsqueeze::new(input.clone(), 2);
+
+        let output = "Unsqueeze { data: [[[0.0],\n  [0.0],\n  [0.0]],\n\n [[0.0],\n  [0.0],\n  [0.0]],\n\n [[0.0],\n  [0.0],\n  [0.0]]], shape=[3, 3, 1], strides=[3, 1, 1], layout=Cc (0x5), const ndim=3, axis: 2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+        let node = Unsqueeze::new(input.clone(), 2);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -275,6 +293,24 @@ mod backward {
         diff.set_overwrite(true);
         node.backward();
         assert_almost_equals(&*diff.gradient(), &new_tensor((4, 3), vec![1.; 12]));
+    }
+
+    #[test]
+    fn debug() {
+        let diff = new_backward_input((4, 3), vec![0.; 12]);
+        let node = UnsqueezeBackward::new(diff.clone(), 2);
+
+        let output = "UnsqueezeBackward { gradient: Some([[[0.0],\n  [0.0],\n  [0.0]],\n\n [[0.0],\n  [0.0],\n  [0.0]],\n\n [[0.0],\n  [0.0],\n  [0.0]],\n\n [[0.0],\n  [0.0],\n  [0.0]]], shape=[4, 3, 1], strides=[3, 1, 1], layout=Cc (0x5), const ndim=3), axis: 2, overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let diff = new_backward_input((4, 3), vec![0.; 12]);
+        let node = UnsqueezeBackward::new(diff.clone(), 2);
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 
     #[test]

@@ -94,6 +94,26 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let first = new_input((1, 3), vec![0., 1., 2.]);
+        let second = new_input((1, 3), vec![0.; 3]);
+        let node = MultiConcatenate::new(vec![first, second], 0, new_tensor((2, 3), vec![0.; 6]));
+
+        let output = "MultiConcatenate { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[2, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, axis: 0, operands: 2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let first = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
+        let second = new_input((3, 3), vec![0.; 9]);
+        let node = MultiConcatenate::new(vec![first, second], 0, new_tensor((6, 3), vec![0.; 18]));
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -213,7 +233,6 @@ mod backward {
 
     #[test]
     fn no_grad() {
-        // MultiConcatenateBackward
         let node = MultiConcatenateBackward::new(
             vec![
                 new_backward_input((3, 3), vec![0.; 9]),
@@ -228,5 +247,33 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        let first = new_backward_input((1, 3), vec![0.; 3]);
+        let second = new_backward_input((1, 3), vec![0.; 3]);
+        let node = MultiConcatenateBackward::new(
+            vec![first.clone(), second.clone()],
+            0,
+            ndarray::Dim([2, 3]),
+        );
+
+        let output = "MultiConcatenateBackward { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[2, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), operands: 2, axis: 0, overwrite: Cell { value: true } }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let first = new_backward_input((3, 4), vec![0.; 12]);
+        let second = new_backward_input((2, 4), vec![0.; 8]);
+        let node = MultiConcatenateBackward::new(
+            vec![first.clone(), second.clone()],
+            0,
+            ndarray::Dim([5, 4]),
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }

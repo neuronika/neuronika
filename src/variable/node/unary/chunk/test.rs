@@ -62,6 +62,24 @@ mod forward {
         node.forward();
         assert_almost_equals(&*node.data(), &new_tensor((1, 3), vec![-3., -2., -1.]));
     }
+
+    #[test]
+    fn debug() {
+        let input = new_input(3, vec![0.; 3]);
+        let node = Chunk::new(input, ndarray::arr1(&[0.]), 1);
+
+        let output = "Chunk { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, chunk_no: 1, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let input = new_input(3, vec![0.; 3]);
+        let node = Chunk::new(input, ndarray::arr1(&[0.]), 1);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -166,5 +184,29 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        let node = ChunkBackward::new(
+            new_backward_input((3, 3), vec![0.; 9]),
+            Tensor::zeros((1, 3)),
+            0,
+        );
+
+        let output = "ChunkBackward { gradient: Some([[0.0, 0.0, 0.0]], shape=[1, 3], strides=[3, 1], layout=CFcf (0xf), const ndim=2), chunk_no: 0, overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let node = ChunkBackward::new(
+            new_backward_input((3, 3), vec![0.; 9]),
+            Tensor::zeros((1, 3)),
+            0,
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }

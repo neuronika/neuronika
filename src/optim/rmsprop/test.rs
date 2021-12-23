@@ -121,7 +121,7 @@ fn step() {
     let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data()[0];
+    let first_value = loss.data().clone().into_scalar();
     let optim = RMSProp::new(loss.parameters(), 0.01, 0.7, L2::new(0.0), 1e-8);
 
     for _ in 0..EPOCHS {
@@ -131,7 +131,7 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < first_value);
+    assert!(loss.data().clone().into_scalar() < first_value.clone());
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn step_centered() {
     let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data()[0];
+    let first_value = loss.data().clone().into_scalar();
     let optim = RMSProp::new(loss.parameters(), 0.01, 0.7, L2::new(0.0), 1e-8).centered();
 
     for _ in 0..EPOCHS {
@@ -155,7 +155,7 @@ fn step_centered() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < first_value);
+    assert!(loss.data().clone().into_scalar() < first_value.clone());
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn step_with_momentum() {
     let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data()[0];
+    let first_value = loss.data().clone().into_scalar();
     let optim = RMSProp::new(loss.parameters(), 0.01, 0.99, L2::new(0.0), 1e-8).with_momentum(0.5);
 
     for _ in 0..EPOCHS {
@@ -179,7 +179,7 @@ fn step_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < first_value);
+    assert!(loss.data().clone().into_scalar() < first_value.clone());
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn step_centered_with_momentum() {
     let loss = (x.mm(w) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data()[0];
+    let first_value = loss.data().clone().into_scalar();
     let optim =
         RMSProp::new(loss.parameters(), 0.01, 0.99, L2::new(0.0), 1e-8).centered_with_momentum(0.5);
 
@@ -204,5 +204,5 @@ fn step_centered_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data()[0] < first_value);
+    assert!(loss.data().clone().into_scalar() < first_value.clone());
 }

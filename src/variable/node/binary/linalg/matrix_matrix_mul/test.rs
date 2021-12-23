@@ -76,6 +76,26 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let right = new_input((3, 3), vec![1.; 9]);
+        let node = MatrixMatrixMul::new(left, right);
+
+        let output = "MatrixMatrixMul { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let right = new_input((3, 3), vec![1.; 9]);
+        let node = MatrixMatrixMul::new(left, right);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -213,6 +233,36 @@ mod backward {
     }
 
     #[test]
+    fn debug() {
+        let lhs = new_backward_input((3, 3), vec![0.; 9]);
+        let rhs = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixMatrixMulBackward::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            lhs,
+            new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+            rhs,
+        );
+
+        let output = "MatrixMatrixMulBackward { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let lhs = new_backward_input((3, 3), vec![0.; 9]);
+        let rhs = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixMatrixMulBackward::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            lhs,
+            new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+            rhs,
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+    }
+
+    #[test]
     fn backward_left() {
         let diff = new_backward_input((3, 3), vec![0.; 9]);
         let node = MatrixMatrixMulBackwardLeft::new(
@@ -248,6 +298,29 @@ mod backward {
     }
 
     #[test]
+    fn debug_left() {
+        let diff = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixMatrixMulBackwardLeft::new(
+            diff.clone(),
+            new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+        );
+
+        let output = "MatrixMatrixMulBackwardLeft { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display_left() {
+        let diff = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixMatrixMulBackwardLeft::new(
+            diff.clone(),
+            new_input((3, 3), vec![10., 11., 12., 13., 14., 15., 16., 17., 18.]),
+        );
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+    }
+
+    #[test]
     fn backward_right() {
         let diff = new_backward_input((3, 3), vec![0.; 9]);
         let node = MatrixMatrixMulBackwardRight::new(
@@ -280,6 +353,30 @@ mod backward {
             &*diff.gradient(),
             &new_tensor((3, 3), vec![12., 12., 12., 15., 15., 15., 18., 18., 18.]),
         );
+    }
+
+    #[test]
+    fn debug_right() {
+        let diff = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixMatrixMulBackwardRight::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            diff.clone(),
+        );
+
+        let output = "MatrixMatrixMulBackwardRight { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), overwrite: true }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display_right() {
+        let diff = new_backward_input((3, 3), vec![0.; 9]);
+        let node = MatrixMatrixMulBackwardRight::new(
+            new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+            diff.clone(),
+        );
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 
     #[test]

@@ -92,6 +92,26 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let first = new_input(3, vec![0., 1., 2.]);
+        let second = new_input(3, vec![0.; 3]);
+        let node = MultiStack::new(vec![first, second], 0, new_tensor((2, 3), vec![0.; 6]));
+
+        let output = "MultiStack { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[2, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, axis: 0, operands: 2, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let first = new_input(3, vec![0., 1., 2.]);
+        let second = new_input(3, vec![0.; 3]);
+        let node = MultiStack::new(vec![first, second], 0, new_tensor((2, 3), vec![0.; 6]));
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -226,5 +246,27 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        let first = new_backward_input(3, vec![0.; 3]);
+        let second = new_backward_input(3, vec![0.; 3]);
+        let node =
+            MultiStackBackward::new(vec![first.clone(), second.clone()], 0, ndarray::Dim([2, 3]));
+
+        let output = "MultiStackBackward { gradient: Some([[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[2, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2), operands: 2, axis: 0, overwrite: Cell { value: true } }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let first = new_backward_input(3, vec![0.; 3]);
+        let second = new_backward_input(3, vec![0.; 3]);
+        let node =
+            MultiStackBackward::new(vec![first.clone(), second.clone()], 0, ndarray::Dim([2, 3]));
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }

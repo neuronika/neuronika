@@ -11,6 +11,11 @@ use super::{
     VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use ndarray::{concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
+#[cfg(feature = "serialize")]
+use serde::{
+    de::{Deserialize, Deserializer},
+    ser::{Serialize, Serializer},
+};
 use std::{
     cell::{Cell, Ref, RefMut},
     collections::HashSet,
@@ -401,6 +406,12 @@ impl<T: Data + 'static> Var<T> {
             })
             .collect()
     }
+
+    /// Returns a new variable with a dimension of size one inserted at the position specified by
+    /// `axis`.
+    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
+        Var::from(Unsqueeze::new(self.node, axis), self.past)
+    }
 }
 
 impl<T> Var<T>
@@ -408,12 +419,6 @@ where
     T: Data + 'static,
     T::Dim: RemoveAxis,
 {
-    /// Returns a new variable with a dimension of size one inserted at the position specified by
-    /// `axis`.
-    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
-        Var::from(Unsqueeze::new(self.node, axis), self.past)
-    }
-
     /// Concatenates the given sequence of non-differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a non-differentiable variable with the results.
     ///
@@ -1009,5 +1014,34 @@ impl<T: Data + Debug> Debug for Var<T> {
 impl<T: Data + Display> Display for Var<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.node)
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Serialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[cfg(feature = "serialize")]
+impl<D> Serialize for Var<Input<D>>
+where
+    D: Dimension + Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.data().serialize(serializer)
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Deserialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[cfg(feature = "serialize")]
+impl<'d, D> Deserialize<'d> for Var<Input<D>>
+where
+    D: Dimension + Deserialize<'d>,
+{
+    fn deserialize<De>(deserializer: De) -> Result<Self, De::Error>
+    where
+        De: Deserializer<'d>,
+    {
+        let data = ndarray::Array::<f32, D>::deserialize(deserializer).unwrap();
+        Ok(Input::new(data))
     }
 }

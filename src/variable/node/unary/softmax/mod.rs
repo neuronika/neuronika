@@ -78,6 +78,7 @@ impl<T: Data> Debug for Softmax<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Softmax")
             .field("data", &self.data.borrow())
+            .field("axis", &self.axis)
             .field("computed", &self.computed.get())
             .finish()
     }
@@ -213,6 +214,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SoftmaxBackward")
             .field("gradient", &self.gradient.borrow())
+            .field("axis", &self.axis)
             .field("overwrite", &self.overwrite.get())
             .finish()
     }

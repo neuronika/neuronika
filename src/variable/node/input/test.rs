@@ -35,6 +35,28 @@ mod forward {
         input.reset_computation();
         assert!(!input.was_computed());
     }
+
+    #[test]
+    fn debug() {
+        let node = Input {
+            data: RefCell::new(Tensor::zeros(1)),
+            computed: Cell::new(false),
+        };
+        let output =
+            "Input { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let node = Input {
+            data: RefCell::new(Tensor::zeros(1)),
+            computed: Cell::new(false),
+        };
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 
 mod backward {
@@ -74,5 +96,27 @@ mod backward {
 
         input.zero_grad();
         assert_eq!(*input.gradient(), Tensor::zeros((3, 3)));
+    }
+
+    #[test]
+    fn debug() {
+        let node = InputBackward {
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            overwrite: Cell::new(false),
+        };
+        let output =
+            "InputBackward { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let node = InputBackward {
+            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            overwrite: Cell::new(false),
+        };
+
+        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }

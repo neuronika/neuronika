@@ -107,6 +107,26 @@ mod forward {
             ),
         );
     }
+
+    #[test]
+    fn debug() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Division::new(left, right);
+
+        let output = "Division { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
+
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        let left = new_input(1, vec![0.]);
+        let right = new_input(1, vec![0.]);
+        let node = Division::new(left, right);
+
+        assert_eq!(format!("{}", node.data()), format!("{}", node));
+    }
 }
 mod backward {
     use super::{
@@ -388,46 +408,116 @@ mod backward {
         node.backward();
         assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![-0.36; 3]));
     }
-}
 
-#[test]
-fn no_grad() {
-    // DivisionBackward
-    let node = DivisionBackward::new(
-        new_input((3, 3), vec![0.; 9]),
-        new_backward_input((3, 3), vec![0.; 9]),
-        new_input((3, 3), vec![0.; 9]),
-        new_backward_input((3, 3), vec![0.; 9]),
-    );
+    #[test]
+    fn no_grad() {
+        // DivisionBackward
+        let node = DivisionBackward::new(
+            new_input((3, 3), vec![0.; 9]),
+            new_backward_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+            new_backward_input((3, 3), vec![0.; 9]),
+        );
 
-    node.no_grad();
-    assert!(node.gradient.borrow().is_none());
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
 
-    node.with_grad();
-    assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
 
-    // DivisionBackwardLeft
-    let node = DivisionBackwardLeft::new(
-        new_backward_input((3, 3), vec![0.; 9]),
-        new_input((3, 3), vec![0.; 9]),
-    );
+        // DivisionBackwardLeft
+        let node = DivisionBackwardLeft::new(
+            new_backward_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+        );
 
-    node.no_grad();
-    assert!(node.gradient.borrow().is_none());
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
 
-    node.with_grad();
-    assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
 
-    // DivisionBackwardRight
-    let node = DivisionBackwardRight::new(
-        new_input((3, 3), vec![0.; 9]),
-        new_input((3, 3), vec![0.; 9]),
-        new_backward_input((3, 3), vec![0.; 9]),
-    );
+        // DivisionBackwardRight
+        let node = DivisionBackwardRight::new(
+            new_input((3, 3), vec![0.; 9]),
+            new_input((3, 3), vec![0.; 9]),
+            new_backward_input((3, 3), vec![0.; 9]),
+        );
 
-    node.no_grad();
-    assert!(node.gradient.borrow().is_none());
+        node.no_grad();
+        assert!(node.gradient.borrow().is_none());
 
-    node.with_grad();
-    assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        node.with_grad();
+        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+    }
+
+    #[test]
+    fn debug() {
+        {
+            let node = DivisionBackward::new(
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+            );
+
+            let output = "DivisionBackward { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+            assert_eq!(output, format!("{:?}", node));
+        }
+    }
+
+    #[test]
+    fn debug_left() {
+        let node =
+            DivisionBackwardLeft::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]));
+
+        let output = "DivisionBackwardLeft { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn debug_right() {
+        let node = DivisionBackwardRight::new(
+            new_input(1, vec![0.]),
+            new_input(1, vec![0.]),
+            new_backward_input(1, vec![0.]),
+        );
+
+        let output = "DivisionBackwardRight { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
+        assert_eq!(output, format!("{:?}", node));
+    }
+
+    #[test]
+    fn display() {
+        {
+            let node = DivisionBackward::new(
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+            );
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
+
+    #[test]
+    fn display_left() {
+        {
+            let node =
+                DivisionBackwardLeft::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]));
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
+
+    #[test]
+    fn display_right() {
+        {
+            let node = DivisionBackwardRight::new(
+                new_input(1, vec![0.]),
+                new_input(1, vec![0.]),
+                new_backward_input(1, vec![0.]),
+            );
+            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        }
+    }
 }

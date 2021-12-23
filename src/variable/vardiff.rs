@@ -1,5 +1,3 @@
-use crate::nn::Register;
-
 use super::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Cat, Chunk, ChunkBackward,
     Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DifferentiableVariable,
@@ -19,7 +17,13 @@ use super::{
     VecVecMul, VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
     VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
+use crate::nn::Register;
 use ndarray::{DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
+#[cfg(feature = "serialize")]
+use serde::{
+    de::{Deserialize, Deserializer},
+    ser::{Serialize, Serializer},
+};
 use std::{
     cell::{Cell, Ref, RefMut},
     fmt::{Debug, Display},
@@ -529,14 +533,7 @@ where
             })
             .collect()
     }
-}
 
-impl<T, U> VarDiff<T, U>
-where
-    T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: RemoveAxis,
-{
     /// Returns a new differentiable variable with a dimension of size one inserted at the position
     /// specified by `axis`.
     pub fn unsqueeze(self, axis: usize) -> VarDiff<Unsqueeze<T>, UnsqueezeBackward<U>> {
@@ -546,7 +543,14 @@ where
             self.var.unsqueeze(axis),
         )
     }
+}
 
+impl<T, U> VarDiff<T, U>
+where
+    T: Data + 'static,
+    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    T::Dim: RemoveAxis,
+{
     /// Concatenates the given sequence of differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a differentiable variable with the results.
     ///
@@ -1258,5 +1262,34 @@ where
 impl<T: Data + Display, U: Gradient + Overwrite + Display> Display for VarDiff<T, U> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.var)
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Serialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[cfg(feature = "serialize")]
+impl<D> Serialize for VarDiff<Input<D>, super::InputBackward<D>>
+where
+    D: Dimension + Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.data().serialize(serializer)
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Deserialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[cfg(feature = "serialize")]
+impl<'d, D> Deserialize<'d> for VarDiff<Input<D>, super::InputBackward<D>>
+where
+    D: Dimension + Deserialize<'d>,
+{
+    fn deserialize<De>(deserializer: De) -> Result<Self, De::Error>
+    where
+        De: Deserializer<'d>,
+    {
+        let data = ndarray::Array::<f32, D>::deserialize(deserializer).unwrap();
+        Ok(Input::new(data).requires_grad())
     }
 }

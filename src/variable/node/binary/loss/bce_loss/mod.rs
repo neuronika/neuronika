@@ -4,7 +4,7 @@ use super::{
     expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Reduction,
     Tensor,
 };
-use ndarray::{Ix1, Zip};
+use ndarray::{arr0, Ix0, Zip};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
@@ -22,7 +22,7 @@ where
 {
     input: Rc<T>,
     target: Rc<U>,
-    data: RefCell<Tensor<Ix1>>,
+    data: RefCell<Tensor<Ix0>>,
     reduction: Reduction,
     computed: Cell<bool>,
 }
@@ -36,7 +36,7 @@ where
         Self {
             input,
             target,
-            data: RefCell::new(Tensor::zeros(1)),
+            data: RefCell::new(arr0(0.)),
             reduction,
             computed: Cell::new(false),
         }
@@ -48,7 +48,7 @@ where
     T: Data,
     U: Data<Dim = T::Dim>,
 {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
         self.data.borrow()
@@ -78,7 +78,7 @@ where
             )
         };
         const MIN_LOG: f32 = -100.;
-        loss_data[0] = {
+        *loss_data = {
             let total_loss =
                 Zip::from(&*input_data)
                     .and(&*target_data)
@@ -87,8 +87,8 @@ where
                             + (1. - target) * (1. - input).ln().clamp(MIN_LOG, std::f32::MAX))
                     });
             match self.reduction {
-                Reduction::Mean => -total_loss / input_data.len() as f32,
-                Reduction::Sum => -total_loss,
+                Reduction::Mean => arr0(-total_loss / input_data.len() as f32),
+                Reduction::Sum => arr0(-total_loss),
             }
         };
     }
@@ -110,6 +110,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BCELoss")
             .field("data", &self.data.borrow())
+            .field("reduction", &self.reduction)
             .field("computed", &self.computed.get())
             .finish()
     }
@@ -135,7 +136,7 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
-    gradient: RefCell<Option<Tensor<Ix1>>>,
+    gradient: RefCell<Option<Tensor<Ix0>>>,
     overwrite: Cell<bool>,
     diff_input: Rc<T>,
     input: Rc<U>,
@@ -159,9 +160,9 @@ where
             diff_input,
             input,
             target,
-            gradient: RefCell::new(Some(Tensor::zeros(1))),
+            gradient: RefCell::new(Some(arr0(0.))),
             reduction,
-            overwrite: Cell::new(false),
+            overwrite: Cell::new(true),
         }
     }
 }
@@ -172,7 +173,7 @@ where
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
-    type Dim = Ix1;
+    type Dim = Ix0;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
         expect_tensor(&self.gradient)
@@ -259,7 +260,7 @@ where
     }
 
     fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(1));
+        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 

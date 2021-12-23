@@ -80,6 +80,7 @@ impl<T: Data> Debug for Unsqueeze<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Unsqueeze")
             .field("data", &self.data.borrow())
+            .field("axis", &self.axis)
             .field("computed", &self.computed.get())
             .finish()
     }
@@ -168,6 +169,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnsqueezeBackward")
             .field("gradient", &self.gradient.borrow())
+            .field("axis", &self.axis)
             .field("overwrite", &self.overwrite.get())
             .finish()
     }
