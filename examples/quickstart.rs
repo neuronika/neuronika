@@ -224,7 +224,7 @@ fn main() {
 
             let loss = loss::mse_loss(result.clone(), target.clone(), loss::Reduction::Mean);
             loss.forward();
-            total_loss += loss.data().clone().into_scalar();
+            total_loss += loss.data()[()];
             loss.backward(1.0);
             optimizer.step();
         }
