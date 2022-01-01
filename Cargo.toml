@@ -7,7 +7,7 @@ keywords = ["deep-learning", "auto-differentiation", "machine-learning", "tensor
 license = "MPL-2.0"
 name = "neuronika"
 repository = "https://github.com/neuronika/neuronika"
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies]
 csv = "1.1.6"
