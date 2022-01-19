@@ -202,7 +202,7 @@ use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 pub use variable::{
     Backward, Cat, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, MatMatMul,
-    MatMatMulT, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
+    MatMatMulT, MatVecMul, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
 use variable::{Input, InputBackward};
 
@@ -552,10 +552,4 @@ mod tests {
         let tensor = range(0., 5., 1.);
         assert!(*tensor.data() == ndarray::arr1(&[0., 1., 2., 3., 4.]))
     }
-}
-
-#[test]
-fn kcckk() {
-    let n = crate::from_ndarray(ndarray::array![1., 2.]);
-    println!("{}", n);
 }
