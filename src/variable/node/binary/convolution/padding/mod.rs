@@ -2,7 +2,7 @@ use ndarray::{Array, ArrayBase, Data, DataMut, Dimension, IntoDimension, Ix1, Ix
 use std::fmt::Debug;
 
 /// Padding modes logic.
-pub trait PaddingMode: Send + Sync + Clone + Debug {
+pub trait PaddingMode: Send + Sync + Copy + Clone + Debug {
     fn pad_inplace<D: ReflPad + ReplPad, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
         &self,
         array: &mut ArrayBase<S, D>,
@@ -19,13 +19,13 @@ pub trait PaddingMode: Send + Sync + Clone + Debug {
 
 /// Zero padding.
 ///
-/// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone, Debug)]
+/// See [`.pad()`](Self::pad()) for more information.
+#[derive(Copy, Clone, Debug)]
 pub struct Zero;
 /// Constant padding.
 ///
-/// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone, Debug)]
+/// See [`.pad()`](Self::pad()) for more information.
+#[derive(Copy, Clone, Debug)]
 pub struct Constant {
     pub value: f32,
 }
@@ -37,25 +37,25 @@ impl Constant {
 }
 /// Reflective padding.
 ///
-/// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone, Debug)]
+/// See [`.pad()`](Self::pad()) for more information.
+#[derive(Copy, Clone, Debug)]
 pub struct Reflective;
 /// Replicative padding.
 ///
-/// See [`.pad()`](Self::pad()) for more informations.
-#[derive(Clone, Debug)]
+/// See [`.pad()`](Self::pad()) for more information.
+#[derive(Copy, Clone, Debug)]
 pub struct Replicative;
 
 impl PaddingMode for Zero {
     /// Pads the input array in place with zeros.
     ///
-    /// See [`.pad()`](Self::pad()) for more informations.
+    /// See [`.pad()`](Self::pad()) for more information.
     ///
     /// # Arguments
     ///
     /// * `input` - array to be padded.
     ///
-    /// * `original` - the original unpadded array.
+    /// * `original` - the original un-padded array.
     ///
     /// * `padding` - slice specifying the amount of padding for each dimension.
     ///
@@ -121,13 +121,13 @@ impl PaddingMode for Zero {
 impl PaddingMode for Constant {
     /// Pads the input array in place using a constant value.
     ///
-    /// See [`.pad()`](Self::pad()) for more informations.
+    /// See [`.pad()`](Self::pad()) for more information.
     ///
     /// # Arguments
     ///
     /// * `input` - array to be padded.
     ///
-    /// * `original` - the original unpadded array.
+    /// * `original` - the original un-padded array.
     ///
     /// * `padding` - slice specifying the amount of padding for each dimension.
     ///
@@ -197,13 +197,13 @@ impl PaddingMode for Constant {
 impl PaddingMode for Reflective {
     /// Pads the input array in place using the reflection of its boundary.
     ///
-    /// See [`.pad()`](Self::pad()) for more informations.
+    /// See [`.pad()`](Self::pad()) for more information.
     ///
     /// # Arguments
     ///
     /// * `input` - array to be padded.
     ///
-    /// * `original` - the original unpadded array.
+    /// * `original` - the original un-padded array.
     ///
     /// * `padding` - slice specifying the amount of padding for each dimension.
     ///
@@ -271,13 +271,13 @@ impl PaddingMode for Reflective {
 impl PaddingMode for Replicative {
     /// Pads the input array in place using the replication of its boundary.
     ///
-    /// See [`.pad()`](Self::pad()) for more informations.
+    /// See [`.pad()`](Self::pad()) for more information.
     ///
     /// # Arguments
     ///
     /// * `input` - array to be padded.
     ///
-    /// * `original` - the original unpadded array.
+    /// * `original` - the original un-padded array.
     ///
     /// * `padding` - slice specifying the amount of padding for each dimension.
     ///

@@ -89,7 +89,7 @@ where
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     F2: NData<Dim = F1::Dim> + 'static,
-    B2: Gradient<Dim = F2::Dim> + Overwrite + Display + Debug,
+    B2: Gradient<Dim = F2::Dim> + Overwrite,
     Pad: PaddingMode + 'static,
 {
     type Output = VarDiff<Convolution<F1, F2, Pad>, ConvolutionBackwardUnary<F1, B2, Pad>>;
@@ -121,12 +121,12 @@ where
 
 impl<F1, B1, F2, B2, Pad> Convolve<Self, VarDiff<F2, B2>, Pad> for VarDiff<F1, B1>
 where
-    F1: NData + Debug + Display + 'static,
+    F1: NData + 'static,
     F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     B1: Gradient<Dim = F1::Dim> + Overwrite,
-    F2: NData<Dim = F1::Dim> + Debug + Display + 'static,
+    F2: NData<Dim = F1::Dim> + 'static,
     B2: Gradient<Dim = F2::Dim> + Overwrite,
     Pad: PaddingMode + 'static,
 {
@@ -276,12 +276,12 @@ where
 
 impl<F1, B1, F2, B2, Pad> ConvolveWithGroups<Self, VarDiff<F2, B2>, Pad> for VarDiff<F1, B1>
 where
-    F1: NData + Debug + Display + 'static,
+    F1: NData + 'static,
     F1::Dim: RemoveAxis,
     <F1::Dim as Dimension>::Smaller: RemoveAxis,
     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
     B1: Gradient<Dim = F1::Dim> + Overwrite,
-    F2: NData<Dim = F1::Dim> + Debug + Display + 'static,
+    F2: NData<Dim = F1::Dim> + 'static,
     B2: Gradient<Dim = F2::Dim> + Overwrite,
     Pad: PaddingMode + 'static,
 {
