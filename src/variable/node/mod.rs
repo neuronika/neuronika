@@ -425,7 +425,7 @@ where
 /// * `left` - left operand in the binary operations that admits broadcasting.
 ///
 /// * `right` - right operand in the binary operations that admits broadcasting.
-pub(crate) fn broadcasted_zeros<Lhs, Rhs>(
+pub(crate) fn cobroadcasted_zeros<Lhs, Rhs>(
     left: &Tensor<Lhs>,
     right: &Tensor<Rhs>,
 ) -> BroadTensor<Lhs, Rhs>
@@ -438,19 +438,26 @@ where
     } else {
         (right.shape(), left.shape())
     };
-    let mut broadcasted_dim = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
-    broadcasted_dim
-        .slice_mut()
+    let mut out = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
+    out.slice_mut()
         .iter_mut()
         .zip(bigger.iter())
         .for_each(|(l, r)| *l = *r);
-    broadcasted_dim
-        .slice_mut()
+    let k = bigger.len() - smaller.len();
+    out.slice_mut()
         .iter_mut()
-        .rev()
-        .zip(smaller.iter().rev())
-        .for_each(|(l, r)| *l = std::cmp::max(*l, *r));
-    Tensor::zeros(broadcasted_dim)
+        .skip(k)
+        .zip(smaller.iter())
+        .for_each(|(l, r)| {
+            if *l != *r {
+                if *l == 1 {
+                    *l = *r
+                } else if *r != 1 {
+                    panic!("error: the two tensors have incompatible shape.")
+                }
+            }
+        });
+    Tensor::zeros(out)
 }
 
 /// Returns a `Ref` to `tensor`. This function is used to access gradients.

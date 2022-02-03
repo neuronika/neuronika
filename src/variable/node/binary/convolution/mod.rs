@@ -109,7 +109,7 @@ where
             stride,
             dilation,
             padding,
-            padding_mode.clone(),
+            padding_mode,
         );
         VarDiff::from(
             node,
@@ -149,7 +149,7 @@ where
             stride,
             dilation,
             padding,
-            padding_mode.clone(),
+            padding_mode,
         );
         VarDiff::from(
             node,
@@ -255,7 +255,7 @@ where
             stride,
             dilation,
             padding,
-            padding_mode.clone(),
+            padding_mode,
             groups,
         );
         VarDiff::from(
@@ -306,7 +306,7 @@ where
             stride,
             dilation,
             padding,
-            padding_mode.clone(),
+            padding_mode,
             groups,
         );
         VarDiff::from(

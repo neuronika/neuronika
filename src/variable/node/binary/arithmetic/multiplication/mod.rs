@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    broadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
+    cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
     BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::{DimMax, Dimension, Zip};
@@ -33,7 +33,7 @@ where
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
-        let data = RefCell::new(broadcasted_zeros(&left.data(), &right.data()));
+        let data = RefCell::new(cobroadcasted_zeros(&left.data(), &right.data()));
 
         Self {
             left,
@@ -150,7 +150,7 @@ where
         right_data: Rc<RhsD>,
         right_grad: Rc<RhsG>,
     ) -> Self {
-        let gradient = broadcasted_zeros(&left_grad.gradient(), &right_grad.gradient());
+        let gradient = cobroadcasted_zeros(&left_grad.gradient(), &right_grad.gradient());
         let shape = gradient.raw_dim();
 
         Self {
@@ -298,7 +298,7 @@ where
     T::Dim: Dimension + DimMax<U::Dim>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
-        let gradient = broadcasted_zeros(&diff_operand.gradient(), &no_diff_operand.data());
+        let gradient = cobroadcasted_zeros(&diff_operand.gradient(), &no_diff_operand.data());
         let shape = gradient.raw_dim();
 
         Self {
