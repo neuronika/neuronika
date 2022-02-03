@@ -879,7 +879,7 @@ pub struct Conv1d<Pad: PaddingMode> {
     pub stride: usize,
     pub dilation: usize,
     pub weight: Learnable<Ix3>,
-    pub bias: Learnable<Ix1>,
+    pub bias: Learnable<Ix2>,
 }
 
 impl<Pad: PaddingMode> Conv1d<Pad> {
@@ -916,7 +916,7 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     ) -> Self {
         let weight =
             Input::new(Tensor::zeros((out_channels, in_channels, kernel_size))).requires_grad();
-        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros((out_channels, 1))).requires_grad();
 
         let k = (1. / (in_channels * kernel_size) as f32).sqrt();
         init::uniform(&weight, -k, k);
@@ -965,7 +965,7 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
             &[self.stride],
             &[self.dilation],
             &[self.padding],
-            self.padding_mode.clone(),
+            self.padding_mode,
         )
         .into()
             + self.bias.clone()
@@ -992,7 +992,7 @@ pub struct GroupedConv1d<Pad: PaddingMode> {
     pub dilation: usize,
     pub groups: usize,
     pub weight: Learnable<Ix3>,
-    pub bias: Learnable<Ix1>,
+    pub bias: Learnable<Ix2>,
 }
 
 impl<Pad: PaddingMode> GroupedConv1d<Pad> {
@@ -1045,7 +1045,7 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
             kernel_size,
         )))
         .requires_grad();
-        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros((out_channels, 1))).requires_grad();
 
         let k = (groups as f32 / (in_channels * kernel_size) as f32).sqrt();
         init::uniform(&weight, -k, k);
@@ -1095,7 +1095,7 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
             &[self.stride],
             &[self.dilation],
             &[self.padding],
-            self.padding_mode.clone(),
+            self.padding_mode,
             self.groups,
         )
         .into()
@@ -1123,7 +1123,7 @@ pub struct Conv2d<Pad: PaddingMode> {
     pub stride: (usize, usize),
     pub dilation: (usize, usize),
     pub weight: Learnable<Ix4>,
-    pub bias: Learnable<Ix1>,
+    pub bias: Learnable<Ix3>,
 }
 
 impl<Pad: PaddingMode> Conv2d<Pad> {
@@ -1166,7 +1166,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros((out_channels, 1, 1))).requires_grad();
 
         let k = (1. / (in_channels * kernel_h * kernel_w) as f32).sqrt();
         init::uniform(&weight, -k, k);
@@ -1221,7 +1221,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
             &[stride_h, stride_w],
             &[dilation_h, dilation_w],
             &[padding_h, padding_w],
-            self.padding_mode.clone(),
+            self.padding_mode,
         )
         .into()
             + self.bias.clone()
@@ -1247,7 +1247,7 @@ pub struct GroupedConv2d<Pad: PaddingMode> {
     pub dilation: (usize, usize),
     pub groups: usize,
     pub weight: Learnable<Ix4>,
-    pub bias: Learnable<Ix1>,
+    pub bias: Learnable<Ix3>,
 }
 
 impl<Pad: PaddingMode> GroupedConv2d<Pad> {
@@ -1302,7 +1302,7 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros((out_channels, 1, 1))).requires_grad();
 
         let k = (groups as f32 / (in_channels * kernel_h * kernel_w) as f32).sqrt();
         init::uniform(&weight, -k, k);
@@ -1358,7 +1358,7 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
             &[stride_h, stride_w],
             &[dilation_h, dilation_w],
             &[padding_h, padding_w],
-            self.padding_mode.clone(),
+            self.padding_mode,
             self.groups,
         )
         .into()
@@ -1386,7 +1386,7 @@ pub struct Conv3d<Pad: PaddingMode> {
     pub stride: (usize, usize, usize),
     pub dilation: (usize, usize, usize),
     pub weight: Learnable<Ix5>,
-    pub bias: Learnable<Ix1>,
+    pub bias: Learnable<Ix4>,
 }
 
 impl<Pad: PaddingMode> Conv3d<Pad> {
@@ -1430,7 +1430,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros((out_channels, 1, 1, 1))).requires_grad();
 
         let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
         init::uniform(&weight, -k, k);
@@ -1487,7 +1487,7 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
             &[stride_d, stride_h, stride_w],
             &[dilation_d, dilation_h, dilation_w],
             &[padding_d, padding_h, padding_w],
-            self.padding_mode.clone(),
+            self.padding_mode,
         )
         .into()
             + self.bias.clone()
@@ -1514,7 +1514,7 @@ pub struct GroupedConv3d<Pad: PaddingMode> {
     pub dilation: (usize, usize, usize),
     pub groups: usize,
     pub weight: Learnable<Ix5>,
-    pub bias: Learnable<Ix1>,
+    pub bias: Learnable<Ix4>,
 }
 
 impl<Pad: PaddingMode> GroupedConv3d<Pad> {
@@ -1570,7 +1570,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
             kernel_w,
         )))
         .requires_grad();
-        let bias = Input::new(Tensor::zeros(out_channels)).requires_grad();
+        let bias = Input::new(Tensor::zeros((out_channels, 1, 1, 1))).requires_grad();
 
         let k = (1. / (in_channels * kernel_d * kernel_h * kernel_w) as f32).sqrt();
         init::uniform(&weight, -k, k);
@@ -1626,7 +1626,7 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
             &[stride_d, stride_h, stride_w],
             &[dilation_d, dilation_h, dilation_w],
             &[padding_d, padding_h, padding_w],
-            self.padding_mode.clone(),
+            self.padding_mode,
             self.groups,
         )
         .into()

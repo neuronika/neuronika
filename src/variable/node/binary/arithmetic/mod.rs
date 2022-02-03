@@ -4,7 +4,7 @@ mod multiplication;
 mod subtraction;
 
 use super::{
-    broadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
+    cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
     BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
 };
 

@@ -6,7 +6,7 @@ mod loss;
 mod stack;
 
 use super::{
-    broadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, push_mat_mat_gradient,
+    cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, push_mat_mat_gradient,
     push_mat_vec_gradient, push_vec_mat_gradient, push_vec_vec_gradient, reduce, Backward,
     BroadTensor, Broadcasted, Data, DotDim, Forward, Gradient, Overwrite, Tensor,
 };

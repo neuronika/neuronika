@@ -183,7 +183,11 @@ where
             node.backward();
         }
 
-        debug_assert_eq!(self.var.past.len(), self.var.past.buffer().len());
+        debug_assert_eq!(
+            self.var.past.len(),
+            self.var.past.buffer().len(),
+            "Perhaps you forgot to call forward()?"
+        );
 
         self.var.past.prepare_buffer();
         let buffer = self.var.past.buffer();

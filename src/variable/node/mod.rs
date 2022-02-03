@@ -250,12 +250,13 @@ fn sum_axis_inplace(array: &mut DynTensor, axis: Axis) {
     array.index_axis_inplace(axis, 0);
 }
 
-/// Reduces `src` to the desired `dim`ension, reverting the broadcasting mechanic.
+/// Reduces `src` to the desired `dim` dimension, reverting the broadcasting.
 ///
 /// # Arguments
 ///
-/// * `dim` - Desired dimension for the source tensor
-/// * `src` - Tensor to reduce
+/// * `dim` - desired dimension for the source tensor.
+///
+/// * `src` - tensor to reduce.
 pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> {
     let mut src = src.clone().into_dyn();
 
@@ -270,10 +271,17 @@ pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> 
         }
     }
 
-    debug_assert_eq!(src.raw_dim(), dim.into_dyn());
-    debug_assert!(src.is_standard_layout());
+    debug_assert_eq!(
+        src.raw_dim(),
+        dim.into_dyn(),
+        "Dimension mismatch in gradient reduction."
+    );
 
-    src.into_dimensionality::<D>().unwrap()
+    if src.is_standard_layout() {
+        src.into_dimensionality::<D>().unwrap()
+    } else {
+        src.clone().into_dimensionality::<D>().unwrap()
+    }
 }
 
 /// Performs gradient accumulation of `gradient` into `destination_node`.
@@ -425,7 +433,7 @@ where
 /// * `left` - left operand in the binary operations that admits broadcasting.
 ///
 /// * `right` - right operand in the binary operations that admits broadcasting.
-pub(crate) fn broadcasted_zeros<Lhs, Rhs>(
+pub(crate) fn cobroadcasted_zeros<Lhs, Rhs>(
     left: &Tensor<Lhs>,
     right: &Tensor<Rhs>,
 ) -> BroadTensor<Lhs, Rhs>
@@ -438,19 +446,26 @@ where
     } else {
         (right.shape(), left.shape())
     };
-    let mut broadcasted_dim = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
-    broadcasted_dim
-        .slice_mut()
+    let mut out = <Lhs as DimMax<Rhs>>::Output::zeros(bigger.len());
+    out.slice_mut()
         .iter_mut()
         .zip(bigger.iter())
         .for_each(|(l, r)| *l = *r);
-    broadcasted_dim
-        .slice_mut()
+    let k = bigger.len() - smaller.len();
+    out.slice_mut()
         .iter_mut()
-        .rev()
-        .zip(smaller.iter().rev())
-        .for_each(|(l, r)| *l = std::cmp::max(*l, *r));
-    Tensor::zeros(broadcasted_dim)
+        .skip(k)
+        .zip(smaller.iter())
+        .for_each(|(l, r)| {
+            if *l != *r {
+                if *l == 1 {
+                    *l = *r
+                } else if *r != 1 {
+                    panic!("error: the two tensors have incompatible shape.")
+                }
+            }
+        });
+    Tensor::zeros(out)
 }
 
 /// Returns a `Ref` to `tensor`. This function is used to access gradients.

@@ -662,7 +662,7 @@ where
 
     fn add(mut self, rhs: Var<Rhs>) -> Self::Output {
         self.past.merge(rhs.past);
-        Var::from(Addition::new(self.node.clone(), rhs.node), self.past)
+        Var::from(Addition::new(self.node, rhs.node), self.past)
     }
 }
 
