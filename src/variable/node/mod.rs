@@ -250,12 +250,13 @@ fn sum_axis_inplace(array: &mut DynTensor, axis: Axis) {
     array.index_axis_inplace(axis, 0);
 }
 
-/// Reduces `src` to the desired `dim`ension, reverting the broadcasting mechanic.
+/// Reduces `src` to the desired `dim` dimension, reverting the broadcasting.
 ///
 /// # Arguments
 ///
-/// * `dim` - Desired dimension for the source tensor
-/// * `src` - Tensor to reduce
+/// * `dim` - desired dimension for the source tensor.
+///
+/// * `src` - tensor to reduce.
 pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> {
     let mut src = src.clone().into_dyn();
 
@@ -270,10 +271,17 @@ pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> 
         }
     }
 
-    debug_assert_eq!(src.raw_dim(), dim.into_dyn());
-    debug_assert!(src.is_standard_layout());
+    debug_assert_eq!(
+        src.raw_dim(),
+        dim.into_dyn(),
+        "Dimension mismatch in gradient reduction."
+    );
 
-    src.into_dimensionality::<D>().unwrap()
+    if src.is_standard_layout() {
+        src.into_dimensionality::<D>().unwrap()
+    } else {
+        src.clone().into_dimensionality::<D>().unwrap()
+    }
 }
 
 /// Performs gradient accumulation of `gradient` into `destination_node`.
