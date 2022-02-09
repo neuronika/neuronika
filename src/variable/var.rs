@@ -546,7 +546,7 @@ where
 
 impl<T> Add<f32> for Var<T>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output = Var<Addition<T, Input<Ix0>>>;
@@ -558,7 +558,7 @@ where
 
 impl<T> Sub<f32> for Var<T>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output = Var<Subtraction<T, Input<Ix0>>>;
@@ -570,7 +570,7 @@ where
 
 impl<T> Mul<f32> for Var<T>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output = Var<Multiplication<T, Input<Ix0>>>;
@@ -582,7 +582,7 @@ where
 
 impl<T> Div<f32> for Var<T>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output = Var<Division<T, Input<Ix0>>>;
@@ -596,7 +596,7 @@ where
 
 impl<T> Add<Var<T>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output = Var<Addition<Input<Ix0>, T>>;
@@ -608,7 +608,7 @@ where
 
 impl<T> Sub<Var<T>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output = Var<Subtraction<Input<Ix0>, T>>;
@@ -620,7 +620,7 @@ where
 
 impl<T> Mul<Var<T>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output = Var<Multiplication<Input<Ix0>, T>>;
@@ -632,7 +632,7 @@ where
 
 impl<T> Div<Var<T>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output = Var<Division<Input<Ix0>, T>>;
