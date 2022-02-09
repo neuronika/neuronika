@@ -18,7 +18,7 @@ use super::{
     VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use crate::nn::Register;
-use ndarray::{DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
+use ndarray::{DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2, RemoveAxis};
 #[cfg(feature = "serialize")]
 use serde::{
     de::{Deserialize, Deserializer},
@@ -688,12 +688,12 @@ impl<T, U> Add<f32> for VarDiff<T, U>
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
-    type Output = VarDiff<Addition<T, Input<Ix1>>, AdditionBackwardUnary<U, Input<Ix1>>>;
+    type Output = VarDiff<Addition<T, Input<Ix0>>, AdditionBackwardUnary<U, Input<Ix0>>>;
 
     fn add(self, rhs: f32) -> Self::Output {
-        self + crate::full(1, rhs)
+        self + crate::full((), rhs)
     }
 }
 
@@ -701,12 +701,12 @@ impl<T, U> Sub<f32> for VarDiff<T, U>
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
-    type Output = VarDiff<Subtraction<T, Input<Ix1>>, SubtractionBackwardLeft<U, Input<Ix1>>>;
+    type Output = VarDiff<Subtraction<T, Input<Ix0>>, SubtractionBackwardLeft<U, Input<Ix0>>>;
 
     fn sub(self, rhs: f32) -> Self::Output {
-        self - crate::full(1, rhs)
+        self - crate::full((), rhs)
     }
 }
 
@@ -714,13 +714,13 @@ impl<T, U> Mul<f32> for VarDiff<T, U>
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
     type Output =
-        VarDiff<Multiplication<T, Input<Ix1>>, MultiplicationBackwardUnary<U, Input<Ix1>>>;
+        VarDiff<Multiplication<T, Input<Ix0>>, MultiplicationBackwardUnary<U, Input<Ix0>>>;
 
     fn mul(self, rhs: f32) -> Self::Output {
-        self * crate::full(1, rhs)
+        self * crate::full((), rhs)
     }
 }
 
@@ -728,12 +728,12 @@ impl<T, U> Div<f32> for VarDiff<T, U>
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
-    type Output = VarDiff<Division<T, Input<Ix1>>, DivisionBackwardLeft<U, Input<Ix1>>>;
+    type Output = VarDiff<Division<T, Input<Ix0>>, DivisionBackwardLeft<U, Input<Ix0>>>;
 
     fn div(self, rhs: f32) -> Self::Output {
-        self / crate::full(1, rhs)
+        self / crate::full((), rhs)
     }
 }
 
@@ -743,13 +743,12 @@ impl<T, U> Add<VarDiff<T, U>> for f32
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    Ix1: DimMax<T::Dim>,
-    T::Dim: DimMax<Ix1>,
+    Ix0: DimMax<T::Dim>,
 {
-    type Output = VarDiff<Addition<Input<Ix1>, T>, AdditionBackwardUnary<U, Input<Ix1>>>;
+    type Output = VarDiff<Addition<Input<Ix0>, T>, AdditionBackwardUnary<U, Input<Ix0>>>;
 
     fn add(self, rhs: VarDiff<T, U>) -> Self::Output {
-        crate::full(1, self) + rhs
+        crate::full((), self) + rhs
     }
 }
 
@@ -757,13 +756,12 @@ impl<T, U> Sub<VarDiff<T, U>> for f32
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    Ix1: DimMax<T::Dim>,
-    T::Dim: DimMax<Ix1>,
+    Ix0: DimMax<T::Dim>,
 {
-    type Output = VarDiff<Subtraction<Input<Ix1>, T>, SubtractionBackwardRight<U, Input<Ix1>>>;
+    type Output = VarDiff<Subtraction<Input<Ix0>, T>, SubtractionBackwardRight<U, Input<Ix0>>>;
 
     fn sub(self, rhs: VarDiff<T, U>) -> Self::Output {
-        crate::full(1, self) - rhs
+        crate::full((), self) - rhs
     }
 }
 
@@ -771,14 +769,13 @@ impl<T, U> Mul<VarDiff<T, U>> for f32
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    Ix1: DimMax<T::Dim>,
-    T::Dim: DimMax<Ix1>,
+    Ix0: DimMax<T::Dim>,
 {
     type Output =
-        VarDiff<Multiplication<Input<Ix1>, T>, MultiplicationBackwardUnary<U, Input<Ix1>>>;
+        VarDiff<Multiplication<Input<Ix0>, T>, MultiplicationBackwardUnary<U, Input<Ix0>>>;
 
     fn mul(self, rhs: VarDiff<T, U>) -> Self::Output {
-        crate::full(1, self) * rhs
+        crate::full((), self) * rhs
     }
 }
 
@@ -786,13 +783,12 @@ impl<T, U> Div<VarDiff<T, U>> for f32
 where
     T: Data + Forward + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    Ix1: DimMax<T::Dim>,
-    T::Dim: DimMax<Ix1>,
+    Ix0: DimMax<T::Dim>,
 {
-    type Output = VarDiff<Division<Input<Ix1>, T>, DivisionBackwardRight<Input<Ix1>, T, U>>;
+    type Output = VarDiff<Division<Input<Ix0>, T>, DivisionBackwardRight<Input<Ix0>, T, U>>;
 
     fn div(self, rhs: VarDiff<T, U>) -> Self::Output {
-        crate::full(1, self) / rhs
+        crate::full((), self) / rhs
     }
 }
 

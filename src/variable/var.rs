@@ -10,7 +10,9 @@ use super::{
     VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
     VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
-use ndarray::{concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix1, Ix2, RemoveAxis};
+use ndarray::{
+    concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2, RemoveAxis,
+};
 #[cfg(feature = "serialize")]
 use serde::{
     de::{Deserialize, Deserializer},
@@ -545,48 +547,48 @@ where
 impl<T> Add<f32> for Var<T>
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
-    type Output = Var<Addition<T, Input<Ix1>>>;
+    type Output = Var<Addition<T, Input<Ix0>>>;
 
     fn add(self, rhs: f32) -> Self::Output {
-        self + crate::full(1, rhs)
+        self + crate::full((), rhs)
     }
 }
 
 impl<T> Sub<f32> for Var<T>
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
-    type Output = Var<Subtraction<T, Input<Ix1>>>;
+    type Output = Var<Subtraction<T, Input<Ix0>>>;
 
     fn sub(self, rhs: f32) -> Self::Output {
-        self - crate::full(1, rhs)
+        self - crate::full((), rhs)
     }
 }
 
 impl<T> Mul<f32> for Var<T>
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
-    type Output = Var<Multiplication<T, Input<Ix1>>>;
+    type Output = Var<Multiplication<T, Input<Ix0>>>;
 
     fn mul(self, rhs: f32) -> Self::Output {
-        self * crate::full(1, rhs)
+        self * crate::full((), rhs)
     }
 }
 
 impl<T> Div<f32> for Var<T>
 where
     T: Data + Forward + 'static,
-    T::Dim: DimMax<Ix1>,
+    T::Dim: DimMax<Ix0>,
 {
-    type Output = Var<Division<T, Input<Ix1>>>;
+    type Output = Var<Division<T, Input<Ix0>>>;
 
     fn div(self, rhs: f32) -> Self::Output {
-        self / crate::full(1, rhs)
+        self / crate::full((), rhs)
     }
 }
 
@@ -595,48 +597,48 @@ where
 impl<T> Add<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    Ix1: DimMax<T::Dim>,
+    Ix0: DimMax<T::Dim>,
 {
-    type Output = Var<Addition<Input<Ix1>, T>>;
+    type Output = Var<Addition<Input<Ix0>, T>>;
 
     fn add(self, rhs: Var<T>) -> Self::Output {
-        crate::full(1, self) + rhs
+        crate::full((), self) + rhs
     }
 }
 
 impl<T> Sub<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    Ix1: DimMax<T::Dim>,
+    Ix0: DimMax<T::Dim>,
 {
-    type Output = Var<Subtraction<Input<Ix1>, T>>;
+    type Output = Var<Subtraction<Input<Ix0>, T>>;
 
     fn sub(self, rhs: Var<T>) -> Self::Output {
-        crate::full(1, self) - rhs
+        crate::full((), self) - rhs
     }
 }
 
 impl<T> Mul<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    Ix1: DimMax<T::Dim>,
+    Ix0: DimMax<T::Dim>,
 {
-    type Output = Var<Multiplication<Input<Ix1>, T>>;
+    type Output = Var<Multiplication<Input<Ix0>, T>>;
 
     fn mul(self, rhs: Var<T>) -> Self::Output {
-        crate::full(1, self) * rhs
+        crate::full((), self) * rhs
     }
 }
 
 impl<T> Div<Var<T>> for f32
 where
     T: Data + Forward + 'static,
-    Ix1: DimMax<T::Dim>,
+    Ix0: DimMax<T::Dim>,
 {
-    type Output = Var<Division<Input<Ix1>, T>>;
+    type Output = Var<Division<Input<Ix0>, T>>;
 
     fn div(self, rhs: Var<T>) -> Self::Output {
-        crate::full(1, self) / rhs
+        crate::full((), self) / rhs
     }
 }
 
