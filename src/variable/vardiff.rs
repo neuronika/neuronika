@@ -686,7 +686,7 @@ where
 
 impl<T, U> Add<f32> for VarDiff<T, U>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: DimMax<Ix0>,
 {
@@ -699,7 +699,7 @@ where
 
 impl<T, U> Sub<f32> for VarDiff<T, U>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: DimMax<Ix0>,
 {
@@ -712,7 +712,7 @@ where
 
 impl<T, U> Mul<f32> for VarDiff<T, U>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: DimMax<Ix0>,
 {
@@ -726,7 +726,7 @@ where
 
 impl<T, U> Div<f32> for VarDiff<T, U>
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     T::Dim: DimMax<Ix0>,
 {
@@ -741,7 +741,7 @@ where
 
 impl<T, U> Add<VarDiff<T, U>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     Ix0: DimMax<T::Dim>,
 {
@@ -754,7 +754,7 @@ where
 
 impl<T, U> Sub<VarDiff<T, U>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     Ix0: DimMax<T::Dim>,
 {
@@ -767,7 +767,7 @@ where
 
 impl<T, U> Mul<VarDiff<T, U>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     Ix0: DimMax<T::Dim>,
 {
@@ -781,7 +781,7 @@ where
 
 impl<T, U> Div<VarDiff<T, U>> for f32
 where
-    T: Data + Forward + 'static,
+    T: Data + 'static,
     U: Gradient<Dim = T::Dim> + Overwrite + 'static,
     Ix0: DimMax<T::Dim>,
 {

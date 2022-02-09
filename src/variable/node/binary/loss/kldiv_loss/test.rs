@@ -13,7 +13,6 @@ fn mean() {
         .map(|&el: &f32| el.ln())
         .collect();
     let input = new_input((2, 3), v);
-    input.forward();
 
     let loss = KLDivLoss::new(input, target.clone(), Reduction::Mean);
 
@@ -58,7 +57,6 @@ fn sum() {
         .map(|&el: &f32| el.ln())
         .collect();
     let input = new_input((2, 3), v);
-    input.forward();
 
     let loss = KLDivLoss::new(input, target.clone(), Reduction::Sum);
 

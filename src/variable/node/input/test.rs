@@ -1,9 +1,9 @@
-use super::{Data, Forward, Gradient, Input, InputBackward, Overwrite, Tensor};
+use super::{Data, Gradient, Input, InputBackward, Overwrite, Tensor};
 use std::cell::{Cell, RefCell};
 
 mod forward {
 
-    use super::{Cell, Data, Forward, Input, RefCell, Tensor};
+    use super::{Cell, Data, Input, RefCell, Tensor};
 
     #[test]
     fn creation() {
@@ -11,29 +11,8 @@ mod forward {
             data: RefCell::new(Tensor::zeros((3, 3))),
             computed: Cell::new(false),
         };
-        assert!(!input.was_computed());
         assert_eq!(*input.data(), Tensor::from_elem((3, 3), 0.));
         assert_eq!(*input.data_mut(), Tensor::from_elem((3, 3), 0.));
-    }
-
-    #[test]
-    fn computation_was_computed_transition() {
-        let input = Input {
-            data: RefCell::new(Tensor::zeros((3, 3))),
-            computed: Cell::new(false),
-        };
-
-        input.forward();
-        assert!(input.was_computed());
-
-        input.forward();
-        assert!(input.was_computed());
-
-        input.reset_computation();
-        assert!(!input.was_computed());
-
-        input.reset_computation();
-        assert!(!input.was_computed());
     }
 
     #[test]
