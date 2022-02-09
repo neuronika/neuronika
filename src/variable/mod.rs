@@ -367,7 +367,7 @@ pub trait Stack<Rhs> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  Higher abstraction traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-///  Defines the interface required to build computational graph's leaves using a dynamically typed
+/// Defines the interface required to build computational graph's leaves using a dynamically typed
 /// non-differentiable variables.
 pub trait Variable<D: Dimension> {
     fn get_node(&self) -> Rc<dyn Data<Dim = D>>;

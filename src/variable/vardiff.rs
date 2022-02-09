@@ -35,9 +35,8 @@ use std::{
 ///
 /// Differentiable variables can be created in the **two** following ways described hereafter:
 ///
-/// 1. By calling [`.requires_grad()`] on a non-differentiable leaf.
+/// 1. By calling [`.requires_grad()`](Var::requires_grad()) on a non-differentiable leaf.
 ///
-/// [`.requires_grad()`]: Var::requires_grad()
 ///
 /// 2. By performing any binary operation between a [`Var`] and a `VarDiff`. Differentiability
 /// is thus a *contagious* property, that is, if during a computation a `VarDiff` is used, the
