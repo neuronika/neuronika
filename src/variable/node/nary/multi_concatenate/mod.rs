@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient,
-    GradientOverwrite, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient, Overwrite,
+    Tensor,
 };
 use ndarray::{Axis, Dimension, Slice, Zip};
 use std::{
@@ -101,12 +101,12 @@ pub struct MultiConcatenateBackward<D: Dimension> {
     gradient: RefCell<Option<Tensor<D>>>,
     shape: D,
     overwrite: Cell<bool>,
-    operands: Vec<Rc<dyn GradientOverwrite<D>>>,
+    operands: Vec<Rc<dyn Gradient<Dim = D>>>,
     axis: usize,
 }
 
 impl<D: Dimension> MultiConcatenateBackward<D> {
-    pub(crate) fn new(operands: Vec<Rc<dyn GradientOverwrite<D>>>, axis: usize, shape: D) -> Self {
+    pub(crate) fn new(operands: Vec<Rc<dyn Gradient<Dim = D>>>, axis: usize, shape: D) -> Self {
         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
         let overwrite = Cell::new(true);
 

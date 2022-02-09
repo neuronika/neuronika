@@ -387,18 +387,18 @@ impl<T: Data<Dim = D>, D: Dimension> Variable<D> for Var<T> {
 /// differentiable variables.
 pub trait DifferentiableVariable<D: Dimension> {
     fn get_var(&self) -> Box<dyn Variable<D>>;
-    fn get_node(&self) -> Rc<dyn GradientOverwrite<D>>;
+    fn get_node(&self) -> Rc<dyn Gradient<Dim = D>>;
     fn get_past(&self) -> VarDiffHistory;
 }
 
-impl<T: Data<Dim = D>, U: GradientOverwrite<D>, D: Dimension> DifferentiableVariable<D>
+impl<T: Data<Dim = D>, U: Gradient<Dim = D>, D: Dimension> DifferentiableVariable<D>
     for VarDiff<T, U>
 {
     fn get_var(&self) -> Box<dyn Variable<D>> {
         Box::new(self.var.clone())
     }
 
-    fn get_node(&self) -> Rc<dyn GradientOverwrite<D>> {
+    fn get_node(&self) -> Rc<dyn Gradient<Dim = D>> {
         self.node.clone()
     }
 
