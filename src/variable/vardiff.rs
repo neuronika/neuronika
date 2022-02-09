@@ -2,10 +2,10 @@ use super::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Cat, Chunk, ChunkBackward,
     Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DifferentiableVariable,
     Division, DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout,
-    DropoutBackward, Exp, ExpBackward, Forward, Gradient, GradientOverwrite, Input, LeakyReLU,
-    LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatMatMul, MatMatMulT,
-    MatVecMul, MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
-    MatrixMatrixMulT, MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixVectorMul,
+    DropoutBackward, Exp, ExpBackward, Forward, Gradient, Input, LeakyReLU, LeakyReLUBackward,
+    LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatMatMul, MatMatMulT, MatVecMul,
+    MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft, MatrixMatrixMulT,
+    MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixVectorMul,
     MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate,
     MultiConcatenateBackward, MultiStack, MultiStackBackward, Multiplication,
     MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite,
@@ -597,7 +597,7 @@ where
         let var = self.var.cat(&vars, axis);
         let shape = var.data().raw_dim();
 
-        let mut operands: Vec<Rc<dyn GradientOverwrite<T::Dim>>> =
+        let mut operands: Vec<Rc<dyn Gradient<Dim = T::Dim>>> =
             Vec::with_capacity(variables.len() + 1);
         operands.push(self.node);
 
@@ -661,7 +661,7 @@ where
         let var = self.var.stack(&vars, axis);
         let shape = var.data().raw_dim();
 
-        let mut operands: Vec<Rc<dyn GradientOverwrite<T::Dim>>> =
+        let mut operands: Vec<Rc<dyn Gradient<Dim = T::Dim>>> =
             Vec::with_capacity(variables.len() + 1);
         operands.push(self.node);
 

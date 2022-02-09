@@ -84,7 +84,7 @@ pub trait Forward {
 ///
 /// It provides the `.gradient()` method that is used to get a [`Ref`] to the data stored inside
 /// the node.
-pub trait Gradient {
+pub trait Gradient: Overwrite {
     /// The gradient's dimensionality.
     type Dim: Dimension;
 
@@ -107,9 +107,6 @@ pub trait Overwrite {
     fn set_overwrite(&self, state: bool);
 }
 
-/// The union of the Gradient and Overwrite.
-pub trait GradientOverwrite<D>: Gradient<Dim = D> + Overwrite {}
-
 impl<T> Overwrite for Rc<T>
 where
     T: Overwrite,
@@ -125,7 +122,7 @@ where
 
 impl<T, D> Gradient for Rc<T>
 where
-    T: Gradient<Dim = D>,
+    T: Gradient<Dim = D> + Overwrite,
     D: Dimension,
 {
     type Dim = D;
@@ -138,8 +135,6 @@ where
         self.as_ref().gradient_mut()
     }
 }
-
-impl<D: Dimension, T> GradientOverwrite<D> for T where T: Gradient<Dim = D> + Overwrite {}
 
 /// Back-propagation behavior.
 ///

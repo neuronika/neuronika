@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient,
-    GradientOverwrite, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient, Overwrite,
+    Tensor,
 };
 use ndarray::{Axis, Dimension, RemoveAxis, Zip};
 use std::{
@@ -103,13 +103,13 @@ pub struct MultiStackBackward<D: Dimension + RemoveAxis> {
     gradient: RefCell<Option<Tensor<D::Larger>>>,
     shape: D::Larger,
     overwrite: Cell<bool>,
-    operands: Vec<Rc<dyn GradientOverwrite<D>>>,
+    operands: Vec<Rc<dyn Gradient<Dim = D>>>,
     axis: usize,
 }
 
 impl<D: Dimension + RemoveAxis> MultiStackBackward<D> {
     pub(crate) fn new(
-        operands: Vec<Rc<dyn GradientOverwrite<D>>>,
+        operands: Vec<Rc<dyn Gradient<Dim = D>>>,
         axis: usize,
         shape: D::Larger,
     ) -> Self {
