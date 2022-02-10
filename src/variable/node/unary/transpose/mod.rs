@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient, Overwrite,
-    Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Forward, Gradient,
+    Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
@@ -14,13 +14,19 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Transpose ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Transpose<T: Data> {
+pub struct Transpose<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     computed: Cell<bool>,
 }
 
-impl<T: Data> Transpose<T> {
+impl<T: ?Sized> Transpose<T>
+where
+    T: Data,
+{
     pub fn new(operand: Rc<T>) -> Self {
         let data = Tensor::zeros(operand.data().t().raw_dim());
 
@@ -32,7 +38,23 @@ impl<T: Data> Transpose<T> {
     }
 }
 
-impl<T: Data> Forward for Transpose<T> {
+impl<T: ?Sized> Cache for Transpose<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for Transpose<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -43,17 +65,12 @@ impl<T: Data> Forward for Transpose<T> {
             .and(self.operand.data().t())
             .for_each(|v, o| *v = *o);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for Transpose<T> {
+impl<T: ?Sized> Data for Transpose<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -65,7 +82,10 @@ impl<T: Data> Data for Transpose<T> {
     }
 }
 
-impl<T: Data> Debug for Transpose<T> {
+impl<T: ?Sized> Debug for Transpose<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transpose")
             .field("data", &self.data.borrow())
@@ -74,7 +94,10 @@ impl<T: Data> Debug for Transpose<T> {
     }
 }
 
-impl<T: Data> Display for Transpose<T> {
+impl<T: ?Sized> Display for Transpose<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -83,14 +106,20 @@ impl<T: Data> Display for Transpose<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ TransposeBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct TransposeBackward<T: Gradient + Overwrite> {
+pub struct TransposeBackward<T: ?Sized>
+where
+    T: Gradient,
+{
     gradient: RefCell<Option<Tensor<T::Dim>>>,
     shape: T::Dim,
     overwrite: Cell<bool>,
     operand: Rc<T>,
 }
 
-impl<T: Gradient + Overwrite> TransposeBackward<T> {
+impl<T: ?Sized> TransposeBackward<T>
+where
+    T: Gradient,
+{
     pub fn new(operand: Rc<T>) -> Self {
         let shape = operand.gradient().t().raw_dim();
 
@@ -103,7 +132,10 @@ impl<T: Gradient + Overwrite> TransposeBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Gradient for TransposeBackward<T> {
+impl<T: ?Sized> Gradient for TransposeBackward<T>
+where
+    T: Gradient,
+{
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
@@ -115,7 +147,10 @@ impl<T: Gradient + Overwrite> Gradient for TransposeBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Overwrite for TransposeBackward<T> {
+impl<T: ?Sized> Overwrite for TransposeBackward<T>
+where
+    T: Gradient,
+{
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
     }
@@ -125,7 +160,10 @@ impl<T: Gradient + Overwrite> Overwrite for TransposeBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Backward for TransposeBackward<T> {
+impl<T: ?Sized> Backward for TransposeBackward<T>
+where
+    T: Gradient,
+{
     fn backward(&self) {
         push_gradient(&*self.operand, self.gradient().t());
     }
@@ -139,9 +177,9 @@ impl<T: Gradient + Overwrite> Backward for TransposeBackward<T> {
     }
 }
 
-impl<T> Debug for TransposeBackward<T>
+impl<T: ?Sized> Debug for TransposeBackward<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TransposeBackward")
@@ -151,9 +189,9 @@ where
     }
 }
 
-impl<T> Display for TransposeBackward<T>
+impl<T: ?Sized> Display for TransposeBackward<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {

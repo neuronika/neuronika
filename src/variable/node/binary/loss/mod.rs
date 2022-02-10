@@ -6,7 +6,7 @@ mod mse_loss;
 mod nll_loss;
 
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 
 use crate::nn::loss::Reduction;

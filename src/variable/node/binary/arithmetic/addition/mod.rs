@@ -2,7 +2,7 @@
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
-    BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
+    BroadTensor, Broadcasted, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::{DimMax, Dimension, Zip};
 use std::{
@@ -13,7 +13,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Addition ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Addition<Lhs, Rhs>
+pub struct Addition<Lhs: ?Sized, Rhs: ?Sized>
 where
     Lhs: Data,
     Rhs: Data,
@@ -27,8 +27,8 @@ where
 
 impl<Lhs, Rhs> Addition<Lhs, Rhs>
 where
-    Lhs: Data,
-    Rhs: Data,
+    Lhs: Data + ?Sized,
+    Rhs: Data + ?Sized,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for Addition<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Data for Addition<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -60,7 +60,22 @@ where
     }
 }
 
-impl<Lhs, Rhs> Forward for Addition<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Cache for Addition<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<Lhs: ?Sized, Rhs: ?Sized> Forward for Addition<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -77,17 +92,9 @@ where
             .and_broadcast(&*self.right.data())
             .for_each(|v, l, r| *v = l + r);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<Lhs, Rhs> Debug for Addition<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for Addition<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -101,7 +108,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for Addition<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for Addition<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -115,10 +122,10 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AdditionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct AdditionBackward<Lhs, Rhs>
+pub struct AdditionBackward<Lhs: ?Sized, Rhs: ?Sized>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     gradient: RefCell<Option<BroadTensor<Lhs::Dim, Rhs::Dim>>>,
@@ -128,10 +135,10 @@ where
     right: Rc<Rhs>,
 }
 
-impl<Lhs, Rhs> AdditionBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> AdditionBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
@@ -148,10 +155,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Gradient for AdditionBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Gradient for AdditionBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     type Dim = Broadcasted<Lhs::Dim, Rhs::Dim>;
@@ -165,10 +172,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Overwrite for AdditionBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Overwrite for AdditionBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -180,10 +187,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Backward for AdditionBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Backward for AdditionBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn backward(&self) {
@@ -203,10 +210,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Debug for AdditionBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for AdditionBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -217,10 +224,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for AdditionBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for AdditionBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient,
     Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -234,9 +241,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ AdditionBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct AdditionBackwardUnary<T, U>
+pub struct AdditionBackwardUnary<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -246,9 +253,9 @@ where
     operand: Rc<T>,
 }
 
-impl<T, U> AdditionBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> AdditionBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -265,9 +272,9 @@ where
     }
 }
 
-impl<T, U> Gradient for AdditionBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for AdditionBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -282,9 +289,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for AdditionBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for AdditionBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -297,9 +304,9 @@ where
     }
 }
 
-impl<T, U> Backward for AdditionBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for AdditionBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -317,9 +324,9 @@ where
     }
 }
 
-impl<T, U> Debug for AdditionBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for AdditionBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -331,9 +338,9 @@ where
     }
 }
 
-impl<T, U> Display for AdditionBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Display for AdditionBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {

@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Reduction,
-    Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite,
+    Reduction, Tensor,
 };
 use ndarray::{arr0, Ix0, Zip};
 use std::{
@@ -15,7 +15,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MSELoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct MSELoss<T, U>
+pub struct MSELoss<T: ?Sized, U: ?Sized>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -27,7 +27,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<T, U> MSELoss<T, U>
+impl<T: ?Sized, U: ?Sized> MSELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<T, U> Data for MSELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Data for MSELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -59,7 +59,21 @@ where
     }
 }
 
-impl<T, U> Forward for MSELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Cache for MSELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized, U: ?Sized> Forward for MSELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -87,17 +101,9 @@ where
             }
         };
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T, U> Debug for MSELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for MSELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -111,7 +117,7 @@ where
     }
 }
 
-impl<T, U> Display for MSELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Display for MSELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -125,9 +131,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MSELossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct MSELossBackward<T, U, V>
+pub struct MSELossBackward<T: ?Sized, U: ?Sized, V: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = U::Dim>,
 {
@@ -139,9 +145,9 @@ where
     reduction: Reduction,
 }
 
-impl<T, U, V> MSELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> MSELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = U::Dim>,
 {
@@ -162,9 +168,9 @@ where
     }
 }
 
-impl<T, U, V> Gradient for MSELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Gradient for MSELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = U::Dim>,
 {
@@ -179,9 +185,9 @@ where
     }
 }
 
-impl<T, U, V> Overwrite for MSELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Overwrite for MSELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -194,9 +200,9 @@ where
     }
 }
 
-impl<T, U, V> Backward for MSELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Backward for MSELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -252,9 +258,9 @@ where
     }
 }
 
-impl<T, U, V> Debug for MSELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Debug for MSELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -267,9 +273,9 @@ where
     }
 }
 
-impl<T, U, V> Display for MSELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Display for MSELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {

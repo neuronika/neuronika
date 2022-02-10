@@ -5,7 +5,7 @@ mod subtraction;
 
 use super::{
     cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
-    BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
+    BroadTensor, Broadcasted, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 
 #[cfg(test)]

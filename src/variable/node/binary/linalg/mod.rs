@@ -6,7 +6,7 @@ mod vector_vector_mul;
 
 use super::{
     expect_tensor, expect_tensor_mut, push_mat_mat_gradient, push_mat_vec_gradient,
-    push_vec_mat_gradient, push_vec_vec_gradient, Backward, Data, DotDim, Forward, Gradient,
+    push_vec_mat_gradient, push_vec_vec_gradient, Backward, Cache, Data, DotDim, Forward, Gradient,
     Overwrite, Tensor,
 };
 

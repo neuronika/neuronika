@@ -43,7 +43,7 @@ pub(crate) type Tensor<D> = Array<f32, D>;
 ///
 /// It provides the `.data()` method that is used to retrieve a [`Ref`] to the data stored inside
 /// the node.
-pub trait Data {
+pub trait Data: Cache {
     /// The data's dimensionality.
     type Dim: Dimension;
 
@@ -54,28 +54,32 @@ pub trait Data {
     fn data_mut(&self) -> RefMut<Tensor<Self::Dim>>;
 }
 
+/// Caching behavior.
+///
+/// The two methods this trait provides, namely `.was_computed()` and `.reset_computation()`, are
+/// used to perform caching during the forward pass.
+///
+/// Caching is critical to avoid recomputing paths and to achieve good performance when a
+/// computational graph has more than one root, like the one, for instance, of a recurrent neural
+/// network.
+pub trait Cache {
+    /// Returns `true` if the node was computed, `false` otherwise.
+    fn was_computed(&self) -> bool;
+
+    /// Reset the node's flag, making it computable again.
+    fn reset_computation(&self);
+}
 /// Forward-propagation behavior.
 ///
 /// This trait is implemented by all the internal forward components of `Var` and `VarDiff`.
 ///
 /// The main method it provides is the `.forward()` method that is used to propagate computations
 /// from the leaf variables to the graph's root.
-///
-/// The other two methods, namely `.was_computed()` and `.reset_computation()`, are used to perform
-/// caching during the forward pass. Caching is critical to avoid recomputing paths and to achieve
-/// good performance when a computational graph has more than one root, like the one, for instance,
-/// of a recurrent neural network.
-pub trait Forward {
+pub trait Forward: Cache {
     /// Propagates the computations forwards.
     ///
     /// It also defines the logic for the computation of the node.
     fn forward(&self);
-
-    /// Returns `true` if the node was computed, `false` otherwise.
-    fn was_computed(&self) -> bool;
-
-    /// Reset the node's flag, making it computable again.
-    fn reset_computation(&self);
 }
 
 /// Gradient representation.
@@ -107,7 +111,7 @@ pub trait Overwrite {
     fn set_overwrite(&self, state: bool);
 }
 
-impl<T> Overwrite for Rc<T>
+impl<T: ?Sized> Overwrite for Rc<T>
 where
     T: Overwrite,
 {
@@ -120,7 +124,7 @@ where
     }
 }
 
-impl<T, D> Gradient for Rc<T>
+impl<T: ?Sized, D> Gradient for Rc<T>
 where
     T: Gradient<Dim = D> + Overwrite,
     D: Dimension,
@@ -286,9 +290,9 @@ pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> 
 /// * `destination_node` - a node of the computational graph.
 ///
 /// * `gradient` - incoming gradient.
-pub fn push_gradient<'a, T, P, D>(destination_node: &T, gradient: P)
+pub fn push_gradient<'a, T: ?Sized, P, D>(destination_node: &T, gradient: P)
 where
-    T: Gradient + Overwrite + ?Sized,
+    T: Gradient,
     P: IntoNdProducer<Dim = D, Output = ArrayView<'a, f32, D>, Item = &'a f32>,
     D: Dimension,
 {
@@ -313,7 +317,7 @@ where
 /// * `first` - two-dimensional array.
 ///
 /// * `second` - two-dimensional array.
-pub fn push_mat_mat_gradient<T, S1, S2>(
+pub fn push_mat_mat_gradient<T: ?Sized, S1, S2>(
     destination_node: &T,
     first: &ArrayBase<S1, Ix2>,
     second: &ArrayBase<S2, Ix2>,
@@ -341,7 +345,7 @@ pub fn push_mat_mat_gradient<T, S1, S2>(
 /// * `first` - two-dimensional array.
 ///
 /// * `second` - one-dimensional array.
-pub fn push_mat_vec_gradient<T, S1, S2>(
+pub fn push_mat_vec_gradient<T: ?Sized, S1, S2>(
     destination_node: &T,
     first: &ArrayBase<S1, Ix2>,
     second: &ArrayBase<S2, Ix1>,
@@ -373,7 +377,7 @@ pub fn push_mat_vec_gradient<T, S1, S2>(
 /// * `first` - two-dimensional array.
 ///
 /// * `second` - one-dimensional array.
-pub fn push_vec_mat_gradient<T, S1, S2>(
+pub fn push_vec_mat_gradient<T: ?Sized, S1, S2>(
     destination_node: &T,
     first: &ArrayBase<S1, Ix2>,
     second: &ArrayBase<S2, Ix1>,
@@ -401,8 +405,11 @@ pub fn push_vec_mat_gradient<T, S1, S2>(
 /// * `first` - two-dimensional array.
 ///
 /// * `second` - one-dimensional array.
-pub fn push_vec_vec_gradient<T, S>(destination_node: &T, first: &ArrayBase<S, Ix1>, second: &f32)
-where
+pub fn push_vec_vec_gradient<T: ?Sized, S>(
+    destination_node: &T,
+    first: &ArrayBase<S, Ix1>,
+    second: &f32,
+) where
     T: Gradient<Dim = Ix1> + Overwrite,
     S: ndarray::Data<Elem = f32>,
 {

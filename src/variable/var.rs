@@ -6,9 +6,9 @@ use super::{
     MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
     MultiplicationBackwardUnary, Negation, Overwrite, Power, RawParam, ReLU, Sigmoid, SoftPlus,
     Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
-    Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, Variable, VecMatMul,
-    VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
-    VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
+    Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, VecMatMul, VecVecMul,
+    VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackwardUnary,
+    OPERATIONS_COUNTER,
 };
 use ndarray::{
     concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2, RemoveAxis,
@@ -33,12 +33,18 @@ use std::{
 ///
 /// Conceptually, it can be thought of as a [`ndarray::Array`] for which the computations are
 /// automatically kept track of.
-pub struct Var<T: Data + 'static> {
+pub struct Var<T: ?Sized>
+where
+    T: Data + 'static,
+{
     pub(crate) node: Rc<T>,
     pub(crate) past: VarHistory,
 }
 
-impl<T: Data + 'static> Clone for Var<T> {
+impl<T: ?Sized> Clone for Var<T>
+where
+    T: Data + 'static,
+{
     fn clone(&self) -> Self {
         Self {
             node: self.node.clone(),
@@ -91,18 +97,55 @@ impl<D: Dimension> Var<Input<D>> {
             past: VarDiffHistory::new(parameters),
         }
     }
+}
 
-    /// Assigns `array` to the variable's data.
-    ///
-    /// # Arguments
-    ///
-    /// `array` - new content.
-    pub fn assign<S: ndarray::Data<Elem = f32>>(&self, array: &ndarray::ArrayBase<S, D>) {
-        self.node.data_mut().assign(array)
+impl<T: Data + Forward> Var<T> {
+    /// Creates a new variable from a node.
+    pub(crate) fn from(node: T, mut past: VarHistory) -> Self {
+        let node = Rc::new(node);
+        past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
+
+        Var { node, past }
     }
 }
 
-impl<T: Data + Forward + 'static> Var<T> {
+impl<T> Var<T>
+where
+    T: Data + Forward + Eval + 'static,
+{
+    /// Creates a new variable from a changeable node.
+    pub(crate) fn from_changeable(node: T, mut past: VarHistory) -> Self {
+        let node = Rc::new(node);
+        let id = unsafe { OPERATIONS_COUNTER.next() };
+        past.append_forward(id, node.clone());
+        past.append_changeable(Changeable {
+            id,
+            node: node.clone(),
+        });
+
+        Var { node, past }
+    }
+}
+
+impl<T> Var<T>
+where
+    T: Data + 'static,
+{
+    /// Transforms `self` into a dynamically typed variable.
+    pub fn into_dyn(self) -> Var<dyn Data<Dim = T::Dim>> {
+        let Self { node, past } = self;
+
+        Var {
+            node: node as Rc<dyn Data<Dim = T::Dim>>,
+            past,
+        }
+    }
+}
+
+impl<T: ?Sized> Var<T>
+where
+    T: Data + 'static,
+{
     /// Propagates the computations forwards and populates all the variables from the leaves of the
     /// graph to `self`.
     pub fn forward(&self) {
@@ -139,13 +182,6 @@ impl<T: Data + Forward + 'static> Var<T> {
         }
     }
 
-    pub(crate) fn from(node: T, mut past: VarHistory) -> Self {
-        let node = Rc::new(node);
-        past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-
-        Var { node, past }
-    }
-
     /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
     /// in training mode.
     ///    
@@ -178,21 +214,10 @@ impl<T: Data + Forward + 'static> Var<T> {
     }
 }
 
-impl<T: Data + Forward + Eval + 'static> Var<T> {
-    pub(crate) fn from_changeable(node: T, mut past: VarHistory) -> Self {
-        let node = Rc::new(node);
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        past.append_forward(id, node.clone());
-        past.append_changeable(Changeable {
-            id,
-            node: node.clone(),
-        });
-
-        Var { node, past }
-    }
-}
-
-impl<T: Data<Dim = Ix1> + 'static> Var<T> {
+impl<T: ?Sized> Var<T>
+where
+    T: Data<Dim = Ix1> + 'static,
+{
     /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
     /// variable `rhs`.
     ///
@@ -257,7 +282,12 @@ impl<T: Data + 'static> Var<T> {
             past: VarHistory::new(),
         }
     }
+}
 
+impl<T: ?Sized> Var<T>
+where
+    T: Data + 'static,
+{
     /// Returns an immutable reference to the data inside `self`.
     ///
     /// At the variable's creation the data is filled with zeros. You can populate it with a
@@ -416,10 +446,9 @@ impl<T: Data + 'static> Var<T> {
     }
 }
 
-impl<T> Var<T>
+impl<D> Var<dyn Data<Dim = D>>
 where
-    T: Data + 'static,
-    T::Dim: RemoveAxis,
+    D: Dimension + RemoveAxis,
 {
     /// Concatenates the given sequence of non-differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a non-differentiable variable with the results.
@@ -438,8 +467,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use std::boxed::Box;
-    /// use neuronika;
+    /// use neuronika::{self, Var};
     /// use ndarray;
     ///
     ///
@@ -447,34 +475,31 @@ where
     /// let b = neuronika::full((3, 2), 4.);
     /// let c = neuronika::full((3, 2), 3.);
     ///
-    /// let mut d = a.cat(&[Box::new(b), Box::new(c)], 1);
+    /// let mut d = Var::cat(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 1);
     /// d.forward();
     ///
     /// assert_eq!(*d.data(), ndarray::array![[1., 1., 4., 4., 3., 3.],
     ///                                       [1., 1., 4., 4., 3., 3.],
     ///                                       [1., 1., 4., 4., 3., 3.]]);
     /// ```
-    pub fn cat(
-        mut self,
-        variables: &[Box<dyn Variable<T::Dim>>],
-        axis: usize,
-    ) -> Var<MultiConcatenate<T::Dim>> {
-        let mut operands: Vec<Rc<dyn Data<Dim = T::Dim>>> = Vec::with_capacity(variables.len() + 1);
-        operands.push(self.node.clone());
+    pub fn cat(variables: &[Self], axis: usize) -> Var<MultiConcatenate<D>> {
+        let mut operands = Vec::with_capacity(variables.len());
+        let mut past = variables[0].past.clone();
+        operands.push(variables[0].node.clone());
 
-        variables.iter().for_each(|variable| {
-            self.past.merge(variable.get_past());
-            operands.push(variable.get_node());
+        variables.iter().cloned().skip(1).for_each(|variable| {
+            past.merge(variable.past);
+            operands.push(variable.node);
         });
 
         let data = {
-            let tensors: Vec<Ref<Tensor<T::Dim>>> =
+            let tensors: Vec<Ref<Tensor<D>>> =
                 operands.iter().map(|operand| operand.data()).collect();
             let views: Vec<_> = tensors.iter().map(|tensor| tensor.view()).collect();
             concatenate(Axis(axis), &views).unwrap()
         };
 
-        Var::from(MultiConcatenate::new(operands, axis, data), self.past)
+        Var::from(MultiConcatenate::new(operands, axis, data), past)
     }
 
     /// Stacks the given sequence of non-differentiable variables `variables`, including
@@ -496,8 +521,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use std::boxed::Box;
-    /// use neuronika;
+    /// use neuronika::{self, Var};
     /// use ndarray;
     ///
     ///
@@ -505,7 +529,7 @@ where
     /// let b = neuronika::ones((2, 2));
     /// let c = neuronika::ones((2, 2));
     ///
-    /// let mut d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    /// let mut d = Var::stack(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 0);
     /// d.forward();
     ///
     /// assert_eq!(*d.data(), ndarray::array![[[1., 1.],
@@ -515,26 +539,23 @@ where
     ///                                       [[1., 1.],
     ///                                        [1., 1.]]]);
     /// ```
-    pub fn stack(
-        mut self,
-        variables: &[Box<dyn Variable<T::Dim>>],
-        axis: usize,
-    ) -> Var<MultiStack<T::Dim>> {
-        let mut operands: Vec<Rc<dyn Data<Dim = T::Dim>>> = Vec::with_capacity(variables.len() + 1);
-        operands.push(self.node.clone());
+    pub fn stack(variables: &[Self], axis: usize) -> Var<MultiStack<D>> {
+        let mut operands = Vec::with_capacity(variables.len());
+        let mut past = variables[0].past.clone();
+        operands.push(variables[0].node.clone());
 
-        variables.iter().for_each(|variable| {
-            self.past.merge(variable.get_past());
-            operands.push(variable.get_node());
+        variables.iter().cloned().skip(1).for_each(|variable| {
+            past.merge(variable.past);
+            operands.push(variable.node);
         });
 
         let data = {
-            let tensors: Vec<Ref<Tensor<T::Dim>>> =
+            let tensors: Vec<Ref<Tensor<D>>> =
                 operands.iter().map(|operand| operand.data()).collect();
             let views: Vec<_> = tensors.iter().map(|tensor| tensor.view()).collect();
             stack(Axis(axis), &views).unwrap()
         };
-        Var::from(MultiStack::new(operands, axis, data), self.past)
+        Var::from(MultiStack::new(operands, axis, data), past)
     }
 }
 
@@ -544,7 +565,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Var - f32 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T> Add<f32> for Var<T>
+impl<T: ?Sized> Add<f32> for Var<T>
 where
     T: Data + 'static,
     T::Dim: DimMax<Ix0>,
@@ -556,7 +577,7 @@ where
     }
 }
 
-impl<T> Sub<f32> for Var<T>
+impl<T: ?Sized> Sub<f32> for Var<T>
 where
     T: Data + 'static,
     T::Dim: DimMax<Ix0>,
@@ -568,7 +589,7 @@ where
     }
 }
 
-impl<T> Mul<f32> for Var<T>
+impl<T: ?Sized> Mul<f32> for Var<T>
 where
     T: Data + 'static,
     T::Dim: DimMax<Ix0>,
@@ -580,7 +601,7 @@ where
     }
 }
 
-impl<T> Div<f32> for Var<T>
+impl<T: ?Sized> Div<f32> for Var<T>
 where
     T: Data + 'static,
     T::Dim: DimMax<Ix0>,
@@ -594,7 +615,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ f32 - Var ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T> Add<Var<T>> for f32
+impl<T: ?Sized> Add<Var<T>> for f32
 where
     T: Data + 'static,
     Ix0: DimMax<T::Dim>,
@@ -606,7 +627,7 @@ where
     }
 }
 
-impl<T> Sub<Var<T>> for f32
+impl<T: ?Sized> Sub<Var<T>> for f32
 where
     T: Data + 'static,
     Ix0: DimMax<T::Dim>,
@@ -618,7 +639,7 @@ where
     }
 }
 
-impl<T> Mul<Var<T>> for f32
+impl<T: ?Sized> Mul<Var<T>> for f32
 where
     T: Data + 'static,
     Ix0: DimMax<T::Dim>,
@@ -630,7 +651,7 @@ where
     }
 }
 
-impl<T> Div<Var<T>> for f32
+impl<T: ?Sized> Div<Var<T>> for f32
 where
     T: Data + 'static,
     Ix0: DimMax<T::Dim>,
@@ -644,7 +665,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + 'static> Neg for Var<T> {
+impl<T: ?Sized> Neg for Var<T>
+where
+    T: Data + 'static,
+{
     type Output = Var<Negation<T>>;
 
     fn neg(self) -> Self::Output {
@@ -654,7 +678,7 @@ impl<T: Data + 'static> Neg for Var<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Addition ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs, Rhs> Add<Var<Rhs>> for Var<Lhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Add<Var<Rhs>> for Var<Lhs>
 where
     Lhs: Data + 'static,
     Rhs: Data + 'static,
@@ -668,7 +692,7 @@ where
     }
 }
 
-impl<F1, F2, B2> Add<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Add<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
@@ -686,7 +710,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Subtraction ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs, Rhs> Sub<Var<Rhs>> for Var<Lhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Sub<Var<Rhs>> for Var<Lhs>
 where
     Lhs: Data + 'static,
     Rhs: Data + 'static,
@@ -700,7 +724,7 @@ where
     }
 }
 
-impl<F1, F2, B2> Sub<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Sub<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
@@ -718,7 +742,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs, Rhs> Mul<Var<Rhs>> for Var<Lhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Mul<Var<Rhs>> for Var<Lhs>
 where
     Lhs: Data + 'static,
     Rhs: Data + 'static,
@@ -732,7 +756,7 @@ where
     }
 }
 
-impl<F1, F2, B2> Mul<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Mul<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
@@ -750,7 +774,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Division ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs, Rhs> Div<Var<Rhs>> for Var<Lhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Div<Var<Rhs>> for Var<Lhs>
 where
     Lhs: Data + 'static,
     Rhs: Data + 'static,
@@ -764,7 +788,7 @@ where
     }
 }
 
-impl<F1, F2, B2> Div<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Div<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
@@ -786,7 +810,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, F2> MatMatMul<Var<F2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized> MatMatMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
@@ -799,7 +823,7 @@ where
     }
 }
 
-impl<F1, F2, B2> MatMatMul<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> MatMatMul<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
@@ -815,7 +839,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition  ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, F2> MatMatMulT<Var<F2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized> MatMatMulT<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
@@ -828,7 +852,7 @@ where
     }
 }
 
-impl<F1, F2, B2> MatMatMulT<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> MatMatMulT<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
@@ -844,7 +868,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, F2> MatVecMul<Var<F2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized> MatVecMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix1> + 'static,
@@ -857,7 +881,7 @@ where
     }
 }
 
-impl<F1, F2, B2> MatVecMul<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> MatVecMul<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix1> + 'static,
@@ -873,7 +897,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, F2> VecMatMul<Var<F2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized> VecMatMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix2> + 'static,
@@ -886,7 +910,7 @@ where
     }
 }
 
-impl<F1, F2, B2> VecMatMul<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> VecMatMul<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix2> + 'static,
@@ -902,7 +926,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, F2> VecVecMul<Var<F2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized> VecVecMul<Var<F2>> for Var<F1>
 where
     F1: Data<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix1> + 'static,
@@ -915,7 +939,7 @@ where
     }
 }
 
-impl<F1, F2, B2> VecVecMul<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> VecVecMul<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix1> + 'static,
@@ -935,7 +959,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, F2> Cat<Var<F2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized> Cat<Var<F2>> for Var<F1>
 where
     F1: Data + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
@@ -949,7 +973,7 @@ where
     }
 }
 
-impl<F1, F2, B2> Cat<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Cat<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data<Dim = B2::Dim> + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
@@ -967,7 +991,7 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, F2> Stack<Var<F2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized> Stack<Var<F2>> for Var<F1>
 where
     F1: Data + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
@@ -984,7 +1008,7 @@ where
     }
 }
 
-impl<F1, F2, B2> Stack<VarDiff<F2, B2>> for Var<F1>
+impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Stack<VarDiff<F2, B2>> for Var<F1>
 where
     F1: Data + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
@@ -1002,7 +1026,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + Debug> Debug for Var<T> {
+impl<T: ?Sized> Debug for Var<T>
+where
+    T: Data + Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Var")
             .field("node", &self.node)
@@ -1013,7 +1040,10 @@ impl<T: Data + Debug> Debug for Var<T> {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + Display> Display for Var<T> {
+impl<T: ?Sized> Display for Var<T>
+where
+    T: Data + Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.node)
     }

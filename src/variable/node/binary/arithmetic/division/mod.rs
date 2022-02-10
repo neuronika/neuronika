@@ -2,7 +2,7 @@
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
-    BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
+    BroadTensor, Broadcasted, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::{DimMax, Dimension, Zip};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Division ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Division<Lhs, Rhs>
+pub struct Division<Lhs: ?Sized, Rhs: ?Sized>
 where
     Lhs: Data,
     Rhs: Data,
@@ -26,7 +26,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<Lhs, Rhs> Division<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Division<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -44,7 +44,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for Division<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Data for Division<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -61,7 +61,22 @@ where
     }
 }
 
-impl<Lhs, Rhs> Forward for Division<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Cache for Division<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<Lhs: ?Sized, Rhs: ?Sized> Forward for Division<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -78,17 +93,9 @@ where
             .and_broadcast(&*self.right.data())
             .for_each(|v, l, r| *v = l / r);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<Lhs, Rhs> Debug for Division<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for Division<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -102,7 +109,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for Division<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for Division<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -116,12 +123,12 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+pub struct DivisionBackward<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -135,12 +142,13 @@ where
     right_grad: Rc<RhsG>,
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
+    DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -166,12 +174,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Gradient for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Gradient
+    for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -186,12 +195,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Overwrite for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Overwrite
+    for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -204,12 +214,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Backward for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Backward
+    for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -242,12 +253,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Debug for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Debug
+    for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -259,12 +271,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Display for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Display
+    for DivisionBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -279,10 +292,10 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct DivisionBackwardLeft<LhsG, RhsD>
+pub struct DivisionBackwardLeft<LhsG: ?Sized, RhsD: ?Sized>
 where
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
+    LhsG: Gradient,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     gradient: RefCell<Option<BroadTensor<LhsG::Dim, RhsD::Dim>>>,
@@ -293,10 +306,10 @@ where
     right_data: Rc<RhsD>,
 }
 
-impl<LhsG, RhsD> DivisionBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
+    LhsG: Gradient,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
@@ -314,10 +327,10 @@ where
     }
 }
 
-impl<LhsG, RhsD> Gradient for DivisionBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Gradient for DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
+    LhsG: Gradient,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     type Dim = Broadcasted<LhsG::Dim, RhsD::Dim>;
@@ -331,10 +344,10 @@ where
     }
 }
 
-impl<LhsG, RhsD> Overwrite for DivisionBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Overwrite for DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
+    LhsG: Gradient,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -346,10 +359,10 @@ where
     }
 }
 
-impl<LhsG, RhsD> Backward for DivisionBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Backward for DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
+    LhsG: Gradient,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     fn backward(&self) {
@@ -373,10 +386,10 @@ where
     }
 }
 
-impl<LhsG, RhsD> Debug for DivisionBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Debug for DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
+    LhsG: Gradient,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -387,10 +400,10 @@ where
     }
 }
 
-impl<LhsG, RhsD> Display for DivisionBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Display for DivisionBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
+    LhsG: Gradient,
     LhsG::Dim: Dimension + DimMax<RhsD::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -404,11 +417,11 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DivisionBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct DivisionBackwardRight<LhsD, RhsD, RhsG>
+pub struct DivisionBackwardRight<LhsD: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
 where
     LhsD: Data,
     RhsD: Data,
-    RhsG: Gradient + Overwrite,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     gradient: RefCell<Option<BroadTensor<LhsD::Dim, RhsG::Dim>>>,
@@ -420,11 +433,11 @@ where
     right_grad: Rc<RhsG>,
 }
 
-impl<LhsD, RhsD, RhsG> DivisionBackwardRight<LhsD, RhsD, RhsG>
+impl<LhsD: ?Sized, RhsD: ?Sized, RhsG: ?Sized> DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    RhsG: Gradient + Overwrite,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     /// Creates a new `DivisionBackwardLeft` node whose operands are `left_data`, `right_data` and
@@ -445,11 +458,11 @@ where
     }
 }
 
-impl<LhsD, RhsD, RhsG> Gradient for DivisionBackwardRight<LhsD, RhsD, RhsG>
+impl<LhsD: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Gradient for DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    RhsG: Gradient + Overwrite,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     type Dim = Broadcasted<LhsD::Dim, RhsG::Dim>;
@@ -463,11 +476,11 @@ where
     }
 }
 
-impl<LhsD, RhsD, RhsG> Overwrite for DivisionBackwardRight<LhsD, RhsD, RhsG>
+impl<LhsD: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Overwrite for DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    RhsG: Gradient + Overwrite,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -479,11 +492,11 @@ where
     }
 }
 
-impl<LhsD, RhsD, RhsG> Backward for DivisionBackwardRight<LhsD, RhsD, RhsG>
+impl<LhsD: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Backward for DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    RhsG: Gradient + Overwrite,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     fn backward(&self) {
@@ -508,11 +521,11 @@ where
     }
 }
 
-impl<LhsD, RhsD, RhsG> Debug for DivisionBackwardRight<LhsD, RhsD, RhsG>
+impl<LhsD: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Debug for DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    RhsG: Gradient + Overwrite,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -523,11 +536,11 @@ where
     }
 }
 
-impl<LhsD, RhsD, RhsG> Display for DivisionBackwardRight<LhsD, RhsD, RhsG>
+impl<LhsD: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Display for DivisionBackwardRight<LhsD, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    RhsG: Gradient + Overwrite,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsG::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

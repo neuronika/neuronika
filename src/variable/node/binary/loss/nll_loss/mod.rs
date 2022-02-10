@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Reduction,
-    Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite,
+    Reduction, Tensor,
 };
 use ndarray::{arr0, Axis, Dimension, IntoDimension, Ix0, Zip};
 use std::{
@@ -15,7 +15,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct NLLLoss<T, U>
+pub struct NLLLoss<T: ?Sized, U: ?Sized>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -28,7 +28,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<T, U> NLLLoss<T, U>
+impl<T: ?Sized, U: ?Sized> NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -45,7 +45,7 @@ where
     }
 }
 
-impl<T, U> Data for NLLLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Data for NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -62,7 +62,22 @@ where
     }
 }
 
-impl<T, U> Forward for NLLLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Cache for NLLLoss<T, U>
+where
+    T: Data<Dim = <U::Dim as Dimension>::Larger>,
+    T::Dim: Copy,
+    U: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized, U: ?Sized> Forward for NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -96,17 +111,9 @@ where
             }
         };
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T, U> Debug for NLLLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -121,7 +128,7 @@ where
     }
 }
 
-impl<T, U> Display for NLLLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Display for NLLLoss<T, U>
 where
     T: Data<Dim = <U::Dim as Dimension>::Larger>,
     T::Dim: Copy,
@@ -136,9 +143,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NLLLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct NLLLossBackward<T, U>
+pub struct NLLLossBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger>,
     U: Data,
     T::Dim: Copy,
 {
@@ -149,9 +156,9 @@ where
     overwrite: Cell<bool>,
 }
 
-impl<T, U> NLLLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger>,
     U: Data,
     T::Dim: Copy,
 {
@@ -166,9 +173,9 @@ where
     }
 }
 
-impl<T, U> Gradient for NLLLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger>,
     U: Data,
     T::Dim: Copy,
 {
@@ -183,9 +190,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for NLLLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger>,
     U: Data,
     T::Dim: Copy,
 {
@@ -198,9 +205,9 @@ where
     }
 }
 
-impl<T, U> Backward for NLLLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger>,
     U: Data,
     T::Dim: Copy,
 {
@@ -270,9 +277,9 @@ where
     }
 }
 
-impl<T, U> Debug for NLLLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger>,
     U: Data,
     T::Dim: Copy,
 {
@@ -285,9 +292,9 @@ where
     }
 }
 
-impl<T, U> Display for NLLLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for NLLLossBackward<T, U>
 where
-    T: Gradient<Dim = <U::Dim as Dimension>::Larger> + Overwrite,
+    T: Gradient<Dim = <U::Dim as Dimension>::Larger>,
     U: Data,
     T::Dim: Copy,
 {

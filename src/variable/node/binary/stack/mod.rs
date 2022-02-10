@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient, Overwrite,
-    Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Forward, Gradient,
+    Overwrite, Tensor,
 };
 use ndarray::{stack, Axis, Dimension, RemoveAxis, Zip};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Stack<Lhs, Rhs>
+pub struct Stack<Lhs: ?Sized, Rhs: ?Sized>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -27,7 +27,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<Lhs, Rhs> Stack<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Stack<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -55,7 +55,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for Stack<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Data for Stack<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -72,7 +72,22 @@ where
     }
 }
 
-impl<Lhs, Rhs> Forward for Stack<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Cache for Stack<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
+    Lhs::Dim: RemoveAxis,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<Lhs: ?Sized, Rhs: ?Sized> Forward for Stack<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -108,17 +123,9 @@ where
             .and(&mut subview_right)
             .for_each(|single_el, fused_el| *fused_el = *single_el);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<Lhs, Rhs> Debug for Stack<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for Stack<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -133,7 +140,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for Stack<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for Stack<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -147,10 +154,10 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct StackBackward<Lhs, Rhs>
+pub struct StackBackward<Lhs: ?Sized, Rhs: ?Sized>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient<Dim = Lhs::Dim>,
     Lhs::Dim: RemoveAxis,
 {
     gradient: RefCell<Option<Tensor<<Lhs::Dim as Dimension>::Larger>>>,
@@ -161,10 +168,10 @@ where
     axis: usize,
 }
 
-impl<Lhs, Rhs> StackBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> StackBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient<Dim = Lhs::Dim>,
     Lhs::Dim: RemoveAxis,
 {
     pub fn new(left: Rc<Lhs>, right: Rc<Rhs>, axis: usize) -> Self {
@@ -186,10 +193,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Gradient for StackBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Gradient for StackBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient<Dim = Lhs::Dim>,
     Lhs::Dim: RemoveAxis,
 {
     type Dim = <Lhs::Dim as Dimension>::Larger;
@@ -203,10 +210,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Overwrite for StackBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Overwrite for StackBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient<Dim = Lhs::Dim>,
     Lhs::Dim: RemoveAxis,
 {
     fn can_overwrite(&self) -> bool {
@@ -218,10 +225,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Backward for StackBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Backward for StackBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient<Dim = Lhs::Dim>,
     Lhs::Dim: RemoveAxis,
 {
     fn backward(&self) {
@@ -254,10 +261,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Debug for StackBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for StackBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient<Dim = Lhs::Dim>,
     Lhs::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -269,10 +276,10 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for StackBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for StackBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
-    Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
+    Lhs: Gradient,
+    Rhs: Gradient<Dim = Lhs::Dim>,
     Lhs::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -286,9 +293,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct StackBackwardLeft<T>
+pub struct StackBackwardLeft<T: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     gradient: RefCell<Option<Tensor<<T::Dim as Dimension>::Larger>>>,
@@ -298,12 +305,15 @@ where
     axis: usize,
 }
 
-impl<T> StackBackwardLeft<T>
+impl<T: ?Sized> StackBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self {
+    pub fn new<U: ?Sized>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self
+    where
+        U: Data<Dim = T::Dim>,
+    {
         let gradient = stack(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap();
         let shape = gradient.raw_dim();
 
@@ -317,9 +327,9 @@ where
     }
 }
 
-impl<T> Gradient for StackBackwardLeft<T>
+impl<T: ?Sized> Gradient for StackBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     type Dim = <T::Dim as Dimension>::Larger;
@@ -333,9 +343,9 @@ where
     }
 }
 
-impl<T> Overwrite for StackBackwardLeft<T>
+impl<T: ?Sized> Overwrite for StackBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn can_overwrite(&self) -> bool {
@@ -347,9 +357,9 @@ where
     }
 }
 
-impl<T> Backward for StackBackwardLeft<T>
+impl<T: ?Sized> Backward for StackBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
@@ -373,9 +383,9 @@ where
     }
 }
 
-impl<T> Debug for StackBackwardLeft<T>
+impl<T: ?Sized> Debug for StackBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -387,9 +397,9 @@ where
     }
 }
 
-impl<T> Display for StackBackwardLeft<T>
+impl<T: ?Sized> Display for StackBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -403,9 +413,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ StackBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct StackBackwardRight<T>
+pub struct StackBackwardRight<T: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     gradient: RefCell<Option<Tensor<<T::Dim as Dimension>::Larger>>>,
@@ -415,12 +425,15 @@ where
     axis: usize,
 }
 
-impl<T> StackBackwardRight<T>
+impl<T: ?Sized> StackBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self {
+    pub fn new<U: ?Sized>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self
+    where
+        U: Data<Dim = T::Dim>,
+    {
         let gradient = stack(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap();
         let shape = gradient.raw_dim();
 
@@ -434,9 +447,9 @@ where
     }
 }
 
-impl<T> Gradient for StackBackwardRight<T>
+impl<T: ?Sized> Gradient for StackBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     type Dim = <T::Dim as Dimension>::Larger;
@@ -450,9 +463,9 @@ where
     }
 }
 
-impl<T> Overwrite for StackBackwardRight<T>
+impl<T: ?Sized> Overwrite for StackBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn can_overwrite(&self) -> bool {
@@ -464,9 +477,9 @@ where
     }
 }
 
-impl<T> Backward for StackBackwardRight<T>
+impl<T: ?Sized> Backward for StackBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
@@ -490,9 +503,9 @@ where
     }
 }
 
-impl<T> Debug for StackBackwardRight<T>
+impl<T: ?Sized> Debug for StackBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -504,9 +517,9 @@ where
     }
 }
 
-impl<T> Display for StackBackwardRight<T>
+impl<T: ?Sized> Display for StackBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

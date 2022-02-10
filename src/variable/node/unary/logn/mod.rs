@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
@@ -13,13 +13,19 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Logn ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Logn<T: Data> {
+pub struct Logn<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     computed: Cell<bool>,
 }
 
-impl<T: Data> Logn<T> {
+impl<T: ?Sized> Logn<T>
+where
+    T: Data,
+{
     pub fn new(operand: Rc<T>) -> Self {
         let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
@@ -31,7 +37,23 @@ impl<T: Data> Logn<T> {
     }
 }
 
-impl<T: Data> Forward for Logn<T> {
+impl<T: ?Sized> Cache for Logn<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for Logn<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -42,17 +64,12 @@ impl<T: Data> Forward for Logn<T> {
             .and(&*self.operand.data())
             .for_each(|v, o| *v = o.ln());
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for Logn<T> {
+impl<T: ?Sized> Data for Logn<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -64,7 +81,10 @@ impl<T: Data> Data for Logn<T> {
     }
 }
 
-impl<T: Data> Debug for Logn<T> {
+impl<T: ?Sized> Debug for Logn<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Logn")
             .field("data", &self.data.borrow())
@@ -73,7 +93,10 @@ impl<T: Data> Debug for Logn<T> {
     }
 }
 
-impl<T: Data> Display for Logn<T> {
+impl<T: ?Sized> Display for Logn<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -82,9 +105,9 @@ impl<T: Data> Display for Logn<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LognBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct LognBackward<T, U>
+pub struct LognBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -94,9 +117,9 @@ where
     no_diff_operand: Rc<U>,
 }
 
-impl<T, U> LognBackward<T, U>
+impl<T: ?Sized, U: ?Sized> LognBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
@@ -112,9 +135,9 @@ where
     }
 }
 
-impl<T, U> Gradient for LognBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for LognBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     type Dim = T::Dim;
@@ -128,9 +151,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for LognBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for LognBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -142,9 +165,9 @@ where
     }
 }
 
-impl<T, U> Backward for LognBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for LognBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
@@ -170,9 +193,9 @@ where
     }
 }
 
-impl<T, U> Debug for LognBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for LognBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -183,9 +206,9 @@ where
     }
 }
 
-impl<T, U> Display for LognBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for LognBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

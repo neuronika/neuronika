@@ -1,11 +1,13 @@
 use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Data, Forward,
-    Gradient, Overwrite, Sum, SumBackward, Tensor,
+    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cache, Data,
+    Forward, Gradient, Overwrite, Sum, SumBackward, Tensor,
 };
 use ndarray::arr0;
 
 mod forward {
-    use super::{arr0, assert_almost_equals, new_input, new_tensor, Data, Forward, Sum, Tensor};
+    use super::{
+        arr0, assert_almost_equals, new_input, new_tensor, Cache, Data, Forward, Sum, Tensor,
+    };
 
     #[test]
     fn creation() {

@@ -1,6 +1,7 @@
 use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Data, Forward,
-    Gradient, Overwrite, VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary,
+    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cache, Data,
+    Forward, Gradient, Overwrite, VectorVectorMul, VectorVectorMulBackward,
+    VectorVectorMulBackwardUnary,
 };
 use ndarray::arr0;
 
@@ -9,7 +10,7 @@ extern crate blas_src;
 
 mod forward {
     use super::{
-        arr0, assert_almost_equals, new_input, new_tensor, Data, Forward, VectorVectorMul,
+        arr0, assert_almost_equals, new_input, new_tensor, Cache, Data, Forward, VectorVectorMul,
     };
 
     #[test]

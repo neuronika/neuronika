@@ -27,7 +27,7 @@ use super::{
     variable::{
         BCELoss, BCELossBackward, BCEWithLogitsLoss, BCEWithLogitsLossBackward, KLDivLoss,
         KLDivLossBackward, MAELoss, MAELossBackward, MSELoss, MSELossBackward, NLLLoss,
-        NLLLossBackward, Overwrite,
+        NLLLossBackward,
     },
     Data, Gradient, Var, VarDiff,
 };
@@ -52,14 +52,14 @@ pub enum Reduction {
 /// Lᴏss = ―   ∑ (xᵢ- ʏᵢ)²
 ///        n  i=1
 /// ```
-pub fn mse_loss<T, U, V>(
+pub fn mse_loss<T: ?Sized, U: ?Sized, V: ?Sized>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<MSELoss<T, V>, MSELossBackward<U, T, V>>
 where
     T: Data,
-    U: Gradient<Dim = T::Dim> + Overwrite,
+    U: Gradient<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
@@ -81,14 +81,14 @@ where
 /// Lᴏss = ―   ∑ |xᵢ- ʏᵢ|
 ///        n  i=1
 /// ```
-pub fn mae_loss<T, U, V>(
+pub fn mae_loss<T: ?Sized, U: ?Sized, V: ?Sized>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<MAELoss<T, V>, MAELossBackward<U, T, V>>
 where
     T: Data,
-    U: Gradient<Dim = T::Dim> + Overwrite,
+    U: Gradient<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
@@ -117,14 +117,14 @@ where
 /// Rust sets *ln(0) = -inf*, however, an infinite term in the loss equation is not desirable.
 /// Our solution is that BCELoss clamps its log function outputs to be greater than or equal
 /// to -100. This way, we can always have a finite loss value.
-pub fn bce_loss<T, U, V>(
+pub fn bce_loss<T: ?Sized, U: ?Sized, V: ?Sized>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<BCELoss<T, V>, BCELossBackward<U, T, V>>
 where
     T: Data,
-    U: Gradient<Dim = T::Dim> + Overwrite,
+    U: Gradient<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
@@ -152,14 +152,14 @@ where
 /// advantage of the log-sum-exp trick for numerical stability.
 /// Note that the target y should be numbers between 0 and 1 and the
 /// input x should be raw unnormalized scores.
-pub fn bce_with_logits_loss<T, U, V>(
+pub fn bce_with_logits_loss<T: ?Sized, U: ?Sized, V: ?Sized>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<BCEWithLogitsLoss<T, V>, BCEWithLogitsLossBackward<U, T, V>>
 where
     T: Data,
-    U: Gradient<Dim = T::Dim> + Overwrite,
+    U: Gradient<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);
@@ -198,14 +198,14 @@ where
 /// (minibatch, d1, d2, ..., dk).
 ///
 /// [`.log_softmax()`]: VarDiff::log_softmax()
-pub fn nll_loss<T, U, V>(
+pub fn nll_loss<T: ?Sized, U: ?Sized, V: ?Sized>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<NLLLoss<T, V>, NLLLossBackward<U, V>>
 where
     T: Data<Dim = <V::Dim as Dimension>::Larger>,
-    U: Gradient<Dim = T::Dim> + Overwrite,
+    U: Gradient<Dim = T::Dim>,
     V: Data,
     T::Dim: Copy,
 {
@@ -238,14 +238,14 @@ where
 /// to [`Reduction::Mean`] the total loss is divided by the batch size.
 ///
 /// This criterion expects a target variable of the same size as the input variable.
-pub fn kldiv_loss<T, U, V>(
+pub fn kldiv_loss<T: ?Sized, U: ?Sized, V: ?Sized>(
     mut input: VarDiff<T, U>,
     target: Var<V>,
     reduction: Reduction,
 ) -> VarDiff<KLDivLoss<T, V>, KLDivLossBackward<U, V>>
 where
     T: Data,
-    U: Gradient<Dim = T::Dim> + Overwrite,
+    U: Gradient<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
     input.var.past.merge(target.past);

@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
@@ -13,13 +13,19 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Negation<T: Data> {
+pub struct Negation<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     computed: Cell<bool>,
 }
 
-impl<T: Data> Negation<T> {
+impl<T: ?Sized> Negation<T>
+where
+    T: Data,
+{
     pub fn new(operand: Rc<T>) -> Self {
         let data = Tensor::zeros(operand.data().raw_dim());
 
@@ -31,7 +37,23 @@ impl<T: Data> Negation<T> {
     }
 }
 
-impl<T: Data> Forward for Negation<T> {
+impl<T: ?Sized> Cache for Negation<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for Negation<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -42,17 +64,12 @@ impl<T: Data> Forward for Negation<T> {
             .and(&*self.operand.data())
             .for_each(|v, o| *v = -o);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for Negation<T> {
+impl<T: ?Sized> Data for Negation<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -64,7 +81,10 @@ impl<T: Data> Data for Negation<T> {
     }
 }
 
-impl<T: Data> Debug for Negation<T> {
+impl<T: ?Sized> Debug for Negation<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Negation")
             .field("data", &self.data.borrow())
@@ -73,7 +93,10 @@ impl<T: Data> Debug for Negation<T> {
     }
 }
 
-impl<T: Data> Display for Negation<T> {
+impl<T: ?Sized> Display for Negation<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -82,14 +105,20 @@ impl<T: Data> Display for Negation<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NegationBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct NegationBackward<T: Gradient + Overwrite> {
+pub struct NegationBackward<T: ?Sized>
+where
+    T: Gradient,
+{
     gradient: RefCell<Option<Tensor<T::Dim>>>,
     shape: T::Dim,
     overwrite: Cell<bool>,
     operand: Rc<T>,
 }
 
-impl<T: Gradient + Overwrite> NegationBackward<T> {
+impl<T: ?Sized> NegationBackward<T>
+where
+    T: Gradient,
+{
     pub fn new(operand: Rc<T>) -> Self {
         let shape = operand.gradient().raw_dim();
 
@@ -102,7 +131,10 @@ impl<T: Gradient + Overwrite> NegationBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Gradient for NegationBackward<T> {
+impl<T: ?Sized> Gradient for NegationBackward<T>
+where
+    T: Gradient,
+{
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
@@ -114,7 +146,10 @@ impl<T: Gradient + Overwrite> Gradient for NegationBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Overwrite for NegationBackward<T> {
+impl<T: ?Sized> Overwrite for NegationBackward<T>
+where
+    T: Gradient,
+{
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
     }
@@ -124,7 +159,10 @@ impl<T: Gradient + Overwrite> Overwrite for NegationBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Backward for NegationBackward<T> {
+impl<T: ?Sized> Backward for NegationBackward<T>
+where
+    T: Gradient,
+{
     fn backward(&self) {
         let mut op_grad = self.operand.gradient_mut();
         let grad = self.gradient();
@@ -147,9 +185,9 @@ impl<T: Gradient + Overwrite> Backward for NegationBackward<T> {
     }
 }
 
-impl<T> Debug for NegationBackward<T>
+impl<T: ?Sized> Debug for NegationBackward<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NegationBackward")
@@ -159,9 +197,9 @@ where
     }
 }
 
-impl<T> Display for NegationBackward<T>
+impl<T: ?Sized> Display for NegationBackward<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {

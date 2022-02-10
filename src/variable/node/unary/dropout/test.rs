@@ -1,11 +1,12 @@
 use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cell, Data, Dropout,
-    DropoutBackward, Forward, Gradient, Overwrite, Rc, Tensor,
+    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cache, Cell, Data,
+    Dropout, DropoutBackward, Forward, Gradient, Overwrite, Rc, Tensor,
 };
 
 mod forward {
     use super::{
-        assert_almost_equals, new_input, new_tensor, Cell, Data, Dropout, Forward, Rc, Tensor,
+        assert_almost_equals, new_input, new_tensor, Cache, Cell, Data, Dropout, Forward, Rc,
+        Tensor,
     };
 
     #[test]

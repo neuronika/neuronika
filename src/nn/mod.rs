@@ -73,15 +73,12 @@
 //!     fn forward<I, T, U>(
 //!         &self,
 //!         input: I,
-//!     ) -> VarDiff<
-//!             impl Data<Dim = Ix2> + Forward,
-//!             impl Gradient<Dim = Ix2> + Overwrite + Backward
-//!         >
+//!     ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
 //!     where
 //!         I: MatMatMulT<Learnable<Ix2>>,
 //!         I::Output: Into<VarDiff<T, U>>,
 //!         T: Data<Dim = Ix2> + Forward,
-//!         U: Gradient<Dim = Ix2> + Backward + Overwrite,
+//!         U: Gradient<Dim = Ix2>,
 //!     {
 //!         let out1 = self.lin1.forward(input).relu();
 //!         let out2 = self.lin2.forward(out1).relu();
@@ -120,15 +117,12 @@
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
-//! #     ) -> VarDiff<
-//! #             impl Data<Dim = Ix2> + Forward,
-//! #             impl Gradient<Dim = Ix2> + Overwrite + Backward
-//! #         >
+//! #     ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
 //! #     where
 //! #         I: MatMatMulT<Learnable<Ix2>>,
 //! #         I::Output: Into<VarDiff<T, U>>,
 //! #         T: Data<Dim = Ix2> + Forward,
-//! #         U: Gradient<Dim = Ix2> + Backward + Overwrite,
+//! #         U: Gradient<Dim = Ix2>,
 //! #     {
 //! #         let out1 = self.lin1.forward(input).relu();
 //! #         let out2 = self.lin2.forward(out1).relu();
@@ -177,15 +171,12 @@
 //! #     fn forward<I, T, U>(
 //! #         &self,
 //! #         input: I,
-//! #     ) -> VarDiff<
-//! #             impl Data<Dim = Ix2> + Forward,
-//! #             impl Gradient<Dim = Ix2> + Overwrite + Backward
-//! #         >
+//! #     ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
 //! #     where
 //! #         I: MatMatMulT<Learnable<Ix2>>,
 //! #         I::Output: Into<VarDiff<T, U>>,
-//! #         T: Data<Dim = Ix2> + Forward,
-//! #         U: Gradient<Dim = Ix2> + Backward + Overwrite,
+//! #         T: Data<Dim = Ix2>,
+//! #         U: Gradient<Dim = Ix2>,
 //! #     {
 //! #         let out1 = self.lin1.forward(input).relu();
 //! #         let out2 = self.lin2.forward(out1).relu();
@@ -396,9 +387,9 @@
 //! the input variable with probability *p* using samples from a Bernoulli distribution.
 use super::{Input, InputBackward, Param};
 use crate::variable::{
-    self, Backward, Convolve, ConvolveWithGroups, Data, Dropout as DropoutNode,
-    DropoutBackward as DropoutBackwardNode, Eval, Forward, Gradient, MatMatMulT, Overwrite,
-    RawParam, Tensor, Var, VarDiff,
+    self, Convolve, ConvolveWithGroups, Data, Dropout as DropoutNode,
+    DropoutBackward as DropoutBackwardNode, Eval, Gradient, MatMatMulT, Overwrite, RawParam,
+    Tensor, Var, VarDiff,
 };
 pub use crate::variable::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
@@ -499,10 +490,10 @@ pub trait DropoutInput {
     fn dropout(self, p: f64, status: Rc<Cell<bool>>) -> Self::Output;
 }
 
-impl<T, U> DropoutInput for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> DropoutInput for VarDiff<T, U>
 where
-    T: Data + Forward,
-    U: Gradient<Dim = T::Dim> + Overwrite + Backward,
+    T: Data,
+    U: Gradient<Dim = T::Dim>,
 {
     type Output = VarDiff<DropoutNode<T>, DropoutBackwardNode<U, T>>;
 
@@ -511,9 +502,9 @@ where
     }
 }
 
-impl<T> DropoutInput for Var<T>
+impl<T: ?Sized> DropoutInput for Var<T>
 where
-    T: Data + Forward,
+    T: Data,
 {
     type Output = Var<DropoutNode<T>>;
 
@@ -629,12 +620,12 @@ impl Linear {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
     where
         I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
-        U: Gradient<Dim = Ix2> + Overwrite,
+        U: Gradient<Dim = Ix2>,
     {
         input.mm_t(self.weight.clone()).into() + self.bias.clone()
     }
@@ -712,23 +703,23 @@ impl LSTMCell {
     /// The **output** is a tuple of tensors made of the next hidden state for each element in
     /// the batch, of shape *(batch, hidden_size)* and the next cell's state for each element in
     /// the batch, of shape *(batch, hidden_size)*.
-    pub fn forward<Cf, Cb, Hf, Hb, I, T, U>(
+    pub fn forward<Cf: ?Sized, Cb: ?Sized, Hf: ?Sized, Hb: ?Sized, I, T, U>(
         &self,
         state: (VarDiff<Cf, Cb>, VarDiff<Hf, Hb>),
         input: I,
     ) -> (
-        VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>,
-        VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>,
+        VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>,
+        VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>,
     )
     where
         Cf: Data<Dim = Ix2>,
-        Cb: Gradient<Dim = Ix2> + Overwrite,
+        Cb: Gradient<Dim = Ix2>,
         Hf: Data<Dim = Ix2>,
-        Hb: Gradient<Dim = Ix2> + Overwrite,
+        Hb: Gradient<Dim = Ix2>,
         I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
-        U: Gradient<Dim = Ix2> + Overwrite,
+        U: Gradient<Dim = Ix2>,
     {
         let (cell_state, hidden) = state;
         let gates = hidden.mm_t(self.weight_hh.clone())
@@ -823,18 +814,18 @@ impl GRUCell {
     ///
     /// The **output** is  a variable made of the next hidden state for each element in
     /// the batch, of shape *(batch, hidden_size)*.
-    pub fn forward<Hf, Hb, I, T, U>(
+    pub fn forward<Hf: ?Sized, Hb: ?Sized, I, T, U>(
         &self,
         hidden: VarDiff<Hf, Hb>,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
     where
         Hf: Data<Dim = Ix2>,
-        Hb: Gradient<Dim = Ix2> + Overwrite,
+        Hb: Gradient<Dim = Ix2>,
         I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix2>,
-        U: Gradient<Dim = Ix2> + Overwrite,
+        U: Gradient<Dim = Ix2>,
     {
         let (igates, hgates) = {
             (
@@ -952,12 +943,12 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix3>, impl Gradient<Dim = Ix3>>
     where
         I: Convolve<I, Learnable<Ix3>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix3>,
-        U: Gradient<Dim = Ix3> + Overwrite,
+        U: Gradient<Dim = Ix3>,
     {
         I::convolve(
             input,
@@ -1082,12 +1073,12 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix3> + Forward, impl Gradient<Dim = Ix3> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix3>, impl Gradient<Dim = Ix3>>
     where
         I: ConvolveWithGroups<I, Learnable<Ix3>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix3>,
-        U: Gradient<Dim = Ix3> + Overwrite,
+        U: Gradient<Dim = Ix3>,
     {
         I::convolve_with_groups(
             input,
@@ -1204,7 +1195,7 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix4>, impl Gradient<Dim = Ix4>>
     where
         I: Convolve<I, Learnable<Ix4>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
@@ -1341,12 +1332,12 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix4> + Forward, impl Gradient<Dim = Ix4> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix4>, impl Gradient<Dim = Ix4>>
     where
         I: ConvolveWithGroups<I, Learnable<Ix4>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix4>,
-        U: Gradient<Dim = Ix4> + Overwrite,
+        U: Gradient<Dim = Ix4>,
     {
         let (stride_h, stride_w) = self.stride;
         let (padding_h, padding_w) = self.padding;
@@ -1470,12 +1461,12 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix5>, impl Gradient<Dim = Ix5>>
     where
         I: Convolve<I, Learnable<Ix5>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix5>,
-        U: Gradient<Dim = Ix5> + Overwrite,
+        U: Gradient<Dim = Ix5>,
     {
         let (stride_d, stride_h, stride_w) = self.stride;
         let (padding_d, padding_h, padding_w) = self.padding;
@@ -1609,12 +1600,12 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     pub fn forward<I, T, U>(
         &self,
         input: I,
-    ) -> VarDiff<impl Data<Dim = Ix5> + Forward, impl Gradient<Dim = Ix5> + Overwrite + Backward>
+    ) -> VarDiff<impl Data<Dim = Ix5>, impl Gradient<Dim = Ix5>>
     where
         I: ConvolveWithGroups<I, Learnable<Ix5>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
         T: Data<Dim = Ix5>,
-        U: Gradient<Dim = Ix5> + Overwrite,
+        U: Gradient<Dim = Ix5>,
     {
         let (stride_d, stride_h, stride_w) = self.stride;
         let (padding_d, padding_h, padding_w) = self.padding;

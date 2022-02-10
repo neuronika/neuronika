@@ -1,7 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Eval, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Eval, Forward, Gradient, Overwrite,
+    Tensor,
 };
 use ndarray::Zip;
 use rand::thread_rng;
@@ -15,7 +16,10 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Dropout ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Dropout<T: Data> {
+pub struct Dropout<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     noise: RefCell<Tensor<T::Dim>>,
@@ -25,7 +29,10 @@ pub struct Dropout<T: Data> {
     train: Rc<Cell<bool>>,
 }
 
-impl<T: Data> Dropout<T> {
+impl<T: ?Sized> Dropout<T>
+where
+    T: Data,
+{
     pub fn new(operand: Rc<T>, p: f64, status: Rc<Cell<bool>>) -> Self {
         if !(0. ..=1.).contains(&p) {
             panic!(
@@ -60,7 +67,23 @@ impl<T: Data> Dropout<T> {
     }
 }
 
-impl<T: Data> Forward for Dropout<T> {
+impl<T: ?Sized> Cache for Dropout<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for Dropout<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -90,17 +113,12 @@ impl<T: Data> Forward for Dropout<T> {
             self.data.borrow_mut().assign(&*self.operand.data());
         }
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for Dropout<T> {
+impl<T: ?Sized> Data for Dropout<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -112,7 +130,10 @@ impl<T: Data> Data for Dropout<T> {
     }
 }
 
-impl<T: Data> Eval for Dropout<T> {
+impl<T: ?Sized> Eval for Dropout<T>
+where
+    T: Data,
+{
     fn train(&self) {
         self.train.set(true);
     }
@@ -122,7 +143,10 @@ impl<T: Data> Eval for Dropout<T> {
     }
 }
 
-impl<T: Data> Debug for Dropout<T> {
+impl<T: ?Sized> Debug for Dropout<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Dropout")
             .field("data", &self.data.borrow())
@@ -134,7 +158,10 @@ impl<T: Data> Debug for Dropout<T> {
     }
 }
 
-impl<T: Data> Display for Dropout<T> {
+impl<T: ?Sized> Display for Dropout<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -143,9 +170,9 @@ impl<T: Data> Display for Dropout<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DropoutBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct DropoutBackward<T, U>
+pub struct DropoutBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -157,9 +184,9 @@ where
     train: Rc<Cell<bool>>,
 }
 
-impl<T, U> DropoutBackward<T, U>
+impl<T: ?Sized, U: ?Sized> DropoutBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     pub fn new(
@@ -182,9 +209,9 @@ where
     }
 }
 
-impl<T, U> Gradient for DropoutBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for DropoutBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     type Dim = T::Dim;
@@ -198,9 +225,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for DropoutBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for DropoutBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -212,9 +239,9 @@ where
     }
 }
 
-impl<T, U> Backward for DropoutBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for DropoutBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
@@ -261,9 +288,9 @@ where
     }
 }
 
-impl<T, U> Debug for DropoutBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for DropoutBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -275,9 +302,9 @@ where
     }
 }
 
-impl<T, U> Display for DropoutBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for DropoutBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

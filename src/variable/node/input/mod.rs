@@ -1,4 +1,6 @@
-use super::{expect_tensor, expect_tensor_mut, Data, Dimension, Gradient, Overwrite, Tensor};
+use super::{
+    expect_tensor, expect_tensor_mut, Cache, Data, Dimension, Gradient, Overwrite, Tensor,
+};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
@@ -41,6 +43,16 @@ impl<D: Dimension> Data for Input<D> {
 
     fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
         self.data.borrow_mut()
+    }
+}
+
+impl<D: Dimension> Cache for Input<D> {
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
     }
 }
 

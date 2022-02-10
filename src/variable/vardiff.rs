@@ -1,21 +1,21 @@
 use super::{
     Addition, AdditionBackward, AdditionBackwardUnary, Backward, Cat, Chunk, ChunkBackward,
-    Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, DifferentiableVariable,
-    Division, DivisionBackward, DivisionBackwardLeft, DivisionBackwardRight, Dropout,
-    DropoutBackward, Exp, ExpBackward, Forward, Gradient, Input, LeakyReLU, LeakyReLUBackward,
-    LogSoftmax, LogSoftmaxBackward, Logn, LognBackward, MatMatMul, MatMatMulT, MatVecMul,
-    MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft, MatrixMatrixMulT,
-    MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixVectorMul,
-    MatrixVectorMulBackward, MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate,
-    MultiConcatenateBackward, MultiStack, MultiStackBackward, Multiplication,
-    MultiplicationBackward, MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite,
-    Param, Power, PowerBackward, RawParam, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
+    Concatenate, ConcatenateBackward, ConcatenateBackwardLeft, Data, Division, DivisionBackward,
+    DivisionBackwardLeft, DivisionBackwardRight, Dropout, DropoutBackward, Exp, ExpBackward,
+    Forward, Gradient, Input, LeakyReLU, LeakyReLUBackward, LogSoftmax, LogSoftmaxBackward, Logn,
+    LognBackward, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul, MatrixMatrixMulBackward,
+    MatrixMatrixMulBackwardLeft, MatrixMatrixMulT, MatrixMatrixMulTBackward,
+    MatrixMatrixMulTBackwardLeft, MatrixVectorMul, MatrixVectorMulBackward,
+    MatrixVectorMulBackwardLeft, Mean, MeanBackward, MultiConcatenate, MultiConcatenateBackward,
+    MultiStack, MultiStackBackward, Multiplication, MultiplicationBackward,
+    MultiplicationBackwardUnary, Negation, NegationBackward, Overwrite, Param, Power,
+    PowerBackward, RawParam, ReLU, ReLUBackward, Sigmoid, SigmoidBackward, SoftPlus,
     SoftPlusBackward, Softmax, SoftmaxBackward, Sqrt, SqrtBackward, Stack, StackBackward,
     StackBackwardLeft, Subtraction, SubtractionBackward, SubtractionBackwardLeft,
     SubtractionBackwardRight, Sum, SumBackward, TanH, TanHBackward, Tensor, Transpose,
-    TransposeBackward, Unsqueeze, UnsqueezeBackward, Var, VarDiffHistory, Variable, VecMatMul,
-    VecVecMul, VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft,
-    VectorVectorMul, VectorVectorMulBackward, VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
+    TransposeBackward, Unsqueeze, UnsqueezeBackward, Var, VarDiffHistory, VecMatMul, VecVecMul,
+    VectorMatrixMul, VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorVectorMul,
+    VectorVectorMulBackward, VectorVectorMulBackwardUnary, OPERATIONS_COUNTER,
 };
 use crate::nn::Register;
 use ndarray::{DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2, RemoveAxis};
@@ -43,20 +43,20 @@ use std::{
 /// result of the computation itself, and that of any other subsequent computations performed on
 /// it, will also be differentiable. As an obvious consequence, the results of operations
 /// performed on two *VarDiff* will also be *VarDiff*.
-pub struct VarDiff<T, U>
+pub struct VarDiff<T: ?Sized, U: ?Sized>
 where
     T: Data + 'static,
-    U: Gradient + Overwrite + 'static,
+    U: Gradient + 'static,
 {
     pub(crate) var: Var<T>,
     pub(crate) node: Rc<U>,
     pub(crate) past: VarDiffHistory,
 }
 
-impl<T, U> Clone for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Clone for VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient + Overwrite + 'static,
+    U: Gradient + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -70,7 +70,7 @@ where
 impl<T, U> VarDiff<T, U>
 where
     T: Data + Forward + 'static,
-    U: Gradient + Overwrite + Backward + 'static,
+    U: Gradient + Backward + 'static,
 {
     pub(crate) fn from(node: U, mut past: VarDiffHistory, var: Var<T>) -> VarDiff<T, U> {
         let node = Rc::new(node);
@@ -80,10 +80,28 @@ where
     }
 }
 
-impl<T, U> VarDiff<T, U>
+impl<D, T, U> VarDiff<T, U>
+where
+    D: Dimension,
+    T: Data<Dim = D> + 'static,
+    U: Gradient<Dim = D> + 'static,
+{
+    /// Transforms `self` into a dynamically typed differentiable variable.
+    pub fn into_dyn(self) -> VarDiff<dyn Data<Dim = D>, dyn Gradient<Dim = D>> {
+        let Self { var, node, past } = self;
+
+        VarDiff {
+            var: var.into_dyn(),
+            node: node as Rc<dyn Gradient<Dim = D>>,
+            past,
+        }
+    }
+}
+
+impl<T: ?Sized, U: ?Sized> VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
 {
     /// Returns an immutable reference to the data inside `self`.
     ///
@@ -116,13 +134,7 @@ where
     pub fn grad_mut(&self) -> RefMut<Tensor<U::Dim>> {
         self.node.gradient_mut()
     }
-}
 
-impl<T, U> VarDiff<T, U>
-where
-    T: Data + Forward + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-{
     /// Propagates the computations forwards and populates all the variables and differentiable
     /// variables from the leaves of the graph to `self`.   
     pub fn forward(&self) {
@@ -154,13 +166,7 @@ where
             }
         }
     }
-}
 
-impl<T, U> VarDiff<T, U>
-where
-    T: Data + Forward + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + Backward + 'static,
-{
     /// Back-propagates through the computational graph and populates the gradients of the
     /// differentiable leaves that are ancestors of `self`. Before back-propagating the gradient
     /// of `self` is seeded with `seed`, thus, the leaves' gradients will be scaled accordingly.
@@ -169,9 +175,7 @@ where
     /// [chain rule](https://en.wikipedia.org/wiki/Chain_rule).
     ///
     /// The leaves whose gradients are populated by this method are also those referred by the
-    /// vector of [`Param`] returned by [`.parameters()`].
-    ///
-    ///  [`.parameters()`]: VarDiff::parameters()
+    /// vector of [`Param`] returned by [`.parameters()`](VarDiff::parameters()).
     pub fn backward(&self, seed: f32) {
         debug_assert!(!self.past.is_empty());
 
@@ -252,10 +256,10 @@ where
     }
 }
 
-impl<T, U> VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> VarDiff<T, U>
 where
     T: Data<Dim = Ix1> + 'static,
-    U: Gradient<Dim = Ix1> + Overwrite + 'static,
+    U: Gradient<Dim = Ix1> + 'static,
 {
     /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
     /// variable `rhs`.
@@ -282,7 +286,7 @@ where
 impl<T, U> VarDiff<T, U>
 where
     T: Data<Dim = Ix2> + 'static,
-    U: Gradient<Dim = Ix2> + Overwrite + 'static,
+    U: Gradient<Dim = Ix2> + 'static,
 {
     /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
     /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
@@ -318,10 +322,10 @@ where
     }
 }
 
-impl<T, U> VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
 {
     /// Returns a vector of [`Param`] referencing all the differentiable leaves that are ancestors
     /// of the variable.
@@ -548,11 +552,9 @@ where
     }
 }
 
-impl<T, U> VarDiff<T, U>
+impl<D> VarDiff<dyn Data<Dim = D>, dyn Gradient<Dim = D>>
 where
-    T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
-    T::Dim: RemoveAxis,
+    D: Dimension + RemoveAxis,
 {
     /// Concatenates the given sequence of differentiable variables `variables`, including
     /// `self`, along the given axis, and returns a differentiable variable with the results.
@@ -571,8 +573,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use std::boxed::Box;
-    /// use neuronika;
+    /// use neuronika::{self, VarDiff};
     /// use ndarray;
     ///
     ///
@@ -580,7 +581,7 @@ where
     /// let b = neuronika::full((3, 2), 4.).requires_grad();
     /// let c = neuronika::full((3, 2), 3.).requires_grad();
     ///
-    /// let mut d = a.cat(&[Box::new(b), Box::new(c)], 1);
+    /// let mut d = VarDiff::cat(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 1);
     /// d.forward();
     ///
     /// assert_eq!(*d.data(), ndarray::array![[1., 1., 4., 4., 3., 3.],
@@ -588,27 +589,25 @@ where
     ///                                       [1., 1., 4., 4., 3., 3.]]);
     /// ```
     pub fn cat(
-        mut self,
-        variables: &[Box<dyn DifferentiableVariable<T::Dim>>],
+        variables: &[Self],
         axis: usize,
-    ) -> VarDiff<MultiConcatenate<T::Dim>, MultiConcatenateBackward<T::Dim>> {
-        let vars: Vec<Box<dyn Variable<T::Dim>>> =
-            variables.iter().map(|el| el.get_var()).collect();
-        let var = self.var.cat(&vars, axis);
+    ) -> VarDiff<MultiConcatenate<D>, MultiConcatenateBackward<D>> {
+        let vars: Vec<_> = variables.iter().cloned().map(|el| el.var).collect();
+        let var = Var::cat(&vars, axis);
         let shape = var.data().raw_dim();
 
-        let mut operands: Vec<Rc<dyn Gradient<Dim = T::Dim>>> =
-            Vec::with_capacity(variables.len() + 1);
-        operands.push(self.node);
+        let mut operands: Vec<Rc<dyn Gradient<Dim = D>>> = Vec::with_capacity(variables.len());
+        let mut past = variables[0].past.clone();
+        operands.push(variables[0].node.clone());
 
-        for variable in variables {
-            self.past.merge(variable.get_past());
-            operands.push(variable.get_node());
-        }
+        variables.iter().cloned().skip(1).for_each(|variable| {
+            past.merge(variable.past);
+            operands.push(variable.node);
+        });
 
         VarDiff::from(
             MultiConcatenateBackward::new(operands, axis, shape),
-            self.past,
+            past,
             var,
         )
     }
@@ -632,8 +631,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use std::boxed::Box;
-    /// use neuronika;
+    /// use neuronika::{self, VarDiff};
     /// use ndarray;
     ///
     ///
@@ -641,7 +639,7 @@ where
     /// let b = neuronika::ones((2, 2)).requires_grad();
     /// let c = neuronika::ones((2, 2)).requires_grad();
     ///
-    /// let mut d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    /// let mut d = VarDiff::stack(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 0);
     /// d.forward();
     ///
     /// assert_eq!(*d.data(), ndarray::array![[[1., 1.],
@@ -651,30 +649,21 @@ where
     ///                                       [[1., 1.],
     ///                                        [1., 1.]]]);
     /// ```
-    pub fn stack(
-        mut self,
-        variables: &[Box<dyn DifferentiableVariable<T::Dim>>],
-        axis: usize,
-    ) -> VarDiff<MultiStack<T::Dim>, MultiStackBackward<T::Dim>> {
-        let vars: Vec<Box<dyn Variable<T::Dim>>> =
-            variables.iter().map(|el| el.get_var()).collect();
-        let var = self.var.stack(&vars, axis);
+    pub fn stack(variables: &[Self], axis: usize) -> VarDiff<MultiStack<D>, MultiStackBackward<D>> {
+        let vars: Vec<_> = variables.iter().cloned().map(|el| el.var).collect();
+        let var = Var::stack(&vars, axis);
         let shape = var.data().raw_dim();
 
-        let mut operands: Vec<Rc<dyn Gradient<Dim = T::Dim>>> =
-            Vec::with_capacity(variables.len() + 1);
-        operands.push(self.node);
+        let mut operands: Vec<Rc<dyn Gradient<Dim = D>>> = Vec::with_capacity(variables.len());
+        let mut past = variables[0].past.clone();
+        operands.push(variables[0].node.clone());
 
-        for variable in variables {
-            self.past.merge(variable.get_past());
-            operands.push(variable.get_node());
-        }
+        variables.iter().cloned().skip(1).for_each(|variable| {
+            past.merge(variable.past);
+            operands.push(variable.node);
+        });
 
-        VarDiff::from(
-            MultiStackBackward::new(operands, axis, shape),
-            self.past,
-            var,
-        )
+        VarDiff::from(MultiStackBackward::new(operands, axis, shape), past, var)
     }
 }
 
@@ -684,10 +673,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VarDiff - f32 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T, U> Add<f32> for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Add<f32> for VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output = VarDiff<Addition<T, Input<Ix0>>, AdditionBackwardUnary<U, Input<Ix0>>>;
@@ -697,10 +686,10 @@ where
     }
 }
 
-impl<T, U> Sub<f32> for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Sub<f32> for VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output = VarDiff<Subtraction<T, Input<Ix0>>, SubtractionBackwardLeft<U, Input<Ix0>>>;
@@ -710,10 +699,10 @@ where
     }
 }
 
-impl<T, U> Mul<f32> for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Mul<f32> for VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output =
@@ -724,10 +713,10 @@ where
     }
 }
 
-impl<T, U> Div<f32> for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Div<f32> for VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     T::Dim: DimMax<Ix0>,
 {
     type Output = VarDiff<Division<T, Input<Ix0>>, DivisionBackwardLeft<U, Input<Ix0>>>;
@@ -739,10 +728,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ f32 - VarDiff ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T, U> Add<VarDiff<T, U>> for f32
+impl<T: ?Sized, U: ?Sized> Add<VarDiff<T, U>> for f32
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output = VarDiff<Addition<Input<Ix0>, T>, AdditionBackwardUnary<U, Input<Ix0>>>;
@@ -752,10 +741,10 @@ where
     }
 }
 
-impl<T, U> Sub<VarDiff<T, U>> for f32
+impl<T: ?Sized, U: ?Sized> Sub<VarDiff<T, U>> for f32
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output = VarDiff<Subtraction<Input<Ix0>, T>, SubtractionBackwardRight<U, Input<Ix0>>>;
@@ -765,10 +754,10 @@ where
     }
 }
 
-impl<T, U> Mul<VarDiff<T, U>> for f32
+impl<T: ?Sized, U: ?Sized> Mul<VarDiff<T, U>> for f32
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output =
@@ -779,10 +768,10 @@ where
     }
 }
 
-impl<T, U> Div<VarDiff<T, U>> for f32
+impl<T: ?Sized, U: ?Sized> Div<VarDiff<T, U>> for f32
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
     Ix0: DimMax<T::Dim>,
 {
     type Output = VarDiff<Division<Input<Ix0>, T>, DivisionBackwardRight<Input<Ix0>, T, U>>;
@@ -794,10 +783,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T, U> Neg for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Neg for VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient<Dim = T::Dim> + Overwrite + 'static,
+    U: Gradient<Dim = T::Dim> + 'static,
 {
     type Output = VarDiff<Negation<T>, NegationBackward<U>>;
 
@@ -808,11 +797,11 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Addition ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> Add<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> Add<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<F2::Dim>,
 {
@@ -824,12 +813,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> Add<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> Add<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
-    B2: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
+    B2: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<B2::Dim>,
 {
@@ -844,11 +833,11 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Subtraction ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> Sub<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> Sub<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<F2::Dim>,
 {
@@ -860,12 +849,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> Sub<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> Sub<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
-    B2: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
+    B2: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<B2::Dim>,
 {
@@ -880,11 +869,11 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> Mul<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> Mul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<F2::Dim>,
 {
@@ -896,12 +885,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> Mul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> Mul<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
-    B2: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
+    B2: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<B2::Dim>,
 {
@@ -921,11 +910,11 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Division ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> Div<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> Div<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<F2::Dim>,
 {
@@ -937,12 +926,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> Div<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> Div<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
     F2: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
-    B2: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
+    B2: Gradient + 'static,
     F1::Dim: Dimension + DimMax<F2::Dim>,
     B1::Dim: Dimension + DimMax<B2::Dim>,
 {
@@ -966,10 +955,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> MatMatMul<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> MatMatMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardLeft<B1, F2>>;
@@ -980,12 +969,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> MatMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> MatMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B2: Gradient<Dim = Ix2> + 'static,
 {
     type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackward<F1, B1, F2, B2>>;
 
@@ -1003,10 +992,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition  ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> MatMatMulT<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> MatMatMulT<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardLeft<B1, F2>>;
@@ -1017,12 +1006,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> MatMatMulT<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> MatMatMulT<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B2: Gradient<Dim = Ix2> + 'static,
 {
     type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackward<F1, B1, F2, B2>>;
 
@@ -1040,10 +1029,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> MatVecMul<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> MatVecMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix1> + 'static,
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardLeft<B1, F2>>;
@@ -1054,12 +1043,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> MatVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> MatVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix2> + 'static,
-    B1: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix2> + 'static,
     F2: Data<Dim = Ix1> + 'static,
-    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
+    B2: Gradient<Dim = Ix1> + 'static,
 {
     type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackward<F1, B1, F2, B2>>;
 
@@ -1077,10 +1066,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> VecMatMul<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> VecMatMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix2> + 'static,
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardLeft<B1, F2>>;
@@ -1091,12 +1080,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> VecMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> VecMatMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
+    B2: Gradient<Dim = Ix2> + 'static,
 {
     type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackward<F1, B1, F2, B2>>;
 
@@ -1114,10 +1103,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> VecVecMul<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> VecVecMul<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix1> + 'static,
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B1, F2>>;
@@ -1128,12 +1117,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> VecVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> VecVecMul<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = Ix1> + 'static,
-    B1: Gradient<Dim = Ix1> + Overwrite + 'static,
+    B1: Gradient<Dim = Ix1> + 'static,
     F2: Data<Dim = Ix1> + 'static,
-    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
+    B2: Gradient<Dim = Ix1> + 'static,
 {
     type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackward<F1, B1, F2, B2>>;
 
@@ -1155,11 +1144,11 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> Cat<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> Cat<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = B1::Dim> + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
@@ -1171,12 +1160,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> Cat<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> Cat<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
-    B2: Gradient<Dim = B1::Dim> + Overwrite + 'static,
+    B2: Gradient<Dim = B1::Dim> + 'static,
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
@@ -1191,11 +1180,11 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1, B1, F2> Stack<Var<F2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized> Stack<Var<F2>> for VarDiff<F1, B1>
 where
     F1: Data<Dim = B1::Dim> + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
@@ -1207,12 +1196,12 @@ where
     }
 }
 
-impl<F1, B1, F2, B2> Stack<VarDiff<F2, B2>> for VarDiff<F1, B1>
+impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized> Stack<VarDiff<F2, B2>> for VarDiff<F1, B1>
 where
     F1: Data + 'static,
-    B1: Gradient + Overwrite + 'static,
+    B1: Gradient + 'static,
     F2: Data<Dim = F1::Dim> + 'static,
-    B2: Gradient<Dim = B1::Dim> + Overwrite + 'static,
+    B2: Gradient<Dim = B1::Dim> + 'static,
     F1::Dim: RemoveAxis,
     B1::Dim: RemoveAxis,
 {
@@ -1227,10 +1216,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Register ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T, U> Register for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Register for VarDiff<T, U>
 where
     T: Data + 'static,
-    U: Gradient + Overwrite + 'static,
+    U: Gradient + 'static,
 {
     fn register_params(&self, params: &mut Vec<RawParam>) {
         params.extend(self.past.parameters.iter().cloned())
@@ -1241,10 +1230,10 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T, U> Debug for VarDiff<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for VarDiff<T, U>
 where
     T: Data + Debug,
-    U: Gradient<Dim = T::Dim> + Overwrite + Debug,
+    U: Gradient<Dim = T::Dim> + Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VarDiff")
@@ -1258,7 +1247,11 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: Data + Display, U: Gradient + Overwrite + Display> Display for VarDiff<T, U> {
+impl<T: ?Sized, U: ?Sized> Display for VarDiff<T, U>
+where
+    T: Data + Display,
+    U: Gradient + Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.var)
     }

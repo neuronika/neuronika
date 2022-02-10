@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient, Overwrite,
-    Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Forward, Gradient,
+    Overwrite, Tensor,
 };
 use ndarray::{Axis, Dimension, RemoveAxis, Zip};
 use std::{
@@ -14,14 +14,20 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiStack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MultiStack<D: Dimension + RemoveAxis + 'static> {
+pub struct MultiStack<D>
+where
+    D: Dimension + RemoveAxis,
+{
     operands: Vec<Rc<dyn Data<Dim = D>>>,
     axis: usize,
     data: RefCell<Tensor<D::Larger>>,
     computed: Cell<bool>,
 }
 
-impl<D: Dimension + RemoveAxis + 'static> MultiStack<D> {
+impl<D> MultiStack<D>
+where
+    D: Dimension + RemoveAxis,
+{
     pub(crate) fn new(
         operands: Vec<Rc<dyn Data<Dim = D>>>,
         axis: usize,
@@ -38,7 +44,10 @@ impl<D: Dimension + RemoveAxis + 'static> MultiStack<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Data for MultiStack<D> {
+impl<D> Data for MultiStack<D>
+where
+    D: Dimension + RemoveAxis,
+{
     type Dim = D::Larger;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -50,7 +59,23 @@ impl<D: Dimension + RemoveAxis> Data for MultiStack<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Forward for MultiStack<D> {
+impl<D> Cache for MultiStack<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<D> Forward for MultiStack<D>
+where
+    D: Dimension + RemoveAxis,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -69,17 +94,12 @@ impl<D: Dimension + RemoveAxis> Forward for MultiStack<D> {
                     .for_each(|axis_data_el, operand_data_el| *axis_data_el = *operand_data_el)
             });
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<D: Dimension + RemoveAxis> Debug for MultiStack<D> {
+impl<D> Debug for MultiStack<D>
+where
+    D: Dimension + RemoveAxis,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiStack")
             .field("data", &self.data.borrow())
@@ -90,7 +110,10 @@ impl<D: Dimension + RemoveAxis> Debug for MultiStack<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Display for MultiStack<D> {
+impl<D> Display for MultiStack<D>
+where
+    D: Dimension + RemoveAxis,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -99,7 +122,10 @@ impl<D: Dimension + RemoveAxis> Display for MultiStack<D> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiStackBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MultiStackBackward<D: Dimension + RemoveAxis> {
+pub struct MultiStackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
     gradient: RefCell<Option<Tensor<D::Larger>>>,
     shape: D::Larger,
     overwrite: Cell<bool>,
@@ -107,7 +133,10 @@ pub struct MultiStackBackward<D: Dimension + RemoveAxis> {
     axis: usize,
 }
 
-impl<D: Dimension + RemoveAxis> MultiStackBackward<D> {
+impl<D> MultiStackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
     pub(crate) fn new(
         operands: Vec<Rc<dyn Gradient<Dim = D>>>,
         axis: usize,
@@ -126,7 +155,10 @@ impl<D: Dimension + RemoveAxis> MultiStackBackward<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Gradient for MultiStackBackward<D> {
+impl<D> Gradient for MultiStackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
     type Dim = D::Larger;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
@@ -138,7 +170,10 @@ impl<D: Dimension + RemoveAxis> Gradient for MultiStackBackward<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Overwrite for MultiStackBackward<D> {
+impl<D> Overwrite for MultiStackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
     }
@@ -148,7 +183,10 @@ impl<D: Dimension + RemoveAxis> Overwrite for MultiStackBackward<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Backward for MultiStackBackward<D> {
+impl<D> Backward for MultiStackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
     fn backward(&self) {
         let (axis, grad) = (self.axis, &self.gradient.borrow());
 
@@ -169,7 +207,10 @@ impl<D: Dimension + RemoveAxis> Backward for MultiStackBackward<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Debug for MultiStackBackward<D> {
+impl<D> Debug for MultiStackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiStackBackward")
             .field("gradient", &self.gradient.borrow())
@@ -180,7 +221,10 @@ impl<D: Dimension + RemoveAxis> Debug for MultiStackBackward<D> {
     }
 }
 
-impl<D: Dimension + RemoveAxis> Display for MultiStackBackward<D> {
+impl<D> Display for MultiStackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {
             Some(gradient) => write!(f, "{}", &gradient),

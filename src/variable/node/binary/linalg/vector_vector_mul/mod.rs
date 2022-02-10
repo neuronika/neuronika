@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_vec_vec_gradient, Backward, Data, Forward, Gradient,
-    Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, push_vec_vec_gradient, Backward, Cache, Data, Forward,
+    Gradient, Overwrite, Tensor,
 };
 use ndarray::{arr0, Ix0, Ix1};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct VectorVectorMul<Lhs, Rhs>
+pub struct VectorVectorMul<Lhs: ?Sized, Rhs: ?Sized>
 where
     Lhs: Data<Dim = Ix1>,
     Rhs: Data<Dim = Ix1>,
@@ -25,7 +25,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<Lhs, Rhs> VectorVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix1>,
     Rhs: Data<Dim = Ix1>,
@@ -42,7 +42,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for VectorVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Data for VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix1>,
     Rhs: Data<Dim = Ix1>,
@@ -57,8 +57,21 @@ where
         self.data.borrow_mut()
     }
 }
+impl<Lhs: ?Sized, Rhs: ?Sized> Cache for VectorVectorMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix1>,
+    Rhs: Data<Dim = Ix1>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
 
-impl<Lhs, Rhs> Forward for VectorVectorMul<Lhs, Rhs>
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<Lhs: ?Sized, Rhs: ?Sized> Forward for VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix1>,
     Rhs: Data<Dim = Ix1>,
@@ -71,17 +84,9 @@ where
         self.computed.set(true);
         *self.data.borrow_mut() = arr0(self.left.data().dot(&*self.right.data()));
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<Lhs, Rhs> Debug for VectorVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix1>,
     Rhs: Data<Dim = Ix1>,
@@ -94,7 +99,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for VectorVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for VectorVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix1>,
     Rhs: Data<Dim = Ix1>,
@@ -107,12 +112,12 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+pub struct VectorVectorMulBackward<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
 where
     LhsD: Data<Dim = Ix1>,
     RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
 {
     gradient: RefCell<Option<Tensor<Ix0>>>,
     overwrite: Cell<bool>,
@@ -122,12 +127,13 @@ where
     right_grad: Rc<RhsG>,
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
+    VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
     RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
 {
     pub fn new(
         left_data: Rc<LhsD>,
@@ -146,12 +152,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Gradient for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Gradient
+    for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
     RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
 {
     type Dim = Ix0;
 
@@ -164,12 +171,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Overwrite for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Overwrite
+    for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
     RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
@@ -180,12 +188,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Backward for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Backward
+    for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
     RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn backward(&self) {
         let gradient = self.gradient();
@@ -210,12 +219,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Debug for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Debug
+    for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
     RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VectorVectorMulBackward")
@@ -225,12 +235,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Display for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Display
+    for VectorVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix1>,
     RhsD: Data<Dim = Ix1>,
-    LhsG: Gradient<Dim = Ix1> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    LhsG: Gradient<Dim = Ix1>,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {
@@ -243,9 +254,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMulBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct VectorVectorMulBackwardUnary<T, U>
+pub struct VectorVectorMulBackwardUnary<T: ?Sized, U: ?Sized>
 where
-    T: Gradient<Dim = Ix1> + Overwrite,
+    T: Gradient<Dim = Ix1>,
     U: Data<Dim = Ix1>,
 {
     gradient: RefCell<Option<Tensor<Ix0>>>,
@@ -254,9 +265,9 @@ where
     no_diff_operand: Rc<U>,
 }
 
-impl<T, U> VectorVectorMulBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> VectorVectorMulBackwardUnary<T, U>
 where
-    T: Gradient<Dim = Ix1> + Overwrite,
+    T: Gradient<Dim = Ix1>,
     U: Data<Dim = Ix1>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
@@ -269,9 +280,9 @@ where
     }
 }
 
-impl<T, U> Gradient for VectorVectorMulBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for VectorVectorMulBackwardUnary<T, U>
 where
-    T: Gradient<Dim = Ix1> + Overwrite,
+    T: Gradient<Dim = Ix1>,
     U: Data<Dim = Ix1>,
 {
     type Dim = Ix0;
@@ -285,9 +296,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for VectorVectorMulBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for VectorVectorMulBackwardUnary<T, U>
 where
-    T: Gradient<Dim = Ix1> + Overwrite,
+    T: Gradient<Dim = Ix1>,
     U: Data<Dim = Ix1>,
 {
     fn can_overwrite(&self) -> bool {
@@ -299,9 +310,9 @@ where
     }
 }
 
-impl<T, U> Backward for VectorVectorMulBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for VectorVectorMulBackwardUnary<T, U>
 where
-    T: Gradient<Dim = Ix1> + Overwrite,
+    T: Gradient<Dim = Ix1>,
     U: Data<Dim = Ix1>,
 {
     fn backward(&self) {
@@ -321,9 +332,9 @@ where
     }
 }
 
-impl<T, U> Debug for VectorVectorMulBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for VectorVectorMulBackwardUnary<T, U>
 where
-    T: Gradient<Dim = Ix1> + Overwrite,
+    T: Gradient<Dim = Ix1>,
     U: Data<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -334,9 +345,9 @@ where
     }
 }
 
-impl<T, U> Display for VectorVectorMulBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Display for VectorVectorMulBackwardUnary<T, U>
 where
-    T: Gradient<Dim = Ix1> + Overwrite,
+    T: Gradient<Dim = Ix1>,
     U: Data<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

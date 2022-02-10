@@ -1,11 +1,11 @@
 use super::{
-    conv_out_shape, new_backward_input, new_input, Backward, Convolution, ConvolutionBackward,
-    Forward, Gradient, GroupedConvolution, GroupedConvolutionBackward, NData, Overwrite, Tensor,
-    Zero,
+    conv_out_shape, new_backward_input, new_input, Backward, Cache, Convolution,
+    ConvolutionBackward, Forward, Gradient, GroupedConvolution, GroupedConvolutionBackward, NData,
+    Overwrite, Tensor, Zero,
 };
 
 mod forward {
-    use super::{conv_out_shape, new_input, Convolution, Forward, NData, Tensor, Zero};
+    use super::{conv_out_shape, new_input, Cache, Convolution, Forward, NData, Tensor, Zero};
 
     #[test]
     fn creation() {

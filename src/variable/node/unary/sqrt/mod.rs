@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
@@ -13,13 +13,19 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Sqrt ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Sqrt<T: Data> {
+pub struct Sqrt<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     computed: Cell<bool>,
 }
 
-impl<T: Data> Sqrt<T> {
+impl<T: ?Sized> Sqrt<T>
+where
+    T: Data,
+{
     pub fn new(operand: Rc<T>) -> Self {
         let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
@@ -31,7 +37,23 @@ impl<T: Data> Sqrt<T> {
     }
 }
 
-impl<T: Data> Forward for Sqrt<T> {
+impl<T: ?Sized> Cache for Sqrt<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for Sqrt<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -42,17 +64,12 @@ impl<T: Data> Forward for Sqrt<T> {
             .and(&*self.operand.data())
             .for_each(|v, o| *v = o.sqrt());
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for Sqrt<T> {
+impl<T: ?Sized> Data for Sqrt<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -64,7 +81,10 @@ impl<T: Data> Data for Sqrt<T> {
     }
 }
 
-impl<T: Data> Debug for Sqrt<T> {
+impl<T: ?Sized> Debug for Sqrt<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sqrt")
             .field("data", &self.data.borrow())
@@ -73,7 +93,10 @@ impl<T: Data> Debug for Sqrt<T> {
     }
 }
 
-impl<T: Data> Display for Sqrt<T> {
+impl<T: ?Sized> Display for Sqrt<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -82,9 +105,9 @@ impl<T: Data> Display for Sqrt<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ SqrtBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct SqrtBackward<T, U>
+pub struct SqrtBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -94,9 +117,9 @@ where
     no_diff_operand: Rc<U>,
 }
 
-impl<T, U> SqrtBackward<T, U>
+impl<T: ?Sized, U: ?Sized> SqrtBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
@@ -112,9 +135,9 @@ where
     }
 }
 
-impl<T, U> Gradient for SqrtBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for SqrtBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     type Dim = T::Dim;
@@ -128,9 +151,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for SqrtBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for SqrtBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -142,9 +165,9 @@ where
     }
 }
 
-impl<T, U> Backward for SqrtBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for SqrtBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
@@ -170,9 +193,9 @@ where
     }
 }
 
-impl<T, U> Debug for SqrtBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for SqrtBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -183,9 +206,9 @@ where
     }
 }
 
-impl<T, U> Display for SqrtBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for SqrtBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
