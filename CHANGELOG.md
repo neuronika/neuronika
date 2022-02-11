@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Update the example [#95](https://github.com/neuronika/neuronika/pull/95).
+
 * Add dynamical typing for Var and VarDiff [#94](https://github.com/neuronika/neuronika/pull/94).
   - The Forward trait has been split in the Forward and Cache traits.
   - Forward and Backward bounds have been removed from the respective methods of Var and VarDiff.
