@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Reduction,
-    Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite,
+    Reduction, Tensor,
 };
 use ndarray::{arr0, Axis, Ix0, Zip};
 use std::{
@@ -15,7 +15,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct KLDivLoss<T, U>
+pub struct KLDivLoss<T: ?Sized, U: ?Sized>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -27,7 +27,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<T, U> KLDivLoss<T, U>
+impl<T: ?Sized, U: ?Sized> KLDivLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<T, U> Data for KLDivLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Data for KLDivLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -59,7 +59,21 @@ where
     }
 }
 
-impl<T, U> Forward for KLDivLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Cache for KLDivLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized, U: ?Sized> Forward for KLDivLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -93,17 +107,9 @@ where
             }
         };
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T, U> Debug for KLDivLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for KLDivLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -117,7 +123,7 @@ where
     }
 }
 
-impl<T, U> Display for KLDivLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Display for KLDivLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -131,9 +137,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ KLDivLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct KLDivLossBackward<T, U>
+pub struct KLDivLossBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     diff_input: Rc<T>,
@@ -143,9 +149,9 @@ where
     overwrite: Cell<bool>,
 }
 
-impl<T, U> KLDivLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> KLDivLossBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     pub(crate) fn new(diff_input: Rc<T>, target: Rc<U>, reduction: Reduction) -> Self {
@@ -159,9 +165,9 @@ where
     }
 }
 
-impl<T, U> Gradient for KLDivLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for KLDivLossBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     type Dim = Ix0;
@@ -175,9 +181,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for KLDivLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for KLDivLossBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -189,9 +195,9 @@ where
     }
 }
 
-impl<T, U> Backward for KLDivLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for KLDivLossBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
@@ -236,9 +242,9 @@ where
     }
 }
 
-impl<T, U> Debug for KLDivLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for KLDivLossBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -250,9 +256,9 @@ where
     }
 }
 
-impl<T, U> Display for KLDivLossBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for KLDivLossBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

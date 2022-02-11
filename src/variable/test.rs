@@ -162,6 +162,22 @@ fn div_scalar() {
 }
 
 #[test]
+fn differentiate_loop() {
+    let mut x = crate::ones(()).requires_grad().into_dyn();
+    let y = x.clone();
+
+    for _ in 0..5 {
+        x = (x.clone() * 4.).into_dyn();
+    }
+
+    x.forward();
+    x.backward(1.);
+
+    assert_eq!(y.grad()[()], 1024.);
+    assert_eq!(x.data()[()], 1024.);
+}
+
+#[test]
 fn parameters_test() {
     let x = crate::rand((2, 2)).requires_grad();
     let y = crate::rand((2, 2)).requires_grad();
@@ -520,26 +536,22 @@ fn cat_diff() {
 
 #[test]
 fn multi_cat() {
-    use std::boxed::Box;
-
     let a = crate::ones((2, 2)) + 1.;
     let b = 18. / crate::full((2, 2), 9.);
     let c = crate::full((2, 1), 3.) * 4.;
 
-    let d = a.cat(&[Box::new(b), Box::new(c)], 1);
+    let d = crate::Var::cat(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 1);
     assert_eq!(d.past.len(), 4);
     assert!(d.past.changeables.is_empty());
 }
 
 #[test]
 fn multi_cat_diff() {
-    use std::boxed::Box;
-
     let a = crate::ones((2, 2)).requires_grad() + 1.;
     let b = 18. / crate::full((2, 2), 9.).requires_grad();
     let c = crate::full((2, 1), 3.).requires_grad() * 4.;
 
-    let d = a.cat(&[Box::new(b), Box::new(c)], 1);
+    let d = crate::VarDiff::cat(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 1);
     assert_eq!(d.past.len(), 4);
     assert_eq!(d.past.parameters.len(), 3);
 }
@@ -580,26 +592,22 @@ fn stack_diff() {
 
 #[test]
 fn multi_stack() {
-    use std::boxed::Box;
-
     let a = crate::ones((2, 2)) + 1.;
     let b = 18. / crate::full((2, 2), 9.);
     let c = crate::full((2, 2), 3.) * 4.;
 
-    let d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    let d = crate::Var::stack(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 0);
     assert_eq!(d.past.len(), 4);
     assert!(d.past.changeables.is_empty());
 }
 
 #[test]
 fn multi_stack_diff() {
-    use std::boxed::Box;
-
     let a = crate::ones((2, 2)).requires_grad() + 1.;
     let b = 18. / crate::full((2, 2), 9.).requires_grad();
     let c = crate::full((2, 2), 3.).requires_grad() * 4.;
 
-    let d = a.stack(&[Box::new(b), Box::new(c)], 0);
+    let d = crate::VarDiff::stack(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 0);
     assert_eq!(d.past.len(), 4);
     assert_eq!(d.past.parameters.len(), 3);
 }

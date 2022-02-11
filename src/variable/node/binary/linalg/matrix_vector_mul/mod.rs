@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_mat_vec_gradient, push_vec_mat_gradient, Backward, Data,
-    DotDim, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, push_mat_vec_gradient, push_vec_mat_gradient, Backward,
+    Cache, Data, DotDim, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::{linalg::general_mat_vec_mul, s, Ix1, Ix2, NewAxis};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixVectorMul<Lhs, Rhs>
+pub struct MatrixVectorMul<Lhs: ?Sized, Rhs: ?Sized>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -25,7 +25,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<Lhs, Rhs> MatrixVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for MatrixVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Data for MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -59,7 +59,21 @@ where
     }
 }
 
-impl<Lhs, Rhs> Forward for MatrixVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Cache for MatrixVectorMul<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Ix2>,
+    Rhs: Data<Dim = Ix1>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<Lhs: ?Sized, Rhs: ?Sized> Forward for MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -78,17 +92,9 @@ where
             &mut *self.data.borrow_mut(),
         );
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<Lhs, Rhs> Debug for MatrixVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -101,7 +107,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for MatrixVectorMul<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for MatrixVectorMul<Lhs, Rhs>
 where
     Lhs: Data<Dim = Ix2>,
     Rhs: Data<Dim = Ix1>,
@@ -114,12 +120,12 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+pub struct MatrixVectorMulBackward<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
 where
     LhsD: Data<Dim = Ix2>,
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     gradient: RefCell<Option<Tensor<Ix1>>>,
     shape: Ix1,
@@ -130,12 +136,13 @@ where
     right_grad: Rc<RhsG>,
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
+    MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     pub fn new(
         left_data: Rc<LhsD>,
@@ -160,12 +167,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Gradient for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Gradient
+    for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     type Dim = Ix1;
 
@@ -178,12 +186,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Overwrite for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Overwrite
+    for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
@@ -194,12 +203,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Backward for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Backward
+    for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn backward(&self) {
         let gradient = self.gradient();
@@ -220,12 +230,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Debug for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Debug
+    for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MatrixVectorMulBackward")
@@ -235,12 +246,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Display for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Display
+    for MatrixVectorMulBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {
@@ -253,7 +265,7 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixVectorMulBackwardLeft<LhsG, RhsD>
+pub struct MatrixVectorMulBackwardLeft<LhsG: ?Sized, RhsD: ?Sized>
 where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
@@ -265,7 +277,7 @@ where
     right_data: Rc<RhsD>,
 }
 
-impl<LhsG, RhsD> MatrixVectorMulBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> MatrixVectorMulBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
@@ -283,7 +295,7 @@ where
     }
 }
 
-impl<LhsG, RhsD> Gradient for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Gradient for MatrixVectorMulBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
@@ -299,7 +311,7 @@ where
     }
 }
 
-impl<LhsG, RhsD> Overwrite for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Overwrite for MatrixVectorMulBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
@@ -313,7 +325,7 @@ where
     }
 }
 
-impl<LhsG, RhsD> Backward for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Backward for MatrixVectorMulBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
@@ -335,7 +347,7 @@ where
     }
 }
 
-impl<LhsG, RhsD> Debug for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Debug for MatrixVectorMulBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
@@ -348,7 +360,7 @@ where
     }
 }
 
-impl<LhsG, RhsD> Display for MatrixVectorMulBackwardLeft<LhsG, RhsD>
+impl<LhsG: ?Sized, RhsD: ?Sized> Display for MatrixVectorMulBackwardLeft<LhsG, RhsD>
 where
     RhsD: Data<Dim = Ix1>,
     LhsG: Gradient<Dim = Ix2> + Overwrite,
@@ -364,10 +376,10 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMulBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixVectorMulBackwardRight<LhsD, RhsG>
+pub struct MatrixVectorMulBackwardRight<LhsD: ?Sized, RhsG: ?Sized>
 where
     LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     gradient: RefCell<Option<Tensor<Ix1>>>,
     shape: Ix1,
@@ -376,10 +388,10 @@ where
     right_grad: Rc<RhsG>,
 }
 
-impl<LhsD, RhsG> MatrixVectorMulBackwardRight<LhsD, RhsG>
+impl<LhsD: ?Sized, RhsG: ?Sized> MatrixVectorMulBackwardRight<LhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     pub fn new(left_data: Rc<LhsD>, right_grad: Rc<RhsG>) -> Self {
         let shape = DotDim::shape(left_data.data().raw_dim(), right_grad.gradient().raw_dim());
@@ -394,10 +406,10 @@ where
     }
 }
 
-impl<LhsD, RhsG> Gradient for MatrixVectorMulBackwardRight<LhsD, RhsG>
+impl<LhsD: ?Sized, RhsG: ?Sized> Gradient for MatrixVectorMulBackwardRight<LhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     type Dim = Ix1;
 
@@ -410,10 +422,10 @@ where
     }
 }
 
-impl<LhsD, RhsG> Overwrite for MatrixVectorMulBackwardRight<LhsD, RhsG>
+impl<LhsD: ?Sized, RhsG: ?Sized> Overwrite for MatrixVectorMulBackwardRight<LhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
@@ -424,10 +436,10 @@ where
     }
 }
 
-impl<LhsD, RhsG> Backward for MatrixVectorMulBackwardRight<LhsD, RhsG>
+impl<LhsD: ?Sized, RhsG: ?Sized> Backward for MatrixVectorMulBackwardRight<LhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn backward(&self) {
         push_vec_mat_gradient(
@@ -446,10 +458,10 @@ where
     }
 }
 
-impl<LhsD, RhsG> Debug for MatrixVectorMulBackwardRight<LhsD, RhsG>
+impl<LhsD: ?Sized, RhsG: ?Sized> Debug for MatrixVectorMulBackwardRight<LhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MatrixVectorMulBackwardRight")
@@ -459,10 +471,10 @@ where
     }
 }
 
-impl<LhsD, RhsG> Display for MatrixVectorMulBackwardRight<LhsD, RhsG>
+impl<LhsD: ?Sized, RhsG: ?Sized> Display for MatrixVectorMulBackwardRight<LhsD, RhsG>
 where
     LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix1> + Overwrite,
+    RhsG: Gradient<Dim = Ix1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {

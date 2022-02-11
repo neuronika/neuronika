@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
@@ -13,7 +13,10 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Chunk ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Chunk<T: Data> {
+pub struct Chunk<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     chunk_no: usize,
     chunk_shape: T::Dim,
@@ -21,7 +24,10 @@ pub struct Chunk<T: Data> {
     computed: Cell<bool>,
 }
 
-impl<T: Data> Chunk<T> {
+impl<T: ?Sized> Chunk<T>
+where
+    T: Data,
+{
     pub fn new(operand: Rc<T>, chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
         Self {
             operand,
@@ -33,7 +39,23 @@ impl<T: Data> Chunk<T> {
     }
 }
 
-impl<T: Data> Forward for Chunk<T> {
+impl<T: ?Sized> Cache for Chunk<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for Chunk<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -57,17 +79,12 @@ impl<T: Data> Forward for Chunk<T> {
 
         data.assign(&operand_data_chunk);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for Chunk<T> {
+impl<T: ?Sized> Data for Chunk<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -79,7 +96,10 @@ impl<T: Data> Data for Chunk<T> {
     }
 }
 
-impl<T: Data> Debug for Chunk<T> {
+impl<T: ?Sized> Debug for Chunk<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Chunk")
             .field("data", &self.data.borrow())
@@ -89,7 +109,10 @@ impl<T: Data> Debug for Chunk<T> {
     }
 }
 
-impl<T: Data> Display for Chunk<T> {
+impl<T: ?Sized> Display for Chunk<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -98,7 +121,10 @@ impl<T: Data> Display for Chunk<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ChunkBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct ChunkBackward<T: Gradient + Overwrite> {
+pub struct ChunkBackward<T: ?Sized>
+where
+    T: Gradient,
+{
     gradient: RefCell<Option<Tensor<T::Dim>>>,
     shape: T::Dim,
     overwrite: Cell<bool>,
@@ -106,7 +132,10 @@ pub struct ChunkBackward<T: Gradient + Overwrite> {
     chunk_no: usize,
 }
 
-impl<T: Gradient + Overwrite> ChunkBackward<T> {
+impl<T: ?Sized> ChunkBackward<T>
+where
+    T: Gradient,
+{
     pub fn new(operand: Rc<T>, grad_chunk: Tensor<T::Dim>, chunk_no: usize) -> Self {
         let shape = grad_chunk.raw_dim();
 
@@ -120,7 +149,10 @@ impl<T: Gradient + Overwrite> ChunkBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Gradient for ChunkBackward<T> {
+impl<T: ?Sized> Gradient for ChunkBackward<T>
+where
+    T: Gradient,
+{
     type Dim = T::Dim;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
@@ -132,7 +164,10 @@ impl<T: Gradient + Overwrite> Gradient for ChunkBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Overwrite for ChunkBackward<T> {
+impl<T: ?Sized> Overwrite for ChunkBackward<T>
+where
+    T: Gradient,
+{
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
     }
@@ -142,7 +177,10 @@ impl<T: Gradient + Overwrite> Overwrite for ChunkBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
+impl<T: ?Sized> Backward for ChunkBackward<T>
+where
+    T: Gradient,
+{
     fn backward(&self) {
         let (mut diff_operand, grad, chunk_no) =
             (self.operand.gradient_mut(), self.gradient(), self.chunk_no);
@@ -173,7 +211,10 @@ impl<T: Gradient + Overwrite> Backward for ChunkBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Debug for ChunkBackward<T> {
+impl<T: ?Sized> Debug for ChunkBackward<T>
+where
+    T: Gradient,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChunkBackward")
             .field("gradient", &self.gradient.borrow())
@@ -183,7 +224,10 @@ impl<T: Gradient + Overwrite> Debug for ChunkBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Display for ChunkBackward<T> {
+impl<T: ?Sized> Display for ChunkBackward<T>
+where
+    T: Gradient,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {
             Some(gradient) => write!(f, "{}", &gradient),

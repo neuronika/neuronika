@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Reduction,
-    Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite,
+    Reduction, Tensor,
 };
 use ndarray::{arr0, Ix0, Zip};
 use std::{
@@ -15,7 +15,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCEWithLogitsLoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct BCEWithLogitsLoss<T, U>
+pub struct BCEWithLogitsLoss<T: ?Sized, U: ?Sized>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -27,7 +27,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<T, U> BCEWithLogitsLoss<T, U>
+impl<T: ?Sized, U: ?Sized> BCEWithLogitsLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<T, U> Data for BCEWithLogitsLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Data for BCEWithLogitsLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -59,7 +59,21 @@ where
     }
 }
 
-impl<T, U> Forward for BCEWithLogitsLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Cache for BCEWithLogitsLoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized, U: ?Sized> Forward for BCEWithLogitsLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -93,17 +107,9 @@ where
             }
         };
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T, U> Debug for BCEWithLogitsLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for BCEWithLogitsLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -117,7 +123,7 @@ where
     }
 }
 
-impl<T, U> Display for BCEWithLogitsLoss<T, U>
+impl<T: ?Sized, U: ?Sized> Display for BCEWithLogitsLoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -131,9 +137,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCEWithLogitsLossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct BCEWithLogitsLossBackward<T, U, V>
+pub struct BCEWithLogitsLossBackward<T: ?Sized, U: ?Sized, V: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -145,9 +151,9 @@ where
     reduction: Reduction,
 }
 
-impl<T, U, V> BCEWithLogitsLossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -168,9 +174,9 @@ where
     }
 }
 
-impl<T, U, V> Gradient for BCEWithLogitsLossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Gradient for BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -185,9 +191,9 @@ where
     }
 }
 
-impl<T, U, V> Overwrite for BCEWithLogitsLossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Overwrite for BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -200,9 +206,9 @@ where
     }
 }
 
-impl<T, U, V> Backward for BCEWithLogitsLossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Backward for BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -263,9 +269,9 @@ where
     }
 }
 
-impl<T, U, V> Debug for BCEWithLogitsLossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Debug for BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -278,9 +284,9 @@ where
     }
 }
 
-impl<T, U, V> Display for BCEWithLogitsLossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Display for BCEWithLogitsLossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {

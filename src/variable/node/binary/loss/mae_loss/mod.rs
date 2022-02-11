@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Reduction,
-    Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite,
+    Reduction, Tensor,
 };
 use ndarray::{arr0, Ix0, Zip};
 use std::{
@@ -15,7 +15,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MAELoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct MAELoss<T, U>
+pub struct MAELoss<T: ?Sized, U: ?Sized>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -27,7 +27,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<T, U> MAELoss<T, U>
+impl<T: ?Sized, U: ?Sized> MAELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<T, U> Data for MAELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Data for MAELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -59,7 +59,21 @@ where
     }
 }
 
-impl<T, U> Forward for MAELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Cache for MAELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized, U: ?Sized> Forward for MAELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -87,17 +101,9 @@ where
             }
         };
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T, U> Debug for MAELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for MAELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -111,7 +117,7 @@ where
     }
 }
 
-impl<T, U> Display for MAELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Display for MAELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -125,9 +131,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MAELossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct MAELossBackward<T, U, V>
+pub struct MAELossBackward<T: ?Sized, U: ?Sized, V: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -139,9 +145,9 @@ where
     reduction: Reduction,
 }
 
-impl<T, U, V> MAELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> MAELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -162,9 +168,9 @@ where
     }
 }
 
-impl<T, U, V> Gradient for MAELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Gradient for MAELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -179,9 +185,9 @@ where
     }
 }
 
-impl<T, U, V> Overwrite for MAELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Overwrite for MAELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -194,9 +200,9 @@ where
     }
 }
 
-impl<T, U, V> Backward for MAELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Backward for MAELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -265,9 +271,9 @@ where
     }
 }
 
-impl<T, U, V> Debug for MAELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Debug for MAELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -280,9 +286,9 @@ where
     }
 }
 
-impl<T, U, V> Display for MAELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Display for MAELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {

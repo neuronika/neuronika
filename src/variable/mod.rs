@@ -2,7 +2,7 @@ mod node;
 mod var;
 mod vardiff;
 
-use ndarray::{ArrayViewMutD, Dimension, Ix, RawArrayViewMut};
+use ndarray::{ArrayViewMutD, Ix, RawArrayViewMut};
 use std::{
     cell::{Ref, RefCell},
     collections::{BTreeMap, HashSet},
@@ -14,7 +14,7 @@ pub use vardiff::VarDiff;
 
 pub(crate) use node::*;
 pub use node::{
-    Backward, Constant, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, Input,
+    Backward, Cache, Constant, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, Input,
     InputBackward, Overwrite, PaddingMode, Reflective, Replicative, Zero,
 };
 
@@ -361,50 +361,6 @@ pub trait Stack<Rhs> {
 
     /// Stacks variables along the given axis.
     fn stack(self, other: Rhs, axis: usize) -> Self::Output;
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  Higher abstraction traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-/// Defines the interface required to build computational graph's leaves using a dynamically typed
-/// non-differentiable variables.
-pub trait Variable<D: Dimension> {
-    fn get_node(&self) -> Rc<dyn Data<Dim = D>>;
-    fn get_past(&self) -> VarHistory;
-}
-
-impl<T: Data<Dim = D>, D: Dimension> Variable<D> for Var<T> {
-    fn get_node(&self) -> Rc<dyn Data<Dim = D>> {
-        self.node.clone()
-    }
-
-    fn get_past(&self) -> VarHistory {
-        self.past.clone()
-    }
-}
-/// Defines the interface required to build computational graph's leaves using a dynamically typed
-/// differentiable variables.
-pub trait DifferentiableVariable<D: Dimension> {
-    fn get_var(&self) -> Box<dyn Variable<D>>;
-    fn get_node(&self) -> Rc<dyn Gradient<Dim = D>>;
-    fn get_past(&self) -> VarDiffHistory;
-}
-
-impl<T: Data<Dim = D>, U: Gradient<Dim = D>, D: Dimension> DifferentiableVariable<D>
-    for VarDiff<T, U>
-{
-    fn get_var(&self) -> Box<dyn Variable<D>> {
-        Box::new(self.var.clone())
-    }
-
-    fn get_node(&self) -> Rc<dyn Gradient<Dim = D>> {
-        self.node.clone()
-    }
-
-    fn get_past(&self) -> VarDiffHistory {
-        self.past.clone()
-    }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

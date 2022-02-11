@@ -1,10 +1,10 @@
 use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Data, Forward,
-    Gradient, Logn, LognBackward, Overwrite, Tensor,
+    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cache, Data,
+    Forward, Gradient, Logn, LognBackward, Overwrite, Tensor,
 };
 
 mod forward {
-    use super::{assert_almost_equals, new_input, new_tensor, Data, Forward, Logn, Tensor};
+    use super::{assert_almost_equals, new_input, new_tensor, Cache, Data, Forward, Logn, Tensor};
 
     #[test]
     fn creation() {

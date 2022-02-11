@@ -8,7 +8,7 @@ mod stack;
 use super::{
     cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, push_mat_mat_gradient,
     push_mat_vec_gradient, push_vec_mat_gradient, push_vec_vec_gradient, reduce, Backward,
-    BroadTensor, Broadcasted, Data, DotDim, Forward, Gradient, Overwrite, Tensor,
+    BroadTensor, Broadcasted, Cache, Data, DotDim, Forward, Gradient, Overwrite, Tensor,
 };
 
 #[cfg(test)]

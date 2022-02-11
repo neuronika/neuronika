@@ -1,28 +1,37 @@
-use super::{Data, Gradient, Input, InputBackward, Overwrite, Tensor};
+use super::{Cache, Data, Gradient, Input, InputBackward, Overwrite, Tensor};
 use std::cell::{Cell, RefCell};
 
 mod forward {
 
-    use super::{Cell, Data, Input, RefCell, Tensor};
+    use super::{Cache, Data, Input, RefCell, Tensor};
 
     #[test]
     fn creation() {
         let input = Input {
             data: RefCell::new(Tensor::zeros((3, 3))),
-            computed: Cell::new(false),
         };
         assert_eq!(*input.data(), Tensor::from_elem((3, 3), 0.));
         assert_eq!(*input.data_mut(), Tensor::from_elem((3, 3), 0.));
     }
 
     #[test]
+    fn was_computed_transition() {
+        let input = Input {
+            data: RefCell::new(Tensor::zeros((3, 3))),
+        };
+
+        assert!(input.was_computed());
+        input.reset_computation(); // does nothing
+        assert!(input.was_computed());
+    }
+
+    #[test]
     fn debug() {
         let node = Input {
             data: RefCell::new(Tensor::zeros(1)),
-            computed: Cell::new(false),
         };
         let output =
-            "Input { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
+            "Input { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1 }";
 
         assert_eq!(output, format!("{:?}", node));
     }
@@ -31,7 +40,6 @@ mod forward {
     fn display() {
         let node = Input {
             data: RefCell::new(Tensor::zeros(1)),
-            computed: Cell::new(false),
         };
 
         assert_eq!(format!("{}", node.data()), format!("{}", node));

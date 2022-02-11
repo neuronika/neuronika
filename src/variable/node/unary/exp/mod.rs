@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
@@ -13,13 +13,16 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Exp ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Exp<T: Data> {
+pub struct Exp<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     computed: Cell<bool>,
 }
 
-impl<T: Data> Exp<T> {
+impl<T: ?Sized + Data> Exp<T> {
     pub fn new(operand: Rc<T>) -> Self {
         let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
@@ -31,7 +34,23 @@ impl<T: Data> Exp<T> {
     }
 }
 
-impl<T: Data> Forward for Exp<T> {
+impl<T: ?Sized> Cache for Exp<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for Exp<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -42,17 +61,12 @@ impl<T: Data> Forward for Exp<T> {
             .and(&*self.operand.data())
             .for_each(|v, o| *v = o.exp());
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for Exp<T> {
+impl<T: ?Sized> Data for Exp<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -64,7 +78,10 @@ impl<T: Data> Data for Exp<T> {
     }
 }
 
-impl<T: Data> Debug for Exp<T> {
+impl<T: ?Sized> Debug for Exp<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Exp")
             .field("data", &self.data.borrow())
@@ -73,7 +90,10 @@ impl<T: Data> Debug for Exp<T> {
     }
 }
 
-impl<T: Data> Display for Exp<T> {
+impl<T: ?Sized> Display for Exp<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -83,9 +103,9 @@ impl<T: Data> Display for Exp<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ExpBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub struct ExpBackward<T, U>
+pub struct ExpBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -95,9 +115,9 @@ where
     no_diff_operand: Rc<U>,
 }
 
-impl<T, U> ExpBackward<T, U>
+impl<T: ?Sized, U: ?Sized> ExpBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
@@ -113,9 +133,9 @@ where
     }
 }
 
-impl<T, U> Gradient for ExpBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for ExpBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     type Dim = T::Dim;
@@ -129,9 +149,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for ExpBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for ExpBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -143,9 +163,9 @@ where
     }
 }
 
-impl<T, U> Backward for ExpBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for ExpBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
@@ -171,9 +191,9 @@ where
     }
 }
 
-impl<T, U> Debug for ExpBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for ExpBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -184,9 +204,9 @@ where
     }
 }
 
-impl<T, U> Display for ExpBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for ExpBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

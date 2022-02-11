@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::{arr0, Ix0, Zip};
 use std::{
@@ -13,13 +13,16 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Mean<T: Data> {
+pub struct Mean<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<Ix0>>,
     computed: Cell<bool>,
 }
 
-impl<T: Data> Mean<T> {
+impl<T: ?Sized + Data> Mean<T> {
     pub fn new(operand: Rc<T>) -> Self {
         let data = RefCell::new(arr0(0.));
 
@@ -31,16 +34,10 @@ impl<T: Data> Mean<T> {
     }
 }
 
-impl<T: Data> Forward for Mean<T> {
-    fn forward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.computed.set(true);
-        *self.data.borrow_mut() = arr0(self.operand.data().mean().unwrap());
-    }
-
+impl<T: ?Sized> Cache for Mean<T>
+where
+    T: Data,
+{
     fn was_computed(&self) -> bool {
         self.computed.get()
     }
@@ -50,7 +47,24 @@ impl<T: Data> Forward for Mean<T> {
     }
 }
 
-impl<T: Data> Data for Mean<T> {
+impl<T: ?Sized> Forward for Mean<T>
+where
+    T: Data,
+{
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        *self.data.borrow_mut() = arr0(self.operand.data().mean().unwrap());
+    }
+}
+
+impl<T: ?Sized> Data for Mean<T>
+where
+    T: Data,
+{
     type Dim = Ix0;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -62,7 +76,10 @@ impl<T: Data> Data for Mean<T> {
     }
 }
 
-impl<T: Data> Debug for Mean<T> {
+impl<T: ?Sized> Debug for Mean<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Mean")
             .field("data", &self.data.borrow())
@@ -71,7 +88,10 @@ impl<T: Data> Debug for Mean<T> {
     }
 }
 
-impl<T: Data> Display for Mean<T> {
+impl<T: ?Sized> Display for Mean<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -80,13 +100,19 @@ impl<T: Data> Display for Mean<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MeanBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MeanBackward<T: Gradient + Overwrite> {
+pub struct MeanBackward<T: ?Sized>
+where
+    T: Gradient,
+{
     gradient: RefCell<Option<Tensor<Ix0>>>,
     overwrite: Cell<bool>,
     operand: Rc<T>,
 }
 
-impl<T: Gradient + Overwrite> MeanBackward<T> {
+impl<T: ?Sized> MeanBackward<T>
+where
+    T: Gradient,
+{
     pub fn new(operand: Rc<T>) -> Self {
         Self {
             operand,
@@ -96,7 +122,10 @@ impl<T: Gradient + Overwrite> MeanBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Gradient for MeanBackward<T> {
+impl<T: ?Sized> Gradient for MeanBackward<T>
+where
+    T: Gradient,
+{
     type Dim = Ix0;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
@@ -108,7 +137,10 @@ impl<T: Gradient + Overwrite> Gradient for MeanBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Overwrite for MeanBackward<T> {
+impl<T: ?Sized> Overwrite for MeanBackward<T>
+where
+    T: Gradient,
+{
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
     }
@@ -118,7 +150,10 @@ impl<T: Gradient + Overwrite> Overwrite for MeanBackward<T> {
     }
 }
 
-impl<T: Gradient + Overwrite> Backward for MeanBackward<T> {
+impl<T: ?Sized> Backward for MeanBackward<T>
+where
+    T: Gradient,
+{
     fn backward(&self) {
         let numel = self.operand.gradient().len() as f32;
         let mut op_grad = self.operand.gradient_mut();
@@ -142,9 +177,9 @@ impl<T: Gradient + Overwrite> Backward for MeanBackward<T> {
     }
 }
 
-impl<T> Debug for MeanBackward<T>
+impl<T: ?Sized> Debug for MeanBackward<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MeanBackward")
@@ -154,9 +189,9 @@ where
     }
 }
 
-impl<T> Display for MeanBackward<T>
+impl<T: ?Sized> Display for MeanBackward<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {

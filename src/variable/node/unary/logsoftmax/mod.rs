@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::{Axis, Zip};
 use std::{
@@ -13,14 +13,20 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmax ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct LogSoftmax<T: Data> {
+pub struct LogSoftmax<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     axis: usize,
     computed: Cell<bool>,
 }
 
-impl<T: Data> LogSoftmax<T> {
+impl<T: ?Sized> LogSoftmax<T>
+where
+    T: Data,
+{
     pub fn new(operand: Rc<T>, axis: usize) -> Self {
         let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
@@ -33,7 +39,23 @@ impl<T: Data> LogSoftmax<T> {
     }
 }
 
-impl<T: Data> Forward for LogSoftmax<T> {
+impl<T: ?Sized> Cache for LogSoftmax<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for LogSoftmax<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -52,17 +74,12 @@ impl<T: Data> Forward for LogSoftmax<T> {
                     .for_each(|lane_v_el, lane_o_el| *lane_v_el = lane_o_el - log_sum_exp - max);
             });
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for LogSoftmax<T> {
+impl<T: ?Sized> Data for LogSoftmax<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -74,7 +91,10 @@ impl<T: Data> Data for LogSoftmax<T> {
     }
 }
 
-impl<T: Data> Debug for LogSoftmax<T> {
+impl<T: ?Sized> Debug for LogSoftmax<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LogSoftmax")
             .field("data", &self.data.borrow())
@@ -84,7 +104,10 @@ impl<T: Data> Debug for LogSoftmax<T> {
     }
 }
 
-impl<T: Data> Display for LogSoftmax<T> {
+impl<T: ?Sized> Display for LogSoftmax<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -93,9 +116,9 @@ impl<T: Data> Display for LogSoftmax<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LogSoftmaxBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct LogSoftmaxBackward<T, U>
+pub struct LogSoftmaxBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -106,9 +129,9 @@ where
     axis: usize,
 }
 
-impl<T, U> LogSoftmaxBackward<T, U>
+impl<T: ?Sized, U: ?Sized> LogSoftmaxBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>, axis: usize) -> Self {
@@ -125,9 +148,9 @@ where
     }
 }
 
-impl<T, U> Gradient for LogSoftmaxBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for LogSoftmaxBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     type Dim = T::Dim;
@@ -141,9 +164,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for LogSoftmaxBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for LogSoftmaxBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -155,9 +178,9 @@ where
     }
 }
 
-impl<T, U> Backward for LogSoftmaxBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for LogSoftmaxBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
@@ -202,9 +225,9 @@ where
     }
 }
 
-impl<T, U> Debug for LogSoftmaxBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for LogSoftmaxBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -216,9 +239,9 @@ where
     }
 }
 
-impl<T, U> Display for LogSoftmaxBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for LogSoftmaxBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

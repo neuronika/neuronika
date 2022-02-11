@@ -18,8 +18,8 @@ mod transpose;
 mod unsqueeze;
 
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Eval, Forward, Gradient,
-    Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Eval, Forward,
+    Gradient, Overwrite, Tensor,
 };
 
 #[cfg(test)]

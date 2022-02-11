@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient, Overwrite,
-    Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Forward, Gradient,
+    Overwrite, Tensor,
 };
 use ndarray::{Axis, Dimension, Slice, Zip};
 use std::{
@@ -14,14 +14,20 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiConcatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MultiConcatenate<D: Dimension + 'static> {
+pub struct MultiConcatenate<D>
+where
+    D: Dimension,
+{
     operands: Vec<Rc<dyn Data<Dim = D>>>,
     axis: usize,
     data: RefCell<Tensor<D>>,
     computed: Cell<bool>,
 }
 
-impl<D: Dimension + 'static> MultiConcatenate<D> {
+impl<D> MultiConcatenate<D>
+where
+    D: Dimension,
+{
     pub(crate) fn new(operands: Vec<Rc<dyn Data<Dim = D>>>, axis: usize, data: Tensor<D>) -> Self {
         let (data, computed) = (RefCell::new(data), Cell::new(false));
 
@@ -34,7 +40,10 @@ impl<D: Dimension + 'static> MultiConcatenate<D> {
     }
 }
 
-impl<D: Dimension> Data for MultiConcatenate<D> {
+impl<D> Data for MultiConcatenate<D>
+where
+    D: Dimension,
+{
     type Dim = D;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -46,7 +55,23 @@ impl<D: Dimension> Data for MultiConcatenate<D> {
     }
 }
 
-impl<D: Dimension> Forward for MultiConcatenate<D> {
+impl<D> Cache for MultiConcatenate<D>
+where
+    D: Dimension,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<D> Forward for MultiConcatenate<D>
+where
+    D: Dimension,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -67,17 +92,12 @@ impl<D: Dimension> Forward for MultiConcatenate<D> {
             offset += axis_len;
         });
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<D: Dimension> Debug for MultiConcatenate<D> {
+impl<D> Debug for MultiConcatenate<D>
+where
+    D: Dimension,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiConcatenate")
             .field("data", &self.data.borrow())
@@ -88,7 +108,10 @@ impl<D: Dimension> Debug for MultiConcatenate<D> {
     }
 }
 
-impl<D: Dimension> Display for MultiConcatenate<D> {
+impl<D> Display for MultiConcatenate<D>
+where
+    D: Dimension,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -97,7 +120,10 @@ impl<D: Dimension> Display for MultiConcatenate<D> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiConcatenateBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MultiConcatenateBackward<D: Dimension> {
+pub struct MultiConcatenateBackward<D>
+where
+    D: Dimension,
+{
     gradient: RefCell<Option<Tensor<D>>>,
     shape: D,
     overwrite: Cell<bool>,
@@ -105,7 +131,10 @@ pub struct MultiConcatenateBackward<D: Dimension> {
     axis: usize,
 }
 
-impl<D: Dimension> MultiConcatenateBackward<D> {
+impl<D> MultiConcatenateBackward<D>
+where
+    D: Dimension,
+{
     pub(crate) fn new(operands: Vec<Rc<dyn Gradient<Dim = D>>>, axis: usize, shape: D) -> Self {
         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
         let overwrite = Cell::new(true);
@@ -120,7 +149,10 @@ impl<D: Dimension> MultiConcatenateBackward<D> {
     }
 }
 
-impl<D: Dimension> Gradient for MultiConcatenateBackward<D> {
+impl<D> Gradient for MultiConcatenateBackward<D>
+where
+    D: Dimension,
+{
     type Dim = D;
 
     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
@@ -132,7 +164,10 @@ impl<D: Dimension> Gradient for MultiConcatenateBackward<D> {
     }
 }
 
-impl<D: Dimension> Overwrite for MultiConcatenateBackward<D> {
+impl<D> Overwrite for MultiConcatenateBackward<D>
+where
+    D: Dimension,
+{
     fn can_overwrite(&self) -> bool {
         self.overwrite.get()
     }
@@ -142,7 +177,10 @@ impl<D: Dimension> Overwrite for MultiConcatenateBackward<D> {
     }
 }
 
-impl<D: Dimension> Backward for MultiConcatenateBackward<D> {
+impl<D> Backward for MultiConcatenateBackward<D>
+where
+    D: Dimension,
+{
     fn backward(&self) {
         let (axis, grad, mut offset) = (self.axis, &self.gradient.borrow(), 0);
 
@@ -168,7 +206,10 @@ impl<D: Dimension> Backward for MultiConcatenateBackward<D> {
     }
 }
 
-impl<D: Dimension> Debug for MultiConcatenateBackward<D> {
+impl<D> Debug for MultiConcatenateBackward<D>
+where
+    D: Dimension,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiConcatenateBackward")
             .field("gradient", &self.gradient.borrow())
@@ -179,7 +220,10 @@ impl<D: Dimension> Debug for MultiConcatenateBackward<D> {
     }
 }
 
-impl<D: Dimension> Display for MultiConcatenateBackward<D> {
+impl<D> Display for MultiConcatenateBackward<D>
+where
+    D: Dimension,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &*self.gradient.borrow() {
             Some(gradient) => write!(f, "{}", &gradient),

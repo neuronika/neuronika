@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::Zip;
 use std::{
@@ -14,13 +14,16 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLU ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct LeakyReLU<T: Data> {
+pub struct LeakyReLU<T: ?Sized>
+where
+    T: Data,
+{
     operand: Rc<T>,
     data: RefCell<Tensor<T::Dim>>,
     computed: Cell<bool>,
 }
 
-impl<T: Data> LeakyReLU<T> {
+impl<T: ?Sized + Data> LeakyReLU<T> {
     pub fn new(operand: Rc<T>) -> Self {
         let data = RefCell::new(Tensor::zeros(operand.data().raw_dim()));
 
@@ -32,7 +35,23 @@ impl<T: Data> LeakyReLU<T> {
     }
 }
 
-impl<T: Data> Forward for LeakyReLU<T> {
+impl<T: ?Sized> Cache for LeakyReLU<T>
+where
+    T: Data,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized> Forward for LeakyReLU<T>
+where
+    T: Data,
+{
     fn forward(&self) {
         if self.was_computed() {
             return;
@@ -45,17 +64,12 @@ impl<T: Data> Forward for LeakyReLU<T> {
                 *v = ((*o > 0.0) as usize as f32) * *o + ((*o <= 0.0) as usize as f32) * (0.01 * o)
             });
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T: Data> Data for LeakyReLU<T> {
+impl<T: ?Sized> Data for LeakyReLU<T>
+where
+    T: Data,
+{
     type Dim = T::Dim;
 
     fn data(&self) -> Ref<Tensor<Self::Dim>> {
@@ -67,7 +81,10 @@ impl<T: Data> Data for LeakyReLU<T> {
     }
 }
 
-impl<T: Data> Debug for LeakyReLU<T> {
+impl<T: ?Sized> Debug for LeakyReLU<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LeakyReLU")
             .field("data", &self.data.borrow())
@@ -76,7 +93,10 @@ impl<T: Data> Debug for LeakyReLU<T> {
     }
 }
 
-impl<T: Data> Display for LeakyReLU<T> {
+impl<T: ?Sized> Display for LeakyReLU<T>
+where
+    T: Data,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", &self.data.borrow())
     }
@@ -86,9 +106,9 @@ impl<T: Data> Display for LeakyReLU<T> {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LeakyReLUBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct LeakyReLUBackward<T, U>
+pub struct LeakyReLUBackward<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -98,9 +118,9 @@ where
     no_diff_operand: Rc<U>,
 }
 
-impl<T, U> LeakyReLUBackward<T, U>
+impl<T: ?Sized, U: ?Sized> LeakyReLUBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     pub fn new(diff_operand: Rc<T>, no_diff_operand: Rc<U>) -> Self {
@@ -116,9 +136,9 @@ where
     }
 }
 
-impl<T, U> Gradient for LeakyReLUBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for LeakyReLUBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     type Dim = T::Dim;
@@ -132,9 +152,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for LeakyReLUBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for LeakyReLUBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn can_overwrite(&self) -> bool {
@@ -146,9 +166,9 @@ where
     }
 }
 
-impl<T, U> Backward for LeakyReLUBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for LeakyReLUBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn backward(&self) {
@@ -180,9 +200,9 @@ where
     }
 }
 
-impl<T, U> Debug for LeakyReLUBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for LeakyReLUBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -193,9 +213,9 @@ where
     }
 }
 
-impl<T, U> Display for LeakyReLUBackward<T, U>
+impl<T: ?Sized, U: ?Sized> Display for LeakyReLUBackward<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

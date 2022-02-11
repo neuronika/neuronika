@@ -2,7 +2,7 @@
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
     cobroadcasted_zeros, expect_tensor, expect_tensor_mut, push_gradient, reduce, Backward,
-    BroadTensor, Broadcasted, Data, Forward, Gradient, Overwrite, Tensor,
+    BroadTensor, Broadcasted, Cache, Data, Forward, Gradient, Overwrite, Tensor,
 };
 use ndarray::{DimMax, Dimension, Zip};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Multiplication<Lhs, Rhs>
+pub struct Multiplication<Lhs: ?Sized, Rhs: ?Sized>
 where
     Lhs: Data,
     Rhs: Data,
@@ -26,7 +26,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<Lhs, Rhs> Multiplication<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Multiplication<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -44,7 +44,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for Multiplication<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Data for Multiplication<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -61,7 +61,22 @@ where
     }
 }
 
-impl<Lhs, Rhs> Forward for Multiplication<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Cache for Multiplication<Lhs, Rhs>
+where
+    Lhs: Data,
+    Rhs: Data,
+    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<Lhs: ?Sized, Rhs: ?Sized> Forward for Multiplication<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -78,17 +93,9 @@ where
             .and_broadcast(&*self.right.data())
             .for_each(|v, l, r| *v = l * r);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<Lhs, Rhs> Debug for Multiplication<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for Multiplication<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -102,7 +109,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for Multiplication<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for Multiplication<Lhs, Rhs>
 where
     Lhs: Data,
     Rhs: Data,
@@ -116,12 +123,12 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiplicationBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+pub struct MultiplicationBackward<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -135,12 +142,13 @@ where
     right_grad: Rc<RhsG>,
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
+    MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -166,12 +174,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Gradient for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Gradient
+    for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -186,12 +195,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Overwrite for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Overwrite
+    for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -204,12 +214,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Backward for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Backward
+    for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -240,12 +251,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Debug for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Debug
+    for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -257,12 +269,13 @@ where
     }
 }
 
-impl<LhsD, LhsG, RhsD, RhsG> Display for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
+impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Display
+    for MultiplicationBackward<LhsD, LhsG, RhsD, RhsG>
 where
     LhsD: Data,
     RhsD: Data,
-    LhsG: Gradient + Overwrite,
-    RhsG: Gradient + Overwrite,
+    LhsG: Gradient,
+    RhsG: Gradient,
     LhsD::Dim: Dimension + DimMax<RhsD::Dim>,
     LhsG::Dim: Dimension + DimMax<RhsG::Dim>,
 {
@@ -277,9 +290,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MultiplicationBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MultiplicationBackwardUnary<T, U>
+pub struct MultiplicationBackwardUnary<T: ?Sized, U: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -291,9 +304,9 @@ where
     no_diff_operand: Rc<U>,
 }
 
-impl<T, U> MultiplicationBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> MultiplicationBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -312,9 +325,9 @@ where
     }
 }
 
-impl<T, U> Gradient for MultiplicationBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Gradient for MultiplicationBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -329,9 +342,9 @@ where
     }
 }
 
-impl<T, U> Overwrite for MultiplicationBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Overwrite for MultiplicationBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -344,9 +357,9 @@ where
     }
 }
 
-impl<T, U> Backward for MultiplicationBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Backward for MultiplicationBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -371,9 +384,9 @@ where
     }
 }
 
-impl<T, U> Debug for MultiplicationBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for MultiplicationBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {
@@ -385,9 +398,9 @@ where
     }
 }
 
-impl<T, U> Display for MultiplicationBackwardUnary<T, U>
+impl<T: ?Sized, U: ?Sized> Display for MultiplicationBackwardUnary<T, U>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data,
     T::Dim: Dimension + DimMax<U::Dim>,
 {

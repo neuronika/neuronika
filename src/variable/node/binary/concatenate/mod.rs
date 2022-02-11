@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Data, Forward, Gradient, Overwrite,
-    Tensor,
+    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Forward, Gradient,
+    Overwrite, Tensor,
 };
 use ndarray::{concatenate, Axis, RemoveAxis, Zip};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Concatenate<Lhs, Rhs>
+pub struct Concatenate<Lhs: ?Sized, Rhs: ?Sized>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -27,7 +27,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<Lhs, Rhs> Concatenate<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Concatenate<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -55,7 +55,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Data for Concatenate<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Data for Concatenate<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -72,7 +72,22 @@ where
     }
 }
 
-impl<Lhs, Rhs> Forward for Concatenate<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Cache for Concatenate<Lhs, Rhs>
+where
+    Lhs: Data<Dim = Rhs::Dim>,
+    Rhs: Data,
+    Lhs::Dim: RemoveAxis,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<Lhs: ?Sized, Rhs: ?Sized> Forward for Concatenate<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -98,17 +113,9 @@ where
             .and(&mut rhs_portion)
             .for_each(|single_el, fused_el| *fused_el = *single_el);
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<Lhs, Rhs> Debug for Concatenate<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for Concatenate<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -123,7 +130,7 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for Concatenate<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for Concatenate<Lhs, Rhs>
 where
     Lhs: Data<Dim = Rhs::Dim>,
     Rhs: Data,
@@ -137,9 +144,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct ConcatenateBackward<Lhs, Rhs>
+pub struct ConcatenateBackward<Lhs: ?Sized, Rhs: ?Sized>
 where
-    Lhs: Gradient + Overwrite,
+    Lhs: Gradient,
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
@@ -151,9 +158,9 @@ where
     axis: usize,
 }
 
-impl<Lhs, Rhs> ConcatenateBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> ConcatenateBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
+    Lhs: Gradient,
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
@@ -176,9 +183,9 @@ where
     }
 }
 
-impl<Lhs, Rhs> Gradient for ConcatenateBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Gradient for ConcatenateBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
+    Lhs: Gradient,
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
@@ -193,9 +200,9 @@ where
     }
 }
 
-impl<Lhs, Rhs> Overwrite for ConcatenateBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Overwrite for ConcatenateBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
+    Lhs: Gradient,
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
@@ -208,9 +215,9 @@ where
     }
 }
 
-impl<Lhs, Rhs> Backward for ConcatenateBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Backward for ConcatenateBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
+    Lhs: Gradient,
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
@@ -234,9 +241,9 @@ where
     }
 }
 
-impl<Lhs, Rhs> Debug for ConcatenateBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Debug for ConcatenateBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
+    Lhs: Gradient,
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
@@ -249,9 +256,9 @@ where
     }
 }
 
-impl<Lhs, Rhs> Display for ConcatenateBackward<Lhs, Rhs>
+impl<Lhs: ?Sized, Rhs: ?Sized> Display for ConcatenateBackward<Lhs, Rhs>
 where
-    Lhs: Gradient + Overwrite,
+    Lhs: Gradient,
     Rhs: Gradient<Dim = Lhs::Dim> + Overwrite,
     Lhs::Dim: RemoveAxis,
 {
@@ -266,9 +273,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct ConcatenateBackwardLeft<T>
+pub struct ConcatenateBackwardLeft<T: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -278,12 +285,15 @@ where
     axis: usize,
 }
 
-impl<T> ConcatenateBackwardLeft<T>
+impl<T: ?Sized> ConcatenateBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self {
+    pub fn new<U: ?Sized>(left: Rc<T>, right: Rc<U>, axis: usize) -> Self
+    where
+        U: Data<Dim = T::Dim>,
+    {
         let gradient =
             concatenate(Axis(axis), &[left.gradient().view(), right.data().view()]).unwrap();
         let shape = gradient.raw_dim();
@@ -298,9 +308,9 @@ where
     }
 }
 
-impl<T> Gradient for ConcatenateBackwardLeft<T>
+impl<T: ?Sized> Gradient for ConcatenateBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     type Dim = T::Dim;
@@ -314,9 +324,9 @@ where
     }
 }
 
-impl<T> Overwrite for ConcatenateBackwardLeft<T>
+impl<T: ?Sized> Overwrite for ConcatenateBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn can_overwrite(&self) -> bool {
@@ -328,9 +338,9 @@ where
     }
 }
 
-impl<T> Backward for ConcatenateBackwardLeft<T>
+impl<T: ?Sized> Backward for ConcatenateBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
@@ -352,9 +362,9 @@ where
     }
 }
 
-impl<T> Debug for ConcatenateBackwardLeft<T>
+impl<T: ?Sized> Debug for ConcatenateBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -366,9 +376,9 @@ where
     }
 }
 
-impl<T> Display for ConcatenateBackwardLeft<T>
+impl<T: ?Sized> Display for ConcatenateBackwardLeft<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -382,9 +392,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConcatenateBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct ConcatenateBackwardRight<T>
+pub struct ConcatenateBackwardRight<T: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     gradient: RefCell<Option<Tensor<T::Dim>>>,
@@ -395,12 +405,15 @@ where
     axis: usize,
 }
 
-impl<T> ConcatenateBackwardRight<T>
+impl<T: ?Sized> ConcatenateBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
-    pub fn new<U: Data<Dim = T::Dim>>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self {
+    pub fn new<U: ?Sized>(left: Rc<U>, right: Rc<T>, axis: usize) -> Self
+    where
+        U: Data<Dim = T::Dim>,
+    {
         let gradient =
             concatenate(Axis(axis), &[left.data().view(), right.gradient().view()]).unwrap();
         let shape = gradient.raw_dim();
@@ -416,9 +429,9 @@ where
     }
 }
 
-impl<T> Gradient for ConcatenateBackwardRight<T>
+impl<T: ?Sized> Gradient for ConcatenateBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     type Dim = T::Dim;
@@ -432,9 +445,9 @@ where
     }
 }
 
-impl<T> Overwrite for ConcatenateBackwardRight<T>
+impl<T: ?Sized> Overwrite for ConcatenateBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn can_overwrite(&self) -> bool {
@@ -446,9 +459,9 @@ where
     }
 }
 
-impl<T> Backward for ConcatenateBackwardRight<T>
+impl<T: ?Sized> Backward for ConcatenateBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn backward(&self) {
@@ -466,9 +479,9 @@ where
     }
 }
 
-impl<T> Debug for ConcatenateBackwardRight<T>
+impl<T: ?Sized> Debug for ConcatenateBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -480,9 +493,9 @@ where
     }
 }
 
-impl<T> Display for ConcatenateBackwardRight<T>
+impl<T: ?Sized> Display for ConcatenateBackwardRight<T>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     T::Dim: RemoveAxis,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

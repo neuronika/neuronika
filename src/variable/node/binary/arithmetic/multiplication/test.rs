@@ -1,12 +1,12 @@
 use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Data, Forward,
-    Gradient, Multiplication, MultiplicationBackward, MultiplicationBackwardUnary, Overwrite,
-    Tensor,
+    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cache, Data,
+    Forward, Gradient, Multiplication, MultiplicationBackward, MultiplicationBackwardUnary,
+    Overwrite, Tensor,
 };
 
 mod forward {
     use super::{
-        assert_almost_equals, new_input, new_tensor, Data, Forward, Multiplication, Tensor,
+        assert_almost_equals, new_input, new_tensor, Cache, Data, Forward, Multiplication, Tensor,
     };
 
     #[test]

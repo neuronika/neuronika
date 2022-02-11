@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
 use super::{
-    expect_tensor, expect_tensor_mut, Backward, Data, Forward, Gradient, Overwrite, Reduction,
-    Tensor,
+    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite,
+    Reduction, Tensor,
 };
 use ndarray::{arr0, Ix0, Zip};
 use std::{
@@ -15,7 +15,7 @@ use std::{
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCELoss ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct BCELoss<T, U>
+pub struct BCELoss<T: ?Sized, U: ?Sized>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -27,7 +27,7 @@ where
     computed: Cell<bool>,
 }
 
-impl<T, U> BCELoss<T, U>
+impl<T: ?Sized, U: ?Sized> BCELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<T, U> Data for BCELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Data for BCELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -59,7 +59,21 @@ where
     }
 }
 
-impl<T, U> Forward for BCELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Cache for BCELoss<T, U>
+where
+    T: Data,
+    U: Data<Dim = T::Dim>,
+{
+    fn was_computed(&self) -> bool {
+        self.computed.get()
+    }
+
+    fn reset_computation(&self) {
+        self.computed.set(false);
+    }
+}
+
+impl<T: ?Sized, U: ?Sized> Forward for BCELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -92,17 +106,9 @@ where
             }
         };
     }
-
-    fn was_computed(&self) -> bool {
-        self.computed.get()
-    }
-
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
 }
 
-impl<T, U> Debug for BCELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Debug for BCELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -116,7 +122,7 @@ where
     }
 }
 
-impl<T, U> Display for BCELoss<T, U>
+impl<T: ?Sized, U: ?Sized> Display for BCELoss<T, U>
 where
     T: Data,
     U: Data<Dim = T::Dim>,
@@ -130,9 +136,9 @@ where
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ BCELossBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[allow(clippy::upper_case_acronyms)]
-pub struct BCELossBackward<T, U, V>
+pub struct BCELossBackward<T: ?Sized, U: ?Sized, V: ?Sized>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -144,9 +150,9 @@ where
     reduction: Reduction,
 }
 
-impl<T, U, V> BCELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> BCELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -167,9 +173,9 @@ where
     }
 }
 
-impl<T, U, V> Gradient for BCELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Gradient for BCELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -184,9 +190,9 @@ where
     }
 }
 
-impl<T, U, V> Overwrite for BCELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Overwrite for BCELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -199,9 +205,9 @@ where
     }
 }
 
-impl<T, U, V> Backward for BCELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Backward for BCELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = U::Dim>,
 {
@@ -264,9 +270,9 @@ where
     }
 }
 
-impl<T, U, V> Debug for BCELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Debug for BCELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
@@ -279,9 +285,9 @@ where
     }
 }
 
-impl<T, U, V> Display for BCELossBackward<T, U, V>
+impl<T: ?Sized, U: ?Sized, V: ?Sized> Display for BCELossBackward<T, U, V>
 where
-    T: Gradient + Overwrite,
+    T: Gradient,
     U: Data<Dim = T::Dim>,
     V: Data<Dim = T::Dim>,
 {
