@@ -13,14 +13,12 @@ use std::{
 /// The forward component of a leaf of the computational graph.
 pub struct Input<D: Dimension> {
     data: RefCell<Tensor<D>>,
-    computed: Cell<bool>,
 }
 
 impl<D: Dimension> Input<D> {
     pub fn new(data: Tensor<D>) -> super::super::Var<Self> {
         let input = Self {
             data: RefCell::new(data),
-            computed: Cell::new(false),
         };
 
         super::super::Var::new(input)
@@ -48,19 +46,16 @@ impl<D: Dimension> Data for Input<D> {
 
 impl<D: Dimension> Cache for Input<D> {
     fn was_computed(&self) -> bool {
-        self.computed.get()
+        true
     }
 
-    fn reset_computation(&self) {
-        self.computed.set(false);
-    }
+    fn reset_computation(&self) {}
 }
 
 impl<D: Dimension> Debug for Input<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Input")
             .field("data", &self.data.borrow())
-            .field("computed", &self.computed.get())
             .finish()
     }
 }
