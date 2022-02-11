@@ -1,8 +1,8 @@
 use ndarray::Ix2;
 use neuronika::{
     data::DataLoader,
-    nn::{self, loss, Learnable, Linear, ModelStatus},
-    optim, Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, Param, VarDiff,
+    nn::{loss, Learnable, Linear, ModelStatus},
+    optim, Data, Gradient, MatMatMulT, Param, VarDiff,
 };
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -30,15 +30,12 @@ impl NeuralNetwork {
         self.status.parameters()
     }
 
-    fn forward<I, T, U>(
-        &self,
-        input: I,
-    ) -> VarDiff<impl Data<Dim = Ix2> + Forward, impl Gradient<Dim = Ix2> + Overwrite + Backward>
+    fn forward<I, T, U>(&self, input: I) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
     where
         I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix2> + Forward,
-        U: Gradient<Dim = Ix2> + Backward + Overwrite,
+        T: Data<Dim = Ix2>,
+        U: Gradient<Dim = Ix2>,
     {
         let out1 = self.lin1.forward(input).relu();
         let out2 = self.lin2.forward(out1).relu();
