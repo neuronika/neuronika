@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Separate tests in the data module [#96](https://github.com/neuronika/neuronika/pull/96).
+
 * Update the example [#95](https://github.com/neuronika/neuronika/pull/95).
 
 * Add dynamical typing for Var and VarDiff [#94](https://github.com/neuronika/neuronika/pull/94).
