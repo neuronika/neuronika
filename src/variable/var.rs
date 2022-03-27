@@ -1,7 +1,8 @@
+use super::history::History;
 use super::{
     cobroadcasted_zeros, Addition, AdditionBackwardRight, Cat, Chunk, Concatenate,
     ConcatenateBackwardRight, Division, DivisionBackwardRight, DotDim, Dropout, Exp, Forward,
-    History, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
+    LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
     MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
     MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
     MultiplicationBackwardRight, Negation, Power, ReLU, Sigmoid, SoftPlus, Softmax, Sqrt, Stack,
@@ -366,9 +367,6 @@ where
     }
 
     /// Applies *dropout* to `self` and returns a variable with the result.
-    ///
-    /// It is strongly suggested to use [`nn::Dropout`] instead of this method when working with
-    /// neural networks.
     ///
     /// During training, randomly zeroes some of the elements of `self` with probability *p* using
     /// samples from a Bernoulli distribution. Each channel will be zeroed out independently on

@@ -1,13 +1,9 @@
-use std::{cell::Cell, rc::Rc};
-
 #[test]
 fn data_mut() {
-    // Var
     let x = crate::ones((2, 2));
     *x.data_mut() += 1.;
     assert_eq!(*x.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
-    // VarDiff
     let x = crate::ones((2, 2)).requires_grad();
     *x.data_mut() += 1.;
     assert_eq!(*x.data(), ndarray::array![[2., 2.,], [2., 2.,]]);
@@ -15,7 +11,6 @@ fn data_mut() {
 
 #[test]
 fn grad_mut() {
-    // Only VarDiff has a gradient.
     let x = crate::ones((2, 2)).requires_grad();
     *x.grad_mut() += 1.;
     assert_eq!(*x.grad(), ndarray::array![[1., 1.,], [1., 1.,]]);
@@ -23,28 +18,24 @@ fn grad_mut() {
 
 #[test]
 fn add_scalar() {
-    // Var - f32
     let x = crate::ones((2, 2));
     let y = x + 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
-    // f32 - Var
     let x = crate::ones((2, 2));
     let y = 1. + x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
-    // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
     let y = x + 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
-    // f32 - VarDiff
     let x = crate::ones((2, 2)).requires_grad();
     let y = 1. + x;
     y.forward();
@@ -54,28 +45,24 @@ fn add_scalar() {
 
 #[test]
 fn sub_scalar() {
-    // Var - f32
     let x = crate::ones((2, 2));
     let y = x - 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
-    // f32 - Var
     let x = crate::ones((2, 2));
     let y = 1. - x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
-    // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
     let y = x - 1.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[0., 0.], [0., 0.]]);
 
-    // f32 - VarDiff
     let x = crate::ones((2, 2)).requires_grad();
     let y = 1. - x;
     y.forward();
@@ -85,28 +72,24 @@ fn sub_scalar() {
 
 #[test]
 fn mul_scalar() {
-    // Var - f32
     let x = crate::ones((2, 2));
     let y = x * 2.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
-    // f32 - Var
     let x = crate::ones((2, 2));
     let y = 2. * x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
-    // VarDiff - f32
     let x = crate::ones((2, 2)).requires_grad();
     let y = x * 2.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
 
-    // f32 - VarDiff
     let x = crate::ones((2, 2)).requires_grad();
     let y = 2. * x;
     y.forward();
@@ -116,28 +99,24 @@ fn mul_scalar() {
 
 #[test]
 fn div_scalar() {
-    // Var - f32
     let x = crate::full((2, 2), 9.);
     let y = x / 3.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
-    // f32 - Var
     let x = crate::full((2, 2), 3.);
     let y = 9. / x;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
-    // VarDiff - f32
     let x = crate::full((2, 2), 9.).requires_grad();
     let y = x / 3.;
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[3., 3.], [3., 3.]]);
 
-    // f32 - VarDiff
     let x = crate::full((2, 2), 3.).requires_grad();
     let y = 9. / x;
     y.forward();
@@ -388,7 +367,7 @@ fn t_diff() {
 #[test]
 fn dropout() {
     let input = crate::ones((2, 2));
-    let status = Rc::new(Cell::default());
+    let status = std::rc::Rc::new(std::cell::Cell::default());
     let dropout = input.dropout(0.5, status);
 
     assert_eq!(dropout.history.len(), 1);
@@ -397,7 +376,7 @@ fn dropout() {
 #[test]
 fn dropout_diff() {
     let input = crate::ones((2, 2)).requires_grad();
-    let status = Rc::new(Cell::default());
+    let status = std::rc::Rc::new(std::cell::Cell::default());
     let dropout = input.dropout(0.5, status);
 
     assert_eq!(dropout.history.len(), 1);
