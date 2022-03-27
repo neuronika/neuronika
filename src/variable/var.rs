@@ -65,10 +65,6 @@ impl<D: Dimension> Var<D> {
         Self { data, history }
     }
 
-    pub(crate) fn history(&self) -> &History<Rc<dyn Forward>> {
-        &self.history
-    }
-
     /// Promotes `self` to a differentiable variable. A subsequent call to [`.backward()`]
     /// will compute its gradient.
     ///

@@ -131,6 +131,7 @@ where
     pub fn forward(&self) {
         self.var.forward();
 
+        // Prepares the buffer for the backward pass.
         let mut buffer = self.history.buffer_mut();
         let len = buffer.len();
 
@@ -144,11 +145,13 @@ where
     /// differentiable leaves that are ancestors of `self`. Before back-propagating the gradient
     /// of `self` is seeded with `seed`, thus, the leaves' gradients will be scaled accordingly.
     ///
+    /// **Do note** that this method should be called after `.forward()`.
+    ///
     /// The graph is differentiated through the [chain rule](https://en.wikipedia.org/wiki/Chain_rule).
     pub fn backward(&self, seed: f32) {
         debug_assert_eq!(
-            self.var.history().len(),
-            self.var.history().buffer_len(),
+            self.var.history.len(),
+            self.var.history.buffer_len(),
             "Perhaps you forgot to call .forward()?"
         );
 
@@ -156,20 +159,14 @@ where
         self.grad_mut().fill(seed);
 
         // Compute gradients.
-        {
-            let mut buffer = self.history.buffer_mut();
-            let len = buffer.len();
-
-            // If buffer is empty populate it.
-            if len == 0 {
-                *buffer = self.history.path.values().cloned().collect();
-            }
-
-            buffer.iter().rev().for_each(|op| op.backward());
-        }
+        self.history
+            .buffer()
+            .iter()
+            .rev()
+            .for_each(|op| op.backward());
 
         // Reset forward path.
-        let buffer = self.var.history().buffer_mut();
+        let buffer = self.var.history.buffer();
         let res = buffer.binary_search_by(|op| {
             if op.was_computed() {
                 std::cmp::Ordering::Less
@@ -196,7 +193,7 @@ where
         let len = buffer.len();
 
         if len == 0 {
-            *buffer = self.history.path.values().cloned().collect();
+            *buffer = self.history.to_vec();
         }
 
         buffer.iter().for_each(|op| op.no_grad());
@@ -209,7 +206,7 @@ where
         let len = buffer.len();
 
         if len == 0 {
-            *buffer = self.history.path.values().cloned().collect();
+            *buffer = self.history.to_vec();
         }
 
         buffer.iter().for_each(|op| op.with_grad());

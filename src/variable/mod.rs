@@ -3,7 +3,7 @@ mod var;
 mod vardiff;
 
 use std::{
-    cell::{RefCell, RefMut},
+    cell::{Ref, RefCell, RefMut},
     collections::BTreeMap,
 };
 
@@ -46,12 +46,12 @@ impl Ord for HistoryId {
         let Self((lhs_ptr, lhs_order)) = self;
         let Self((rhs_ptr, rhs_order)) = other;
 
-        // equal only if the pointer is the same
+        // Equal only if the pointers are the same.
         if lhs_ptr == rhs_ptr {
             return std::cmp::Ordering::Equal;
         }
 
-        // same ordering but not equal is ok
+        // But same ordering does not imply equality.
         if lhs_order == rhs_order {
             return std::cmp::Ordering::Less;
         }
@@ -118,6 +118,11 @@ where
     }
 
     /// Returns a reference to the buffer.
+    pub(crate) fn buffer(&self) -> Ref<[T]> {
+        Ref::map(self.buffer.borrow(), |buffer| &buffer[..])
+    }
+
+    /// Returns a mutable reference to the buffer.
     pub(crate) fn buffer_mut(&self) -> RefMut<Vec<T>> {
         self.buffer.borrow_mut()
     }
