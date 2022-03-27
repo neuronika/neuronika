@@ -4,15 +4,12 @@ mod kldiv_loss;
 mod mae_loss;
 mod mse_loss;
 mod nll_loss;
+mod reduction;
 
-use super::{
-    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
-};
-
-use crate::nn::loss::Reduction;
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
 
 #[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
+use super::{assert_almost_equals, new_tensor};
 
 pub(crate) use bce_loss::{BCELoss, BCELossBackward};
 pub(crate) use bce_with_logits_loss::{BCEWithLogitsLoss, BCEWithLogitsLossBackward};

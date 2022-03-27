@@ -1,8 +1,8 @@
 mod arithmetic;
 mod concatenate;
-mod convolution;
+//mod convolution;
 mod linalg;
-//mod loss;
+mod loss;
 mod stack;
 
 use super::{
