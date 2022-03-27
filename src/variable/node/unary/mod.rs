@@ -17,13 +17,10 @@ mod tanh;
 mod transpose;
 mod unsqueeze;
 
-use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Eval, Forward,
-    Gradient, Overwrite, Tensor,
-};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
 
 #[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
+use super::{assert_almost_equals, new_tensor};
 
 pub(crate) use chunk::{Chunk, ChunkBackward};
 pub(crate) use dropout::{Dropout, DropoutBackward};

@@ -1,50 +1,50 @@
 #[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-use super::{
-    expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Forward, Gradient,
-    Overwrite, Tensor,
-};
-use ndarray::{Axis, Dimension, Zip};
+use super::{assert_almost_equals, new_tensor};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use ndarray::Dimension;
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
-    fmt::{Debug, Display},
+    cell::{Cell, RefCell},
     rc::Rc,
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Unsqueeze ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Unsqueeze<T: ?Sized>
+pub struct Unsqueeze<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    operand: Rc<T>,
-    data: RefCell<Tensor<<<T as Data>::Dim as Dimension>::Larger>>,
-    axis: usize,
+    operand_data: Rc<RefCell<Tensor<D>>>,
+    data: Rc<RefCell<Tensor<D::Larger>>>,
     computed: Cell<bool>,
 }
 
-impl<T: ?Sized> Unsqueeze<T>
+impl<D> Unsqueeze<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    pub fn new(operand: Rc<T>, axis: usize) -> Self {
-        let shape = operand.data().raw_dim();
-        let data = RefCell::new(Tensor::zeros(shape.insert_axis(Axis(axis))));
-
+    pub fn new(operand_data: Rc<RefCell<Tensor<D>>>, data: Rc<RefCell<Tensor<D::Larger>>>) -> Self {
         Self {
-            operand,
+            operand_data,
             data,
-            axis,
-            computed: Cell::new(false),
+            computed: Cell::default(),
         }
     }
 }
 
-impl<T: ?Sized> Cache for Unsqueeze<T>
+impl<D> Forward for Unsqueeze<D>
 where
-    T: Data,
+    D: Dimension,
 {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        let mut data = self.data.borrow_mut();
+        let operand_data = self.operand_data.borrow();
+        let mut unsqueezed = data.view_mut().into_shape(operand_data.raw_dim()).unwrap();
+        unsqueezed.assign(&operand_data);
+    }
+
     fn was_computed(&self) -> bool {
         self.computed.get()
     }
@@ -54,141 +54,46 @@ where
     }
 }
 
-impl<T: ?Sized> Forward for Unsqueeze<T>
+pub struct UnsqueezeBackward<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    fn forward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.computed.set(true);
-        let mut data = self.data.borrow_mut();
-        let mut unsqueezed = data
-            .axis_iter_mut(Axis(self.axis))
-            .next()
-            .unwrap()
-            .into_dimensionality::<T::Dim>()
-            .unwrap();
-        let operand_data = self.operand.data();
-        Zip::from(&mut unsqueezed)
-            .and(&*operand_data)
-            .for_each(|unsqueezed_el, operand_data_el| *unsqueezed_el = *operand_data_el);
-    }
+    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
+    shape: D::Larger,
 }
 
-impl<T: ?Sized> Data for Unsqueeze<T>
+impl<D> UnsqueezeBackward<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    type Dim = <T::Dim as Dimension>::Larger;
-
-    fn data(&self) -> Ref<Tensor<Self::Dim>> {
-        self.data.borrow()
-    }
-
-    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.data.borrow_mut()
-    }
-}
-
-impl<T: ?Sized> Debug for Unsqueeze<T>
-where
-    T: Data,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Unsqueeze")
-            .field("data", &self.data.borrow())
-            .field("axis", &self.axis)
-            .field("computed", &self.computed.get())
-            .finish()
-    }
-}
-
-impl<T: ?Sized> Display for Unsqueeze<T>
-where
-    T: Data,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", &self.data.borrow())
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ UnsqueezeBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct UnsqueezeBackward<T: ?Sized>
-where
-    T: Gradient,
-{
-    gradient: RefCell<Option<Tensor<<T::Dim as Dimension>::Larger>>>,
-    shape: <T::Dim as Dimension>::Larger,
-    overwrite: Cell<bool>,
-    operand: Rc<T>,
-    axis: usize,
-}
-
-impl<T: ?Sized> UnsqueezeBackward<T>
-where
-    T: Gradient,
-{
-    pub fn new(operand: Rc<T>, axis: usize) -> Self {
-        let gradient = Tensor::zeros(operand.gradient().raw_dim().insert_axis(Axis(axis)));
-        let shape = gradient.raw_dim();
-
+    pub fn new(
+        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
+        shape: D::Larger,
+    ) -> Self {
         Self {
-            gradient: RefCell::new(Some(gradient)),
+            operand_gradient,
+            gradient,
             shape,
-            overwrite: Cell::new(true),
-            operand,
-            axis,
         }
     }
 }
 
-impl<T: ?Sized> Gradient for UnsqueezeBackward<T>
+impl<D> Backward for UnsqueezeBackward<D>
 where
-    T: Gradient,
-{
-    type Dim = <T::Dim as Dimension>::Larger;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        expect_tensor(&self.gradient)
-    }
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        expect_tensor_mut(&self.gradient)
-    }
-}
-
-impl<T: ?Sized> Overwrite for UnsqueezeBackward<T>
-where
-    T: Gradient,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
-    }
-
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
-    }
-}
-
-impl<T: ?Sized> Backward for UnsqueezeBackward<T>
-where
-    T: Gradient,
+    D: Dimension,
 {
     fn backward(&self) {
-        push_gradient(
-            &*self.operand,
-            self.gradient()
-                .axis_iter(Axis(self.axis))
-                .next()
-                .unwrap()
-                .into_dimensionality::<T::Dim>()
-                .unwrap(),
-        );
+        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
+        let gradient = expect_tensor(&self.gradient);
+
+        let view = gradient
+            .view()
+            .into_shape(operand_gradient.raw_dim())
+            .unwrap();
+
+        *operand_gradient += &view;
     }
 
     fn no_grad(&self) {
@@ -200,33 +105,8 @@ where
     }
 }
 
-impl<T: ?Sized> Debug for UnsqueezeBackward<T>
-where
-    T: Gradient,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("UnsqueezeBackward")
-            .field("gradient", &self.gradient.borrow())
-            .field("axis", &self.axis)
-            .field("overwrite", &self.overwrite.get())
-            .finish()
-    }
-}
-
-impl<T: ?Sized> Display for UnsqueezeBackward<T>
-where
-    T: Gradient,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &*self.gradient.borrow() {
-            Some(gradient) => write!(f, "{}", &gradient),
-            None => write!(f, "None"),
-        }
-    }
-}
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;

@@ -1,17 +1,17 @@
 use super::{
-    Addition, AdditionBackwardUnary, Cat, Changeable, Chunk, Concatenate, ConcatenateBackwardRight,
-    Data, Division, DivisionBackwardRight, Dropout, Eval, Exp, Forward, Gradient, Input,
-    InputBackward, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
+    cobroadcasted_zeros, Addition, AdditionBackwardRight, Cat, Chunk, Concatenate,
+    ConcatenateBackwardRight, Division, DivisionBackwardRight, DotDim, Dropout, Exp, Forward,
+    History, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMul,
     MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight, MatrixVectorMul,
     MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack, Multiplication,
-    MultiplicationBackwardUnary, Negation, Overwrite, Power, RawParam, ReLU, Sigmoid, SoftPlus,
-    Softmax, Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH,
-    Tensor, Transpose, Unsqueeze, VarDiff, VarDiffHistory, VarHistory, VecMatMul, VecVecMul,
-    VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul, VectorVectorMulBackwardUnary,
-    OPERATIONS_COUNTER,
+    MultiplicationBackwardRight, Negation, Power, ReLU, Sigmoid, SoftPlus, Softmax, Sqrt, Stack,
+    StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH, Tensor, Transpose,
+    Unsqueeze, VarDiff, VecMatMul, VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight,
+    VectorVectorMul, VectorVectorMulBackwardUnary,
 };
 use ndarray::{
-    concatenate, stack, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2, RemoveAxis,
+    arr0, concatenate, stack, Array, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2,
+    RemoveAxis,
 };
 #[cfg(feature = "serialize")]
 use serde::{
@@ -19,8 +19,7 @@ use serde::{
     ser::{Serialize, Serializer},
 };
 use std::{
-    cell::{Cell, Ref, RefMut},
-    collections::HashSet,
+    cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
     ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
@@ -33,27 +32,43 @@ use std::{
 ///
 /// Conceptually, it can be thought of as a [`ndarray::Array`] for which the computations are
 /// automatically kept track of.
-pub struct Var<T: ?Sized>
+#[derive(Clone)]
+pub struct Var<D>
 where
-    T: Data + 'static,
+    D: Dimension,
 {
-    pub(crate) node: Rc<T>,
-    pub(crate) past: VarHistory,
+    pub(crate) data: Rc<RefCell<Array<f32, D>>>,
+    pub(crate) history: History<Rc<dyn Forward>>,
 }
 
-impl<T: ?Sized> Clone for Var<T>
-where
-    T: Data + 'static,
-{
-    fn clone(&self) -> Self {
-        Self {
-            node: self.node.clone(),
-            past: self.past.clone(),
-        }
+impl<D: Dimension> Var<D> {
+    pub(crate) fn leaf(array: Tensor<D>) -> Self {
+        let data = Rc::new(RefCell::new(array));
+        let history = History::default();
+
+        Self { data, history }
     }
-}
 
-impl<D: Dimension> Var<Input<D>> {
+    pub(crate) fn new<T>(
+        data: Rc<RefCell<Array<f32, D>>>,
+        op: T,
+        mut history: History<Rc<dyn Forward>>,
+    ) -> Self
+    where
+        T: 'static + Forward,
+    {
+        let op = Rc::new(op);
+        let id = Rc::as_ptr(&op) as *const () as usize;
+
+        history.insert(id, op);
+
+        Self { data, history }
+    }
+
+    pub(crate) fn history(&self) -> &History<Rc<dyn Forward>> {
+        &self.history
+    }
+
     /// Promotes `self` to a differentiable variable. A subsequent call to [`.backward()`]
     /// will compute its gradient.
     ///
@@ -80,88 +95,28 @@ impl<D: Dimension> Var<Input<D>> {
     ///
     /// let x_diff = x.requires_grad();
     ///```
-    pub fn requires_grad(self) -> VarDiff<Input<D>, InputBackward<D>> {
-        debug_assert!(self.past.is_empty(), "error: the variable is not a leaf.");
-        let node = Rc::new(self.node.differentiable());
-        let mut gradient = node.gradient_mut();
-        let mut parameters = HashSet::new();
-        parameters.insert(RawParam::new(
-            self.node.data_mut().as_mut_ptr(),
-            gradient.as_mut_ptr(),
-            gradient.shape().to_vec(),
-        ));
-
-        VarDiff {
-            var: self,
-            node: node.clone(),
-            past: VarDiffHistory::new(parameters),
-        }
+    pub fn requires_grad(self) -> VarDiff<D> {
+        let gradient = Tensor::zeros(self.data.borrow().raw_dim());
+        VarDiff::leaf(self, gradient)
     }
-}
 
-impl<T: Data + Forward> Var<T> {
-    /// Creates a new variable from a node.
-    pub(crate) fn from(node: T, mut past: VarHistory) -> Self {
-        let node = Rc::new(node);
-        past.append_forward(unsafe { OPERATIONS_COUNTER.next() }, node.clone());
-
-        Var { node, past }
-    }
-}
-
-impl<T> Var<T>
-where
-    T: Data + Forward + Eval + 'static,
-{
-    /// Creates a new variable from a changeable node.
-    pub(crate) fn from_changeable(node: T, mut past: VarHistory) -> Self {
-        let node = Rc::new(node);
-        let id = unsafe { OPERATIONS_COUNTER.next() };
-        past.append_forward(id, node.clone());
-        past.append_changeable(Changeable {
-            id,
-            node: node.clone(),
-        });
-
-        Var { node, past }
-    }
-}
-
-impl<T> Var<T>
-where
-    T: Data + 'static,
-{
-    /// Transforms `self` into a dynamically typed variable.
-    pub fn into_dyn(self) -> Var<dyn Data<Dim = T::Dim>> {
-        let Self { node, past } = self;
-
-        Var {
-            node: node as Rc<dyn Data<Dim = T::Dim>>,
-            past,
-        }
-    }
-}
-
-impl<T: ?Sized> Var<T>
-where
-    T: Data + 'static,
-{
     /// Propagates the computations forwards and populates all the variables from the leaves of the
     /// graph to `self`.
     pub fn forward(&self) {
-        if self.node.was_computed() {
-            // If the user has already called `.forward()` on this var,
-            // then he wants to recompute it.
-            assert_eq!(self.past.len(), self.past.buffer().len());
-            for node in self.past.buffer().iter() {
-                node.reset_computation();
-            }
+        let mut buffer = self.history.buffer_mut(); // Borrows for the scope
+        let len = buffer.len();
+
+        // If the length of the buffer is greater than 0 it means that forward has already been
+        // called and the path must be recomputed, else the buffer is empty and must be populated.
+        if len != 0 {
+            buffer.iter().for_each(|op| op.reset_computation());
+        } else {
+            *buffer = self.history.to_vec()
         }
 
-        self.past.prepare_buffer();
-
-        let buffer = self.past.buffer();
-        let mut res = buffer.binary_search_by(|n| {
+        // Searches for the first node to compute. Another call to forward could have partially
+        // compute a portion of the path ending in this variable.
+        let res = buffer.binary_search_by(|n| {
             if n.was_computed() {
                 std::cmp::Ordering::Less
             } else {
@@ -169,55 +124,17 @@ where
             }
         });
 
-        if let Err(i) = res {
-            if buffer.get(i).is_some() {
-                res = Ok(i);
-            }
+        let pos = match res {
+            Ok(index) => index,
+            Err(index) => index,
         };
 
-        if let Ok(pos) = res {
-            for node in &buffer[pos..] {
-                node.forward();
-            }
-        }
-    }
-
-    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
-    /// in training mode.
-    ///    
-    /// See also [`.dropout()`].
-    ///
-    /// [`.dropout()`]: Var::dropout()
-    ///
-    /// # Examples
-    ///
-    /// The following snippet pictures the effect of several calls placed at different locations
-    /// inside the program. The last call switches all the dropout variables in training mode.
-    pub fn train(&self) {
-        for changeable in &self.past.changeables {
-            let Changeable { id: _, node } = changeable;
-            node.train();
-        }
-    }
-
-    /// This has effect only on certain **ancestor** variables of `self`. It sets such variables
-    /// in evaluation mode.
-    ///    
-    /// See also [`.dropout()`].
-    ///
-    /// [`.dropout()`]: Var::dropout()
-    pub fn eval(&self) {
-        for changeable in &self.past.changeables {
-            let Changeable { id: _, node } = changeable;
-            node.train();
-        }
+        // skip checks if the index is in the buffer or not.
+        buffer.iter().skip(pos).for_each(|op| op.forward());
     }
 }
 
-impl<T: ?Sized> Var<T>
-where
-    T: Data<Dim = Ix1> + 'static,
-{
+impl Var<Ix1> {
     /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
     /// variable `rhs`.
     ///
@@ -240,7 +157,7 @@ where
     }
 }
 
-impl<T: Data<Dim = Ix2> + 'static> Var<T> {
+impl Var<Ix2> {
     /// Performs a matrix multiplication between the matrix variables `self` and `rhs`. If `self`
     /// is *(n, m)* and `rhs` is *(m, o)* the output will be *(n, o)*.
     pub fn mm<Rhs>(self, rhs: Rhs) -> <Self as MatMatMul<Rhs>>::Output
@@ -275,105 +192,150 @@ impl<T: Data<Dim = Ix2> + 'static> Var<T> {
     }
 }
 
-impl<T: Data + 'static> Var<T> {
-    pub(crate) fn new(node: T) -> Self {
-        Self {
-            node: Rc::new(node),
-            past: VarHistory::new(),
-        }
-    }
-}
-
-impl<T: ?Sized> Var<T>
+impl<D> Var<D>
 where
-    T: Data + 'static,
+    D: 'static + Dimension,
 {
     /// Returns an immutable reference to the data inside `self`.
     ///
     /// At the variable's creation the data is filled with zeros. You can populate it with a
     /// call to [`.forward()`](Var::forward()).
-    pub fn data(&self) -> Ref<Tensor<T::Dim>> {
-        self.node.data()
+    pub fn data(&self) -> Ref<Tensor<D>> {
+        self.data.borrow()
     }
 
     /// Returns a mutable reference to the data inside `self`.
     ///
     /// At the variable's creation the data is filled with zeros. You can populate it with a
     /// call to [`.forward()`](Var::forward()).
-    pub fn data_mut(&self) -> RefMut<Tensor<T::Dim>> {
-        self.node.data_mut()
+    pub fn data_mut(&self) -> RefMut<Tensor<D>> {
+        self.data.borrow_mut()
     }
 
     /// Returns the sum of all elements in `self`.
-    pub fn sum(self) -> Var<Sum<T>> {
-        Var::from(Sum::new(self.node), self.past)
+    pub fn sum(self) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.)));
+        let op = Sum::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Returns the mean of all elements in `self`.
-    pub fn mean(self) -> Var<Mean<T>> {
-        Var::from(Mean::new(self.node), self.past)
+    pub fn mean(self) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.)));
+        let op = Mean::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Takes the power of each element in `self` with exponent `exp` and returns a variable with the
     /// result.
-    pub fn pow(self, exp: i32) -> Var<Power<T>> {
-        Var::from(Power::new(self.node, exp), self.past)
+    ///
+    /// # Arguments
+    ///
+    /// `exp` - exponent.
+    pub fn pow(self, exp: i32) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Power::new(self.data, data.clone(), exp);
+
+        Var::new(data, op, self.history)
     }
 
     /// Takes the square root element-wise and returns a variable with the result.
-    pub fn sqrt(self) -> Var<Sqrt<T>> {
-        Var::from(Sqrt::new(self.node), self.past)
+    pub fn sqrt(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Sqrt::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *rectified linear unit* element-wise and returns a variable with the
     /// result.
     ///
     /// *ReLU(x) = max(0, x)*
-    pub fn relu(self) -> Var<ReLU<T>> {
-        Var::from(ReLU::new(self.node), self.past)
+    pub fn relu(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = ReLU::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *leaky rectified linear unit* element-wise and returns a variable with
     /// the result.
     ///
     /// *LeakyReLU(x) = max(0, x) + 0.01 * min(0, x)*
-    pub fn leaky_relu(self) -> Var<LeakyReLU<T>> {
-        Var::from(LeakyReLU::new(self.node), self.past)
+    pub fn leaky_relu(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = LeakyReLU::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *softplus* element-wise and returns a variable with the result.
     ///
     /// *Softplus(x) = log(1 + exp(x))*
-    pub fn softplus(self) -> Var<SoftPlus<T>> {
-        Var::from(SoftPlus::new(self.node), self.past)
+    pub fn softplus(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = SoftPlus::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *sigmoid* element-wise and returns a variable with the result.
-    pub fn sigmoid(self) -> Var<Sigmoid<T>> {
-        Var::from(Sigmoid::new(self.node), self.past)
+    pub fn sigmoid(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Sigmoid::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *tanh* element-wise and returns a variable with the result.
-    pub fn tanh(self) -> Var<TanH<T>> {
-        Var::from(TanH::new(self.node), self.past)
+    pub fn tanh(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = TanH::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *natural logarithm* element-wise and returns a variable with the result.
-    pub fn ln(self) -> Var<Logn<T>> {
-        Var::from(Logn::new(self.node), self.past)
+    pub fn ln(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Logn::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *exponential* element-wise and returns a variable with the result.
-    pub fn exp(self) -> Var<Exp<T>> {
-        Var::from(Exp::new(self.node), self.past)
+    pub fn exp(self) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Exp::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *softmax* to `self` and returns a variable with the result.
     ///
     /// The *softmax* is applied to all slices along `axis`, and will re-scale them so
     ///  that the elements lie in the range *[0, 1]* and sum to 1.0.
-    pub fn softmax(self, axis: usize) -> Var<Softmax<T>> {
-        Var::from(Softmax::new(self.node, axis), self.past)
+    ///
+    /// # Arguments    
+    ///  
+    /// `axis` - axis along which softmax will be computed.
+    pub fn softmax(self, axis: usize) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Softmax::new(self.data, data.clone(), axis);
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies the *log-softmax* to `self` and returns a variable with the result.
@@ -386,13 +348,25 @@ where
     /// See also [`.softmax()`].
     ///
     /// [`.softmax()`]: Var::softmax()
-    pub fn log_softmax(self, axis: usize) -> Var<LogSoftmax<T>> {
-        Var::from(LogSoftmax::new(self.node, axis), self.past)
+    ///
+    /// # Arguments
+    ///
+    /// `axis` - axis along which log-softmax will be computed.
+    pub fn log_softmax(self, axis: usize) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = LogSoftmax::new(self.data, data.clone(), axis);
+
+        Var::new(data, op, self.history)
     }
 
     /// Returns a variable equivalent to `self` with its dimensions reversed.
-    pub fn t(self) -> Var<Transpose<T>> {
-        Var::from(Transpose::new(self.node), self.past)
+    pub fn t(self) -> Var<D> {
+        let shape = self.data.borrow().t().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Transpose::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 
     /// Applies *dropout* to `self` and returns a variable with the result.
@@ -412,46 +386,66 @@ where
     /// that during evaluation the resulting variable simply computes an identity function.
     ///
     /// [`nn::Dropout`]: crate::nn::Dropout
-    pub fn dropout(self, p: f64) -> Var<Dropout<T>> {
-        self.dropout_with_status(p, Rc::new(Cell::new(true)))
+    ///
+    /// # Arguments
+    ///
+    /// * `p` - dropout factor.
+    ///
+    /// * `status` - dropout status.
+    pub fn dropout(self, p: f64, status: Rc<Cell<bool>>) -> Var<D> {
+        let shape = self.data.borrow().raw_dim();
+        let noise = Rc::new(RefCell::new(Tensor::zeros(shape.clone())));
+
+        self.dropout_with_noise(shape, p, noise, status)
     }
 
-    /// Creates a new dropout variable with a status. This method is used in the `Dropout` component
-    ///  of the `nn` module.
-    pub(crate) fn dropout_with_status(self, p: f64, status: Rc<Cell<bool>>) -> Var<Dropout<T>> {
-        Var::from_changeable(Dropout::new(self.node, p, status), self.past)
+    pub(crate) fn dropout_with_noise(
+        self,
+        shape: D,
+        p: f64,
+        noise: Rc<RefCell<Tensor<D>>>,
+        status: Rc<Cell<bool>>,
+    ) -> Var<D> {
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Dropout::new(self.data, data.clone(), p, noise, status);
+
+        Var::new(data, op, self.history)
     }
 
     /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
     /// remainder along each dimension that doesn’t fit evenly.
-    pub fn chunks<E: IntoDimension<Dim = T::Dim>>(self, chunk_size: E) -> Vec<Var<Chunk<T>>> {
-        self.node
-            .data()
+    pub fn chunks<E: IntoDimension<Dim = D>>(self, chunk_size: E) -> Vec<Var<D>> {
+        self.data
+            .borrow()
             .exact_chunks(chunk_size)
             .into_iter()
             .enumerate()
             .map(|(i, chunk)| {
-                Var::from(
-                    Chunk::new(self.node.clone(), chunk.to_owned(), i),
-                    self.past.clone(),
-                )
+                let data = Rc::new(RefCell::new(chunk.to_owned()));
+                let op = Chunk::new(self.data.clone(), data.clone(), i);
+
+                Var::new(data, op, self.history.clone())
             })
             .collect()
     }
 
     /// Returns a new variable with a dimension of size one inserted at the position specified by
     /// `axis`.
-    pub fn unsqueeze(self, axis: usize) -> Var<Unsqueeze<T>> {
-        Var::from(Unsqueeze::new(self.node, axis), self.past)
+    pub fn unsqueeze(self, axis: usize) -> Var<D::Larger> {
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape.insert_axis(Axis(axis)))));
+        let op = Unsqueeze::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<D> Var<dyn Data<Dim = D>>
+impl<D> Var<D>
 where
-    D: Dimension + RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
-    /// Concatenates the given sequence of non-differentiable variables `variables`, including
-    /// `self`, along the given axis, and returns a non-differentiable variable with the results.
+    /// Concatenates the given sequence of non-differentiable variables, including self`, along
+    /// the given axis, and returns a non-differentiable variable with the results.
     ///
     /// # Arguments
     ///
@@ -467,7 +461,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use neuronika::{self, Var};
+    /// use neuronika;
     /// use ndarray;
     ///
     ///
@@ -475,31 +469,33 @@ where
     /// let b = neuronika::full((3, 2), 4.);
     /// let c = neuronika::full((3, 2), 3.);
     ///
-    /// let mut d = Var::cat(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 1);
+    /// let mut d = a.cat(&[b, c], 1);
     /// d.forward();
     ///
     /// assert_eq!(*d.data(), ndarray::array![[1., 1., 4., 4., 3., 3.],
     ///                                       [1., 1., 4., 4., 3., 3.],
     ///                                       [1., 1., 4., 4., 3., 3.]]);
     /// ```
-    pub fn cat(variables: &[Self], axis: usize) -> Var<MultiConcatenate<D>> {
-        let mut operands = Vec::with_capacity(variables.len());
-        let mut past = variables[0].past.clone();
-        operands.push(variables[0].node.clone());
+    pub fn cat(mut self, variables: &[Self], axis: usize) -> Var<D> {
+        let mut operands_data = Vec::with_capacity(variables.len());
+        operands_data.push(self.data);
 
-        variables.iter().cloned().skip(1).for_each(|variable| {
-            past.merge(variable.past);
-            operands.push(variable.node);
+        variables.iter().cloned().for_each(|variable| {
+            self.history.merge(variable.history);
+            operands_data.push(variable.data);
         });
 
         let data = {
-            let tensors: Vec<Ref<Tensor<D>>> =
-                operands.iter().map(|operand| operand.data()).collect();
+            let tensors: Vec<Ref<Tensor<D>>> = operands_data
+                .iter()
+                .map(|operand| operand.borrow())
+                .collect();
             let views: Vec<_> = tensors.iter().map(|tensor| tensor.view()).collect();
-            concatenate(Axis(axis), &views).unwrap()
+            Rc::new(RefCell::new(concatenate(Axis(axis), &views).unwrap()))
         };
+        let op = MultiConcatenate::new(operands_data, data.clone(), axis);
 
-        Var::from(MultiConcatenate::new(operands, axis, data), past)
+        Var::new(data, op, self.history)
     }
 
     /// Stacks the given sequence of non-differentiable variables `variables`, including
@@ -521,7 +517,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use neuronika::{self, Var};
+    /// use neuronika;
     /// use ndarray;
     ///
     ///
@@ -529,7 +525,7 @@ where
     /// let b = neuronika::ones((2, 2));
     /// let c = neuronika::ones((2, 2));
     ///
-    /// let mut d = Var::stack(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 0);
+    /// let mut d = a.stack(&[b, c], 0);
     /// d.forward();
     ///
     /// assert_eq!(*d.data(), ndarray::array![[[1., 1.],
@@ -539,23 +535,26 @@ where
     ///                                       [[1., 1.],
     ///                                        [1., 1.]]]);
     /// ```
-    pub fn stack(variables: &[Self], axis: usize) -> Var<MultiStack<D>> {
-        let mut operands = Vec::with_capacity(variables.len());
-        let mut past = variables[0].past.clone();
-        operands.push(variables[0].node.clone());
+    pub fn stack(mut self, variables: &[Self], axis: usize) -> Var<D::Larger> {
+        let mut operands_data = Vec::with_capacity(variables.len());
+        operands_data.push(self.data);
 
-        variables.iter().cloned().skip(1).for_each(|variable| {
-            past.merge(variable.past);
-            operands.push(variable.node);
+        variables.iter().cloned().for_each(|variable| {
+            self.history.merge(variable.history);
+            operands_data.push(variable.data);
         });
 
         let data = {
-            let tensors: Vec<Ref<Tensor<D>>> =
-                operands.iter().map(|operand| operand.data()).collect();
+            let tensors: Vec<Ref<Tensor<D>>> = operands_data
+                .iter()
+                .map(|operand| operand.borrow())
+                .collect();
             let views: Vec<_> = tensors.iter().map(|tensor| tensor.view()).collect();
-            stack(Axis(axis), &views).unwrap()
+            Rc::new(RefCell::new(stack(Axis(axis), &views).unwrap()))
         };
-        Var::from(MultiStack::new(operands, axis, data), past)
+        let op = MultiStack::new(operands_data, data.clone(), axis);
+
+        Var::new(data, op, self.history)
     }
 }
 
@@ -565,48 +564,44 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Var - f32 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: ?Sized> Add<f32> for Var<T>
+impl<D> Add<f32> for Var<D>
 where
-    T: Data + 'static,
-    T::Dim: DimMax<Ix0>,
+    D: 'static + Dimension + DimMax<Ix0>,
 {
-    type Output = Var<Addition<T, Input<Ix0>>>;
+    type Output = Var<<D as DimMax<Ix0>>::Output>;
 
     fn add(self, rhs: f32) -> Self::Output {
         self + crate::full((), rhs)
     }
 }
 
-impl<T: ?Sized> Sub<f32> for Var<T>
+impl<D> Sub<f32> for Var<D>
 where
-    T: Data + 'static,
-    T::Dim: DimMax<Ix0>,
+    D: 'static + Dimension + DimMax<Ix0>,
 {
-    type Output = Var<Subtraction<T, Input<Ix0>>>;
+    type Output = Var<<D as DimMax<Ix0>>::Output>;
 
     fn sub(self, rhs: f32) -> Self::Output {
         self - crate::full((), rhs)
     }
 }
 
-impl<T: ?Sized> Mul<f32> for Var<T>
+impl<D> Mul<f32> for Var<D>
 where
-    T: Data + 'static,
-    T::Dim: DimMax<Ix0>,
+    D: 'static + Dimension + DimMax<Ix0>,
 {
-    type Output = Var<Multiplication<T, Input<Ix0>>>;
+    type Output = Var<<D as DimMax<Ix0>>::Output>;
 
     fn mul(self, rhs: f32) -> Self::Output {
         self * crate::full((), rhs)
     }
 }
 
-impl<T: ?Sized> Div<f32> for Var<T>
+impl<D> Div<f32> for Var<D>
 where
-    T: Data + 'static,
-    T::Dim: DimMax<Ix0>,
+    D: 'static + Dimension + DimMax<Ix0>,
 {
-    type Output = Var<Division<T, Input<Ix0>>>;
+    type Output = Var<<D as DimMax<Ix0>>::Output>;
 
     fn div(self, rhs: f32) -> Self::Output {
         self / crate::full((), rhs)
@@ -615,192 +610,235 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ f32 - Var ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: ?Sized> Add<Var<T>> for f32
+impl<D> Add<Var<D>> for f32
 where
-    T: Data + 'static,
-    Ix0: DimMax<T::Dim>,
+    D: 'static + Dimension,
+    Ix0: DimMax<D>,
 {
-    type Output = Var<Addition<Input<Ix0>, T>>;
+    type Output = Var<<Ix0 as DimMax<D>>::Output>;
 
-    fn add(self, rhs: Var<T>) -> Self::Output {
+    fn add(self, rhs: Var<D>) -> Self::Output {
         crate::full((), self) + rhs
     }
 }
 
-impl<T: ?Sized> Sub<Var<T>> for f32
+impl<D> Sub<Var<D>> for f32
 where
-    T: Data + 'static,
-    Ix0: DimMax<T::Dim>,
+    D: 'static + Dimension,
+    Ix0: DimMax<D>,
 {
-    type Output = Var<Subtraction<Input<Ix0>, T>>;
+    type Output = Var<<Ix0 as DimMax<D>>::Output>;
 
-    fn sub(self, rhs: Var<T>) -> Self::Output {
+    fn sub(self, rhs: Var<D>) -> Self::Output {
         crate::full((), self) - rhs
     }
 }
 
-impl<T: ?Sized> Mul<Var<T>> for f32
+impl<D> Mul<Var<D>> for f32
 where
-    T: Data + 'static,
-    Ix0: DimMax<T::Dim>,
+    D: 'static + Dimension,
+    Ix0: DimMax<D>,
 {
-    type Output = Var<Multiplication<Input<Ix0>, T>>;
+    type Output = Var<<Ix0 as DimMax<D>>::Output>;
 
-    fn mul(self, rhs: Var<T>) -> Self::Output {
+    fn mul(self, rhs: Var<D>) -> Self::Output {
         crate::full((), self) * rhs
     }
 }
 
-impl<T: ?Sized> Div<Var<T>> for f32
+impl<D> Div<Var<D>> for f32
 where
-    T: Data + 'static,
-    Ix0: DimMax<T::Dim>,
+    D: 'static + Dimension,
+    Ix0: DimMax<D>,
 {
-    type Output = Var<Division<Input<Ix0>, T>>;
+    type Output = Var<<Ix0 as DimMax<D>>::Output>;
 
-    fn div(self, rhs: Var<T>) -> Self::Output {
+    fn div(self, rhs: Var<D>) -> Self::Output {
         crate::full((), self) / rhs
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Negation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: ?Sized> Neg for Var<T>
+impl<D> Neg for Var<D>
 where
-    T: Data + 'static,
+    D: 'static + Dimension,
 {
-    type Output = Var<Negation<T>>;
+    type Output = Var<D>;
 
     fn neg(self) -> Self::Output {
-        Var::from(Negation::new(self.node), self.past)
+        let shape = self.data.borrow().raw_dim();
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = Negation::new(self.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Addition ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs: ?Sized, Rhs: ?Sized> Add<Var<Rhs>> for Var<Lhs>
+impl<D, E> Add<Var<E>> for Var<D>
 where
-    Lhs: Data + 'static,
-    Rhs: Data + 'static,
-    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = Var<Addition<Lhs, Rhs>>;
+    type Output = Var<<D as DimMax<E>>::Output>;
 
-    fn add(mut self, rhs: Var<Rhs>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(Addition::new(self.node, rhs.node), self.past)
+    fn add(mut self, rhs: Var<E>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let data = Rc::new(RefCell::new(cobroadcasted_zeros(
+            &self.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let op = Addition::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Add<VarDiff<F2, B2>> for Var<F1>
+impl<D, E> Add<VarDiff<E>> for Var<D>
 where
-    F1: Data + 'static,
-    F2: Data + 'static,
-    B2: Gradient + Overwrite + 'static,
-    F1::Dim: Dimension + DimMax<F2::Dim>,
-    B2::Dim: Dimension + DimMax<F1::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = VarDiff<Addition<F1, F2>, AdditionBackwardUnary<B2, F1>>;
+    type Output = VarDiff<<D as DimMax<E>>::Output>;
 
-    fn add(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = AdditionBackwardUnary::new(rhs.node, self.node.clone());
-        VarDiff::from(node, rhs.past, self.add(rhs.var))
+    fn add(self, rhs: VarDiff<E>) -> Self::Output {
+        let array = cobroadcasted_zeros(&self.data.borrow(), &rhs.var.data.borrow());
+        let shape = array.raw_dim();
+        let gradient = Rc::new(RefCell::new(Some(array)));
+        let op = AdditionBackwardRight::<D, E>::new(rhs.gradient, gradient.clone(), shape);
+
+        VarDiff::new(self.add(rhs.var), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Subtraction ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs: ?Sized, Rhs: ?Sized> Sub<Var<Rhs>> for Var<Lhs>
+impl<D, E> Sub<Var<E>> for Var<D>
 where
-    Lhs: Data + 'static,
-    Rhs: Data + 'static,
-    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = Var<Subtraction<Lhs, Rhs>>;
+    type Output = Var<<D as DimMax<E>>::Output>;
 
-    fn sub(mut self, rhs: Var<Rhs>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(Subtraction::new(self.node, rhs.node), self.past)
+    fn sub(mut self, rhs: Var<E>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let data = Rc::new(RefCell::new(cobroadcasted_zeros(
+            &self.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let op = Subtraction::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Sub<VarDiff<F2, B2>> for Var<F1>
+impl<D, E> Sub<VarDiff<E>> for Var<D>
 where
-    F1: Data + 'static,
-    F2: Data + 'static,
-    B2: Gradient + Overwrite + 'static,
-    F1::Dim: Dimension + DimMax<F2::Dim>,
-    B2::Dim: Dimension + DimMax<F1::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = VarDiff<Subtraction<F1, F2>, SubtractionBackwardRight<B2, F1>>;
+    type Output = VarDiff<<D as DimMax<E>>::Output>;
 
-    fn sub(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = SubtractionBackwardRight::new(rhs.node, self.node.clone());
-        VarDiff::from(node, rhs.past, self.sub(rhs.var))
+    fn sub(self, rhs: VarDiff<E>) -> Self::Output {
+        let array = cobroadcasted_zeros(&self.data.borrow(), &rhs.var.data.borrow());
+        let shape = array.raw_dim();
+        let gradient = Rc::new(RefCell::new(Some(array)));
+        let op = SubtractionBackwardRight::<D, E>::new(rhs.gradient, gradient.clone(), shape);
+
+        VarDiff::new(self.sub(rhs.var), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs: ?Sized, Rhs: ?Sized> Mul<Var<Rhs>> for Var<Lhs>
+impl<D, E> Mul<Var<E>> for Var<D>
 where
-    Lhs: Data + 'static,
-    Rhs: Data + 'static,
-    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = Var<Multiplication<Lhs, Rhs>>;
+    type Output = Var<<D as DimMax<E>>::Output>;
 
-    fn mul(mut self, rhs: Var<Rhs>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(Multiplication::new(self.node, rhs.node), self.past)
+    fn mul(mut self, rhs: Var<E>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let data = Rc::new(RefCell::new(cobroadcasted_zeros(
+            &self.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let op = Multiplication::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Mul<VarDiff<F2, B2>> for Var<F1>
+impl<D, E> Mul<VarDiff<E>> for Var<D>
 where
-    F1: Data + 'static,
-    F2: Data + 'static,
-    B2: Gradient + Overwrite + 'static,
-    F1::Dim: Dimension + DimMax<F2::Dim>,
-    B2::Dim: Dimension + DimMax<F1::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = VarDiff<Multiplication<F1, F2>, MultiplicationBackwardUnary<B2, F1>>;
+    type Output = VarDiff<<D as DimMax<E>>::Output>;
 
-    fn mul(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = MultiplicationBackwardUnary::new(rhs.node, self.node.clone());
-        VarDiff::from(node, rhs.past, self.mul(rhs.var))
+    fn mul(self, rhs: VarDiff<E>) -> Self::Output {
+        let array = cobroadcasted_zeros(&self.data.borrow(), &rhs.var.data.borrow());
+        let shape = array.raw_dim();
+        let gradient = Rc::new(RefCell::new(Some(array.clone())));
+        let buffer = Rc::new(RefCell::new(Some(array)));
+        let op = MultiplicationBackwardRight::new(
+            self.data.clone(),
+            rhs.gradient,
+            gradient.clone(),
+            shape,
+            buffer,
+        );
+
+        VarDiff::new(self.mul(rhs.var), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Division ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<Lhs: ?Sized, Rhs: ?Sized> Div<Var<Rhs>> for Var<Lhs>
+impl<D, E> Div<Var<E>> for Var<D>
 where
-    Lhs: Data + 'static,
-    Rhs: Data + 'static,
-    Lhs::Dim: Dimension + DimMax<Rhs::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = Var<Division<Lhs, Rhs>>;
+    type Output = Var<<D as DimMax<E>>::Output>;
 
-    fn div(mut self, rhs: Var<Rhs>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(Division::new(self.node, rhs.node), self.past)
+    fn div(mut self, rhs: Var<E>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let data = Rc::new(RefCell::new(cobroadcasted_zeros(
+            &self.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let op = Division::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Div<VarDiff<F2, B2>> for Var<F1>
+impl<D, E> Div<VarDiff<E>> for Var<D>
 where
-    F1: Data + 'static,
-    F2: Data + 'static,
-    B2: Gradient + Overwrite + 'static,
-    F1::Dim: Dimension + DimMax<F2::Dim>,
-    F1::Dim: Dimension + DimMax<B2::Dim>,
+    D: 'static + Dimension + DimMax<E>,
+    E: 'static + Dimension,
 {
-    type Output = VarDiff<Division<F1, F2>, DivisionBackwardRight<F1, F2, B2>>;
+    type Output = VarDiff<<D as DimMax<E>>::Output>;
 
-    fn div(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = DivisionBackwardRight::new(self.node.clone(), rhs.var.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.div(rhs.var))
+    fn div(self, rhs: VarDiff<E>) -> Self::Output {
+        let array = cobroadcasted_zeros(&self.data.borrow(), &rhs.var.data.borrow());
+        let shape = array.raw_dim();
+        let gradient = Rc::new(RefCell::new(Some(array.clone())));
+        let buffer = Rc::new(RefCell::new(Some(array)));
+        let op = DivisionBackwardRight::new(
+            self.data.clone(),
+            rhs.var.data.clone(),
+            rhs.gradient,
+            gradient.clone(),
+            shape,
+            buffer,
+        );
+
+        VarDiff::new(self.div(rhs.var), gradient, op, rhs.history)
     }
 }
 
@@ -810,146 +848,158 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1: ?Sized, F2: ?Sized> MatMatMul<Var<F2>> for Var<F1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-{
-    type Output = Var<MatrixMatrixMul<F1, F2>>;
+impl MatMatMul<Var<Ix2>> for Var<Ix2> {
+    type Output = Var<Ix2>;
 
-    fn mm(mut self, rhs: Var<F2>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(MatrixMatrixMul::new(self.node, rhs.node), self.past)
+    fn mm(mut self, rhs: Var<Ix2>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let shape = DotDim::shape(self.data.borrow().raw_dim(), rhs.data.borrow().raw_dim());
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = MatrixMatrixMul::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> MatMatMul<VarDiff<F2, B2>> for Var<F1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
-{
-    type Output = VarDiff<MatrixMatrixMul<F1, F2>, MatrixMatrixMulBackwardRight<F1, B2>>;
+impl MatMatMul<VarDiff<Ix2>> for Var<Ix2> {
+    type Output = VarDiff<Ix2>;
 
-    fn mm(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = MatrixMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mm(rhs.var))
+    fn mm(self, rhs: VarDiff<Ix2>) -> Self::Output {
+        let shape = DotDim::shape(self.data.borrow().raw_dim(), rhs.var.data().raw_dim());
+        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
+        let op = MatrixMatrixMulBackwardRight::new(
+            self.data.clone(),
+            rhs.gradient,
+            gradient.clone(),
+            shape,
+        );
+
+        VarDiff::new(self.mm(rhs.var), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition  ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1: ?Sized, F2: ?Sized> MatMatMulT<Var<F2>> for Var<F1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-{
-    type Output = Var<MatrixMatrixMulT<F1, F2>>;
+impl MatMatMulT<Var<Ix2>> for Var<Ix2> {
+    type Output = Var<Ix2>;
 
-    fn mm_t(mut self, rhs: Var<F2>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(MatrixMatrixMulT::new(self.node, rhs.node), self.past)
+    fn mm_t(mut self, rhs: Var<Ix2>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let shape = DotDim::shape(
+            self.data.borrow().raw_dim(),
+            rhs.data.borrow().t().raw_dim(),
+        );
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = MatrixMatrixMulT::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> MatMatMulT<VarDiff<F2, B2>> for Var<F1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
-{
-    type Output = VarDiff<MatrixMatrixMulT<F1, F2>, MatrixMatrixMulTBackwardRight<F1, B2>>;
+impl MatMatMulT<VarDiff<Ix2>> for Var<Ix2> {
+    type Output = VarDiff<Ix2>;
 
-    fn mm_t(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = MatrixMatrixMulTBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mm_t(rhs.var))
+    fn mm_t(self, rhs: VarDiff<Ix2>) -> Self::Output {
+        let shape = DotDim::shape(self.data.borrow().raw_dim(), rhs.var.data().raw_dim());
+        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
+        let op = MatrixMatrixMulTBackwardRight::new(
+            self.data.clone(),
+            rhs.gradient,
+            gradient.clone(),
+            shape,
+        );
+
+        VarDiff::new(self.mm_t(rhs.var), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1: ?Sized, F2: ?Sized> MatVecMul<Var<F2>> for Var<F1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    F2: Data<Dim = Ix1> + 'static,
-{
-    type Output = Var<MatrixVectorMul<F1, F2>>;
+impl MatVecMul<Var<Ix1>> for Var<Ix2> {
+    type Output = Var<Ix1>;
 
-    fn mv(mut self, rhs: Var<F2>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(MatrixVectorMul::new(self.node, rhs.node), self.past)
+    fn mv(mut self, rhs: Var<Ix1>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let shape = DotDim::shape(self.data.borrow().raw_dim(), rhs.data.borrow().raw_dim());
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = MatrixVectorMul::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> MatVecMul<VarDiff<F2, B2>> for Var<F1>
-where
-    F1: Data<Dim = Ix2> + 'static,
-    F2: Data<Dim = Ix1> + 'static,
-    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
-{
-    type Output = VarDiff<MatrixVectorMul<F1, F2>, MatrixVectorMulBackwardRight<F1, B2>>;
+impl MatVecMul<VarDiff<Ix1>> for Var<Ix2> {
+    type Output = VarDiff<Ix1>;
 
-    fn mv(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = MatrixVectorMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.mv(rhs.var))
+    fn mv(self, rhs: VarDiff<Ix1>) -> Self::Output {
+        let shape = DotDim::shape(self.data.borrow().raw_dim(), rhs.var.data().raw_dim());
+        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
+        let op = MatrixVectorMulBackwardRight::new(
+            self.data.clone(),
+            rhs.gradient,
+            gradient.clone(),
+            shape,
+        );
+
+        VarDiff::new(self.mv(rhs.var), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorMatrixMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1: ?Sized, F2: ?Sized> VecMatMul<Var<F2>> for Var<F1>
-where
-    F1: Data<Dim = Ix1> + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-{
-    type Output = Var<VectorMatrixMul<F1, F2>>;
+impl VecMatMul<Var<Ix2>> for Var<Ix1> {
+    type Output = Var<Ix1>;
 
-    fn vm(mut self, rhs: Var<F2>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(VectorMatrixMul::new(self.node, rhs.node), self.past)
+    fn vm(mut self, rhs: Var<Ix2>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let shape = DotDim::shape(self.data.borrow().raw_dim(), rhs.data.borrow().raw_dim());
+        let data = Rc::new(RefCell::new(Tensor::zeros(shape)));
+        let op = VectorMatrixMul::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> VecMatMul<VarDiff<F2, B2>> for Var<F1>
-where
-    F1: Data<Dim = Ix1> + 'static,
-    F2: Data<Dim = Ix2> + 'static,
-    B2: Gradient<Dim = Ix2> + Overwrite + 'static,
-{
-    type Output = VarDiff<VectorMatrixMul<F1, F2>, VectorMatrixMulBackwardRight<F1, B2>>;
+impl VecMatMul<VarDiff<Ix2>> for Var<Ix1> {
+    type Output = VarDiff<Ix1>;
 
-    fn vm(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = VectorMatrixMulBackwardRight::new(self.node.clone(), rhs.node);
-        VarDiff::from(node, rhs.past, self.vm(rhs.var))
+    fn vm(self, rhs: VarDiff<Ix2>) -> Self::Output {
+        let shape = DotDim::shape(self.data.borrow().raw_dim(), rhs.var.data().raw_dim());
+        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
+        let op = VectorMatrixMulBackwardRight::new(
+            self.data.clone(),
+            rhs.gradient,
+            gradient.clone(),
+            shape,
+        );
+
+        VarDiff::new(self.vm(rhs.var), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ VectorVectorMul ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1: ?Sized, F2: ?Sized> VecVecMul<Var<F2>> for Var<F1>
-where
-    F1: Data<Dim = Ix1> + 'static,
-    F2: Data<Dim = Ix1> + 'static,
-{
-    type Output = Var<VectorVectorMul<F1, F2>>;
+impl VecVecMul<Var<Ix1>> for Var<Ix1> {
+    type Output = Var<Ix0>;
 
-    fn vv(mut self, rhs: Var<F2>) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(VectorVectorMul::new(self.node, rhs.node), self.past)
+    fn vv(mut self, rhs: Var<Ix1>) -> Self::Output {
+        self.history.merge(rhs.history);
+        let data = Rc::new(RefCell::new(arr0(0.)));
+        let op = VectorVectorMul::new(self.data, rhs.data, data.clone());
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> VecVecMul<VarDiff<F2, B2>> for Var<F1>
-where
-    F1: Data<Dim = Ix1> + 'static,
-    F2: Data<Dim = Ix1> + 'static,
-    B2: Gradient<Dim = Ix1> + Overwrite + 'static,
-{
-    type Output = VarDiff<VectorVectorMul<F1, F2>, VectorVectorMulBackwardUnary<B2, F1>>;
+impl VecVecMul<VarDiff<Ix1>> for Var<Ix1> {
+    type Output = VarDiff<Ix0>;
 
-    fn vv(self, rhs: VarDiff<F2, B2>) -> Self::Output {
-        let node = VectorVectorMulBackwardUnary::new(rhs.node, self.node.clone());
-        VarDiff::from(node, rhs.past, self.vv(rhs.var))
+    fn vv(self, rhs: VarDiff<Ix1>) -> Self::Output {
+        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(()))));
+        let op =
+            VectorVectorMulBackwardUnary::new(self.data.clone(), rhs.gradient, gradient.clone());
+
+        VarDiff::new(self.vv(rhs.var), gradient, op, rhs.history)
     }
 }
 
@@ -959,121 +1009,150 @@ where
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Concatenate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1: ?Sized, F2: ?Sized> Cat<Var<F2>> for Var<F1>
+impl<D> Cat<Var<D>> for Var<D>
 where
-    F1: Data + 'static,
-    F2: Data<Dim = F1::Dim> + 'static,
-    F1::Dim: RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
-    type Output = Var<Concatenate<F1, F2>>;
+    type Output = Var<D>;
 
-    fn cat(mut self, rhs: Var<F2>, axis: usize) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(Concatenate::new(self.node, rhs.node, axis), self.past)
+    fn cat(mut self, rhs: Var<D>, axis: usize) -> Self::Output {
+        self.history.merge(rhs.history);
+        let data = Rc::new(RefCell::new(
+            concatenate(
+                Axis(axis),
+                &[
+                    Tensor::zeros(self.data.borrow().raw_dim()).view(),
+                    Tensor::zeros(rhs.data.borrow().raw_dim()).view(),
+                ],
+            )
+            .unwrap(),
+        ));
+        let op = Concatenate::new(self.data, rhs.data, data.clone(), axis);
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Cat<VarDiff<F2, B2>> for Var<F1>
+impl<D> Cat<VarDiff<D>> for Var<D>
 where
-    F1: Data<Dim = B2::Dim> + 'static,
-    F2: Data<Dim = F1::Dim> + 'static,
-    B2: Gradient + Overwrite + 'static,
-    F1::Dim: RemoveAxis,
-    B2::Dim: RemoveAxis,
+    D: Dimension + RemoveAxis,
 {
-    type Output = VarDiff<Concatenate<F1, F2>, ConcatenateBackwardRight<B2>>;
+    type Output = VarDiff<D>;
 
-    fn cat(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
-        let node = ConcatenateBackwardRight::new(self.node.clone(), rhs.node, axis);
-        VarDiff::from(node, rhs.past, Cat::cat(self, rhs.var, axis))
+    fn cat(self, rhs: VarDiff<D>, axis: usize) -> Self::Output {
+        let array = concatenate(
+            Axis(axis),
+            &[
+                Tensor::zeros(self.data.borrow().raw_dim()).view(),
+                Tensor::zeros(rhs.var.data.borrow().raw_dim()).view(),
+            ],
+        )
+        .unwrap();
+        let shape = array.raw_dim();
+        let gradient = Rc::new(RefCell::new(Some(array)));
+        let offset = self.data.borrow().len_of(Axis(axis));
+        let op = ConcatenateBackwardRight::new(rhs.gradient, gradient.clone(), shape, offset, axis);
+
+        VarDiff::new(Cat::cat(self, rhs.var, axis), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<F1: ?Sized, F2: ?Sized> Stack<Var<F2>> for Var<F1>
+impl<D> Stack<Var<D>> for Var<D>
 where
-    F1: Data + 'static,
-    F2: Data<Dim = F1::Dim> + 'static,
-    F1::Dim: RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
-    type Output = Var<super::node::Stack<F1, F2>>;
+    type Output = Var<D::Larger>;
 
-    fn stack(mut self, rhs: Var<F2>, axis: usize) -> Self::Output {
-        self.past.merge(rhs.past);
-        Var::from(
-            super::node::Stack::new(self.node, rhs.node, axis),
-            self.past,
-        )
+    fn stack(mut self, rhs: Var<D>, axis: usize) -> Self::Output {
+        self.history.merge(rhs.history);
+        let data = Rc::new(RefCell::new(
+            stack(
+                Axis(axis),
+                &[
+                    Tensor::zeros(self.data.borrow().raw_dim()).view(),
+                    Tensor::zeros(rhs.data.borrow().raw_dim()).view(),
+                ],
+            )
+            .unwrap(),
+        ));
+        let op = super::node::Stack::new(self.data, rhs.data, data.clone(), axis);
+
+        Var::new(data, op, self.history)
     }
 }
 
-impl<F1: ?Sized, F2: ?Sized, B2: ?Sized> Stack<VarDiff<F2, B2>> for Var<F1>
+impl<D> Stack<VarDiff<D>> for Var<D>
 where
-    F1: Data + 'static,
-    F2: Data<Dim = F1::Dim> + 'static,
-    B2: Gradient<Dim = F1::Dim> + Overwrite + 'static,
-    B2::Dim: RemoveAxis,
-    F1::Dim: RemoveAxis,
+    D: Dimension + RemoveAxis,
 {
-    type Output = VarDiff<super::node::Stack<F1, F2>, StackBackwardRight<B2>>;
+    type Output = VarDiff<D::Larger>;
 
-    fn stack(self, rhs: VarDiff<F2, B2>, axis: usize) -> Self::Output {
-        let node = StackBackwardRight::new(self.node.clone(), rhs.node, axis);
-        VarDiff::from(node, rhs.past, Stack::stack(self, rhs.var, axis))
+    fn stack(self, rhs: VarDiff<D>, axis: usize) -> Self::Output {
+        let array = stack(
+            Axis(axis),
+            &[
+                Tensor::zeros(self.data.borrow().raw_dim()).view(),
+                Tensor::zeros(rhs.var.data.borrow().raw_dim()).view(),
+            ],
+        )
+        .unwrap();
+        let shape = array.raw_dim();
+        let gradient = Rc::new(RefCell::new(Some(array)));
+        let op = StackBackwardRight::new(rhs.gradient, gradient.clone(), shape, axis);
+
+        VarDiff::new(Stack::stack(self, rhs.var, axis), gradient, op, rhs.history)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: ?Sized> Debug for Var<T>
+impl<D> Debug for Var<D>
 where
-    T: Data + Debug,
+    D: 'static + Dimension,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Var")
-            .field("node", &self.node)
-            .field("past", &self.past.len())
-            .finish()
+        Debug::fmt(&self.data.borrow(), f)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Display ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-impl<T: ?Sized> Display for Var<T>
+impl<D> Display for Var<D>
 where
-    T: Data + Display,
+    D: 'static + Dimension,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.node)
+        write!(f, "{}", self.data.borrow())
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Serialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(feature = "serialize")]
-impl<D> Serialize for Var<Input<D>>
+impl<D> Serialize for Var<D>
 where
-    D: Dimension + Serialize,
+    D: 'static + Dimension + Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        self.data().serialize(serializer)
+        self.data.borrow().serialize(serializer)
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Deserialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[cfg(feature = "serialize")]
-impl<'d, D> Deserialize<'d> for Var<Input<D>>
+impl<'d, D> Deserialize<'d> for Var<D>
 where
-    D: Dimension + Deserialize<'d>,
+    D: 'static + Dimension + Deserialize<'d>,
 {
     fn deserialize<De>(deserializer: De) -> Result<Self, De::Error>
     where
         De: Deserializer<'d>,
     {
         let data = ndarray::Array::<f32, D>::deserialize(deserializer).unwrap();
-        Ok(Input::new(data))
+        Ok(Self::leaf(data))
     }
 }

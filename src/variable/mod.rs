@@ -2,259 +2,136 @@ mod node;
 mod var;
 mod vardiff;
 
-use ndarray::{ArrayViewMutD, Ix, RawArrayViewMut};
 use std::{
-    cell::{Ref, RefCell},
-    collections::{BTreeMap, HashSet},
-    hash::{Hash, Hasher},
-    rc::Rc,
+    cell::{RefCell, RefMut},
+    collections::BTreeMap,
 };
+
 pub use var::Var;
 pub use vardiff::VarDiff;
 
 pub(crate) use node::*;
 pub use node::{
-    Backward, Cache, Constant, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, Input,
-    InputBackward, Overwrite, PaddingMode, Reflective, Replicative, Zero,
+    Backward,
+    /*Constant, Convolve, ConvolveWithGroups,*/
+    Forward, /*PaddingMode, Reflective, Replicative, Zero,*/
 };
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Global Var Identifier ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// Keeps track of each operations. It is also used to provide an identifier to computational nodes.
-pub(crate) struct OperationsCounter {
-    count: usize,
-}
-
-impl OperationsCounter {
-    pub fn next(&mut self) -> usize {
-        self.count += 1;
-        self.count
-    }
-}
-
-pub(crate) static mut OPERATIONS_COUNTER: OperationsCounter = OperationsCounter { count: 0 };
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Histories ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ History ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#[derive(Clone)]
-/// The computational forward-history of a variable. It keeps track of the computation up to the
-/// variable to whom the struct belongs.
-pub struct VarHistory {
-    path: BTreeMap<usize, Rc<dyn Forward>>,
-    buffer: RefCell<Vec<Rc<dyn Forward>>>,
-    changeables: HashSet<Changeable>,
-}
+/// Id of an operation in the tape. The first component is the address of the struct and the second
+/// is the size of the history at insertion. The former is unique, the latter enforces order.
+#[derive(Copy, Clone, Eq)]
+struct HistoryId((usize, usize));
 
-impl VarHistory {
-    /// Returns a new, empty, `VarHistory`.
-    pub(crate) fn new() -> Self {
-        Self {
-            path: BTreeMap::new(),
-            buffer: RefCell::new(Vec::new()),
-            changeables: HashSet::new(),
-        }
-    }
-
-    /// Merges `self` and `other`. This is equivalent to a set-intersection.
-    ///
-    /// # Arguments
-    ///
-    /// `other` - other VarHistory.
-    pub(crate) fn merge(&mut self, mut other: VarHistory) {
-        self.path.append(&mut other.path);
-    }
-
-    /// Appends a new forward computational node to `self`. The new node has id `id`.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - id of the new node.
-    /// * `next` - node to append.
-    pub(crate) fn append_forward(&mut self, id: usize, next: Rc<dyn Forward>) {
-        self.path.insert(id, next);
-        self.buffer.borrow_mut().truncate(0);
-    }
-
-    /// Appends a new eval computational node to `self`. The new node has id `id`.
-    ///
-    /// # Arguments
-    ///
-    /// * `next` - node to append.
-    pub(crate) fn append_changeable(&mut self, next: Changeable) {
-        self.changeables.insert(next);
-    }
-
-    /// Returns the length of the forward path.
-    pub(crate) fn len(&self) -> usize {
-        self.path.len()
-    }
-
-    /// Returns `true` if the forward path contains no node.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.path.is_empty()
-    }
-
-    /// Prepares the buffer. Clones and transfers the content of the forward path
-    /// into a vector. Such vector will be used to perform the actual forward pass.
-    pub(crate) fn prepare_buffer(&self) {
-        if self.buffer.borrow().is_empty() {
-            *self.buffer.borrow_mut() = self.path.values().cloned().collect();
-        }
-    }
-
-    /// Returns a reference to the buffer.
-    pub(crate) fn buffer(&self) -> Ref<[Rc<dyn Forward>]> {
-        Ref::map(self.buffer.borrow(), |vec| &vec[..])
+impl HistoryId {
+    fn new(ptr: usize, order: usize) -> Self {
+        Self((ptr, order))
     }
 }
 
-#[derive(Clone)]
-/// The computational backward-history of a variable. It keeps track of the computation up to the
-/// variable to whom the struct belongs.
-pub struct VarDiffHistory {
-    path: BTreeMap<usize, Rc<dyn Backward>>,
-    buffer: RefCell<Vec<Rc<dyn Backward>>>,
-    parameters: HashSet<RawParam>,
-}
-
-impl VarDiffHistory {
-    /// Returns a new, empty, `VarDiffHistory` with  parameters `parameters`.
-    ///
-    /// # Arguments
-    ///
-    /// ` parameters` - parameters to store.
-    pub(crate) fn new(parameters: HashSet<RawParam>) -> Self {
-        Self {
-            path: BTreeMap::new(),
-            buffer: RefCell::new(Vec::new()),
-            parameters,
-        }
-    }
-
-    /// Merges `self` and `other`. This is equivalent to a set-intersection.
-    ///
-    /// # Arguments
-    ///
-    /// `other` - other VarDiffHistory.
-    pub(crate) fn merge(&mut self, mut other: VarDiffHistory) {
-        self.path.append(&mut other.path);
-        self.parameters.extend(other.parameters);
-    }
-
-    /// Appends a new backward computational node to `self`. The new node has id `id`.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - id of the new node.
-    /// * `next` - node to append.
-    pub(crate) fn append_backward(&mut self, id: usize, next: Rc<dyn Backward>) {
-        self.path.insert(id, next);
-        self.buffer.borrow_mut().truncate(0);
-    }
-
-    /// Returns the length of the backward path.
-    pub(crate) fn len(&self) -> usize {
-        self.path.len()
-    }
-
-    /// Returns `true` if the backward path contains no node.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.path.is_empty()
-    }
-
-    /// Prepares the buffer. Clones and transfers the content of the backward path
-    /// into a vector. Such vector will be used to perform the actual backward pass.
-    pub(crate) fn prepare_buffer(&self) {
-        if self.buffer.borrow().is_empty() {
-            *self.buffer.borrow_mut() = self.path.values().cloned().collect();
-        }
-    }
-
-    /// Returns a reference to the buffer.
-    pub(crate) fn buffer(&self) -> Ref<[Rc<dyn Backward>]> {
-        Ref::map(self.buffer.borrow(), |vec| &vec[..])
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ RawParam Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-/// A builder of mutable views over a differentiable variable's data and gradient.
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct RawParam {
-    data: *mut f32,
-    grad: *mut f32,
-    shape: Vec<Ix>,
-}
-
-impl RawParam {
-    pub(crate) fn new(data: *mut f32, grad: *mut f32, shape: Vec<Ix>) -> Self {
-        Self { data, grad, shape }
-    }
-
-    /// Consumes the RawParam, yielding mutable views over the data and the gradient of the
-    /// differentiable variable that it refers to. The lifetime `'a` is for the
-    /// scope of the borrow.
-    pub(crate) fn into_param<'a>(self) -> Param<'a> {
-        let shape = self.shape;
-
-        unsafe {
-            let raw_data = RawArrayViewMut::from_shape_ptr(shape.clone(), self.data);
-            let raw_grad = RawArrayViewMut::from_shape_ptr(shape, self.grad);
-            let data = raw_data.deref_into_view_mut();
-            let grad = raw_grad.deref_into_view_mut();
-            Param { data, grad }
-        }
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Param Struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-/// Mutable views over a differentiable variable's data and gradient.
-///
-/// See also [`.parameters()`] and [`ModelStatus`] for more details.
-///
-///
-/// The views are [`ndarray::ArrayViewMutD`].
-///
-/// [`ndarray::ArrayViewMutD`]: ndarray::ArrayViewMutD
-///
-/// [`.parameters()`]: VarDiff::parameters()
-/// [`ModelStatus`]: crate::nn::ModelStatus
-#[derive(Debug)]
-pub struct Param<'a> {
-    pub data: ArrayViewMutD<'a, f32>,
-    pub grad: ArrayViewMutD<'a, f32>,
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Changeable struct ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-#[derive(Clone)]
-/// Hashable and comparable wrapper for a computational node that implements the `Eval` trait.
-pub(super) struct Changeable {
-    id: usize,
-    node: Rc<dyn Eval>,
-}
-
-impl PartialEq for Changeable {
+impl PartialEq for HistoryId {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        let Self((lhs_ptr, _)) = self;
+        let Self((rhs_ptr, _)) = other;
+
+        lhs_ptr == rhs_ptr
     }
 }
 
-impl Eq for Changeable {}
+impl Ord for HistoryId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let Self((lhs_ptr, lhs_order)) = self;
+        let Self((rhs_ptr, rhs_order)) = other;
 
-impl Hash for Changeable {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        // equal only if the pointer is the same
+        if lhs_ptr == rhs_ptr {
+            return std::cmp::Ordering::Equal;
+        }
+
+        // same ordering but not equal is ok
+        if lhs_order == rhs_order {
+            return std::cmp::Ordering::Less;
+        }
+
+        lhs_order.cmp(&rhs_order)
+    }
+}
+
+impl PartialOrd for HistoryId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct History<T>
+where
+    T: Clone,
+{
+    path: BTreeMap<HistoryId, T>,
+    buffer: RefCell<Vec<T>>,
+}
+
+impl<T> History<T>
+where
+    T: Clone,
+{
+    /// Performs the merge between this history and another one.
+    ///
+    /// # Arguments
+    ///
+    /// `other` - other history.
+    pub(crate) fn merge(&mut self, mut other: Self) {
+        self.path.append(&mut other.path);
+    }
+
+    /// Appends a new computation to the history.
+    ///
+    /// # Arguments
+    ///
+    /// * `ptr` - address of the new node.
+    ///
+    /// * `op` - computation to append.
+    pub(crate) fn insert(&mut self, ptr: usize, op: T) {
+        let id = HistoryId::new(ptr, self.path.len());
+
+        self.path.insert(id, op);
+        self.buffer.borrow_mut().truncate(0);
+    }
+
+    /// Returns the length of the history.
+    pub(crate) fn len(&self) -> usize {
+        self.path.len()
+    }
+
+    /// Returns the length of the buffered history.
+    pub(crate) fn buffer_len(&self) -> usize {
+        self.buffer.borrow().len()
+    }
+
+    /// Returns the content of the tape in a vector.
+    pub(crate) fn to_vec(&self) -> Vec<T> {
+        self.path.values().cloned().collect()
+    }
+
+    /// Returns a reference to the buffer.
+    pub(crate) fn buffer_mut(&self) -> RefMut<Vec<T>> {
+        self.buffer.borrow_mut()
+    }
+}
+
+impl<T> Default for History<T>
+where
+    T: Clone,
+{
+    fn default() -> Self {
+        let path = BTreeMap::new();
+        let buffer = RefCell::new(Vec::new());
+
+        Self { path, buffer }
     }
 }
 

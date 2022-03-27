@@ -1,76 +1,93 @@
 #[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-use super::{
-    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Eval, Forward, Gradient, Overwrite,
-    Tensor,
-};
-use ndarray::Zip;
+use super::{assert_almost_equals, new_tensor};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use ndarray::{Dimension, Zip};
 use rand::thread_rng;
 use rand_distr::{Bernoulli, Distribution};
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
-    fmt::{Debug, Display},
+    cell::{Cell, RefCell},
     rc::Rc,
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Dropout ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Dropout<T: ?Sized>
+pub struct Dropout<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    operand: Rc<T>,
-    data: RefCell<Tensor<T::Dim>>,
-    noise: RefCell<Tensor<T::Dim>>,
+    operand_data: Rc<RefCell<Tensor<D>>>,
+    data: Rc<RefCell<Tensor<D>>>,
+    noise: Rc<RefCell<Tensor<D>>>,
     distr: Bernoulli,
     p: f64,
     computed: Cell<bool>,
-    train: Rc<Cell<bool>>,
+    status: Rc<Cell<bool>>,
 }
 
-impl<T: ?Sized> Dropout<T>
+impl<D> Dropout<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    pub fn new(operand: Rc<T>, p: f64, status: Rc<Cell<bool>>) -> Self {
+    pub fn new(
+        operand_data: Rc<RefCell<Tensor<D>>>,
+        data: Rc<RefCell<Tensor<D>>>,
+        p: f64,
+        noise: Rc<RefCell<Tensor<D>>>,
+        status: Rc<Cell<bool>>,
+    ) -> Self {
         if !(0. ..=1.).contains(&p) {
             panic!(
-                "error: dropout probability has to be between 0 and 1, but got {}.",
+                "Dropout probability has to be between 0 and 1, but got {}.",
                 p
             );
         }
 
-        let (data, noise) = (
-            RefCell::new(Tensor::zeros(operand.data().raw_dim())),
-            RefCell::new(Tensor::zeros(operand.data().raw_dim())),
-        );
         let distr = Bernoulli::new(1. - p).unwrap();
 
         Self {
-            operand,
+            operand_data,
             data,
             noise,
             distr,
             p,
-            computed: Cell::new(false),
-            train: status,
+            computed: Cell::default(),
+            status,
         }
-    }
-
-    pub(crate) fn noise(&self) -> Ref<Tensor<T::Dim>> {
-        self.noise.borrow()
-    }
-
-    pub(crate) fn status(&self) -> Rc<Cell<bool>> {
-        self.train.clone()
     }
 }
 
-impl<T: ?Sized> Cache for Dropout<T>
+impl<D> Forward for Dropout<D>
 where
-    T: Data,
+    D: Dimension,
 {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        if self.status.get() {
+            let mut thread_rng = thread_rng();
+            let (mut noise, distr, p) = (self.noise.borrow_mut(), &self.distr, &self.p);
+            if 1.0 - self.p <= f64::EPSILON {
+                Zip::from(&mut *self.data.borrow_mut()).for_each(|data_el| *data_el = 0.0);
+            } else if *p <= f64::EPSILON {
+                Zip::from(&mut *self.data.borrow_mut())
+                    .and(&*self.operand_data.borrow())
+                    .for_each(|data_el, operand_data_el| *data_el = *operand_data_el);
+            } else {
+                Zip::from(&mut *noise)
+                    .for_each(|noise_el| *noise_el = distr.sample(&mut thread_rng) as i32 as f32);
+                Zip::from(&mut *self.data.borrow_mut())
+                    .and(&*self.operand_data.borrow())
+                    .and(&*noise)
+                    .for_each(|data_el, operand_data_el, noise_el| {
+                        *data_el = (operand_data_el * noise_el) / (1. - *p as f32)
+                    });
+            }
+        } else {
+            self.data.borrow_mut().assign(&*self.operand_data.borrow());
+        }
+    }
+
     fn was_computed(&self) -> bool {
         self.computed.get()
     }
@@ -80,202 +97,63 @@ where
     }
 }
 
-impl<T: ?Sized> Forward for Dropout<T>
+pub struct DropoutBackward<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    fn forward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.computed.set(true);
-        if self.train.get() {
-            let mut thread_rng = thread_rng();
-            let (mut noise, distr, p) = (self.noise.borrow_mut(), &self.distr, &self.p);
-            if (*p - 1.).abs() <= f64::EPSILON {
-                Zip::from(&mut *self.data.borrow_mut()).for_each(|data_el| *data_el = 0.0);
-            } else if *p <= f64::EPSILON {
-                Zip::from(&mut *self.data.borrow_mut())
-                    .and(&*self.operand.data())
-                    .for_each(|data_el, operand_data_el| *data_el = *operand_data_el);
-            } else {
-                Zip::from(&mut *noise)
-                    .for_each(|noise_el| *noise_el = distr.sample(&mut thread_rng) as i32 as f32);
-                Zip::from(&mut *self.data.borrow_mut())
-                    .and(&*self.operand.data())
-                    .and(&*noise)
-                    .for_each(|data_el, operand_data_el, noise_el| {
-                        *data_el = (operand_data_el * noise_el) / (1. - *p as f32)
-                    });
-            }
-        } else {
-            self.data.borrow_mut().assign(&*self.operand.data());
-        }
-    }
-}
-
-impl<T: ?Sized> Data for Dropout<T>
-where
-    T: Data,
-{
-    type Dim = T::Dim;
-
-    fn data(&self) -> Ref<Tensor<Self::Dim>> {
-        self.data.borrow()
-    }
-
-    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.data.borrow_mut()
-    }
-}
-
-impl<T: ?Sized> Eval for Dropout<T>
-where
-    T: Data,
-{
-    fn train(&self) {
-        self.train.set(true);
-    }
-
-    fn eval(&self) {
-        self.train.set(false);
-    }
-}
-
-impl<T: ?Sized> Debug for Dropout<T>
-where
-    T: Data,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Dropout")
-            .field("data", &self.data.borrow())
-            .field("p", &self.p)
-            .field("noise", &self.noise.borrow())
-            .field("train", &self.train.get())
-            .field("computed", &self.computed.get())
-            .finish()
-    }
-}
-
-impl<T: ?Sized> Display for Dropout<T>
-where
-    T: Data,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", &self.data.borrow())
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DropoutBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct DropoutBackward<T: ?Sized, U: ?Sized>
-where
-    T: Gradient,
-    U: Data<Dim = T::Dim>,
-{
-    gradient: RefCell<Option<Tensor<T::Dim>>>,
-    shape: T::Dim,
-    overwrite: Cell<bool>,
-    diff_operand: Rc<T>,
-    no_diff_operand: Rc<Dropout<U>>,
+    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    shape: D,
+    noise: Rc<RefCell<Tensor<D>>>,
     p: f64,
-    train: Rc<Cell<bool>>,
+    status: Rc<Cell<bool>>,
 }
 
-impl<T: ?Sized, U: ?Sized> DropoutBackward<T, U>
+impl<D> DropoutBackward<D>
 where
-    T: Gradient,
-    U: Data<Dim = T::Dim>,
+    D: Dimension,
 {
     pub fn new(
-        diff_operand: Rc<T>,
-        no_diff_operand: Rc<Dropout<U>>,
+        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        shape: D,
+        noise: Rc<RefCell<Tensor<D>>>,
         p: f64,
-        forward_status: Rc<Cell<bool>>,
-    ) -> DropoutBackward<T, U> {
-        let shape = diff_operand.gradient().raw_dim();
-
+        status: Rc<Cell<bool>>,
+    ) -> Self {
         Self {
-            gradient: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            operand_gradient,
+            gradient,
             shape,
-            overwrite: Cell::new(true),
-            diff_operand,
-            no_diff_operand,
+            noise,
             p,
-            train: forward_status,
+            status,
         }
     }
 }
 
-impl<T: ?Sized, U: ?Sized> Gradient for DropoutBackward<T, U>
+impl<D> Backward for DropoutBackward<D>
 where
-    T: Gradient,
-    U: Data<Dim = T::Dim>,
-{
-    type Dim = T::Dim;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        expect_tensor(&self.gradient)
-    }
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        expect_tensor_mut(&self.gradient)
-    }
-}
-
-impl<T: ?Sized, U: ?Sized> Overwrite for DropoutBackward<T, U>
-where
-    T: Gradient,
-    U: Data<Dim = T::Dim>,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
-    }
-
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
-    }
-}
-
-impl<T: ?Sized, U: ?Sized> Backward for DropoutBackward<T, U>
-where
-    T: Gradient,
-    U: Data<Dim = T::Dim>,
+    D: Dimension,
 {
     fn backward(&self) {
-        if self.train.get() {
-            let mut op_grad = self.diff_operand.gradient_mut();
-            let grad = self.gradient();
-            let p = &self.p;
-            if (*p - 1.).abs() <= f64::EPSILON {
-                if self.diff_operand.can_overwrite() {
-                    Zip::from(&mut *op_grad).for_each(|op_grad_el| *op_grad_el = 0.);
-                    self.diff_operand.set_overwrite(false);
-                }
-            } else if *p <= f64::EPSILON {
-                let zip = Zip::from(&mut *op_grad).and(&*grad);
-                if self.diff_operand.can_overwrite() {
-                    zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el);
-                    self.diff_operand.set_overwrite(false);
-                } else {
-                    zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
-                }
-            } else {
-                let noise = self.no_diff_operand.noise();
-                let zip = Zip::from(&mut *op_grad).and(&*grad).and(&*noise);
-                if self.diff_operand.can_overwrite() {
-                    zip.for_each(|op_grad_el, grad_el, noise_el| *op_grad_el = *grad_el * noise_el);
-                    self.diff_operand.set_overwrite(false);
-                } else {
-                    zip.for_each(|op_grad_el, grad_el, noise_el| {
-                        *op_grad_el += *grad_el * noise_el
-                    });
-                }
+        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
+        let gradient = expect_tensor(&self.gradient);
+
+        if self.status.get() {
+            if self.p <= f64::EPSILON {
+                Zip::from(&mut *operand_gradient)
+                    .and(&*gradient)
+                    .for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el);
+            } else if 1.0 - self.p > f64::EPSILON {
+                let noise = self.noise.borrow();
+                Zip::from(&mut *operand_gradient)
+                    .and(&*gradient)
+                    .and(&*noise)
+                    .for_each(|op_grad_el, grad_el, noise_el| *op_grad_el += *grad_el * noise_el);
             }
         } else {
-            self.diff_operand.gradient_mut().assign(&*self.gradient());
+            *operand_gradient += &*gradient;
         }
     }
 
@@ -288,35 +166,8 @@ where
     }
 }
 
-impl<T: ?Sized, U: ?Sized> Debug for DropoutBackward<T, U>
-where
-    T: Gradient,
-    U: Data<Dim = T::Dim>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DropoutBackward")
-            .field("gradient", &self.gradient.borrow())
-            .field("p", &self.p)
-            .field("overwrite", &self.overwrite.get())
-            .finish()
-    }
-}
-
-impl<T: ?Sized, U: ?Sized> Display for DropoutBackward<T, U>
-where
-    T: Gradient,
-    U: Data<Dim = T::Dim>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &*self.gradient.borrow() {
-            Some(gradient) => write!(f, "{}", &gradient),
-            None => write!(f, "None"),
-        }
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[cfg(test)]
-mod test;
+// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// #[cfg(test)]
+// mod test;

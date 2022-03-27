@@ -4,14 +4,10 @@ mod matrix_vector_mul;
 mod vector_matrix_mul;
 mod vector_vector_mul;
 
-use super::{
-    expect_tensor, expect_tensor_mut, push_mat_mat_gradient, push_mat_vec_gradient,
-    push_vec_mat_gradient, push_vec_vec_gradient, Backward, Cache, Data, DotDim, Forward, Gradient,
-    Overwrite, Tensor,
-};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
 
 #[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
+use super::{assert_almost_equals, new_tensor};
 
 pub(crate) use matrix_matrix_mul::{
     MatrixMatrixMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,

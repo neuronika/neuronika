@@ -1,210 +1,210 @@
-//! The `neuronika` crate provides auto-differentiation and dynamic neural networks.
-//!
-//! Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
-//! use, fast experimentation and performance.
-//!
-//! # Highlights
-//!
-//! * Define by run computational graphs.
-//! * Reverse-mode automatic differentiation.
-//! * Dynamic neural networks.
-//!
-//! # Variables
-//!
-//! The main building blocks of neuronika are *variables* and *differentiable variables*.
-//! This means that when using this crate you will be handling and manipulating instances of [`Var`]
-//! and [`VarDiff`].
-//!
-//! Variables are lean and powerful abstractions over the computational graph's nodes. Neuronika
-//! empowers you with the ability of imperatively building and differentiating such graphs with
-//! minimal amount of code and effort.
-//!
-//! Both differentiable and non-differentiable variables can be understood as *tensors*. You
-//! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
-//! Refer to [`Var`] and [`VarDiff`] for a complete list of the available operations.
-//!
-//! It is important to note that cloning variables is extremely memory efficient as only a shallow
-//! copy is returned. Cloning a variable is thus the way to go if you need to use it several times.
-//!
-//! The provided API is linear in thought and minimal as it is carefully tailored around you, the
-//! user.
-//!
-//! ### Quickstart
-//!
-//! If you’re familiar with Pytorch or Numpy, you will easily follow these example. If not, brace
-//! yourself and follow along.
-//!
-//! First thing first, you should import neuronika.
-//!
-//! ```
-//! use neuronika;
-//! ```
-//!
-//! Neuronika's variables are designed to work with the [`f32`] data type, although this may change in
-//! the future, and can be initialized in many ways. In the following, we will show some of
-//! the possible alternatives:
-//!
-//! **With random or constant values**:
-//!
-//! Here `shape` determines the dimensionality of the output variable.
-//! ```
-//! let shape = [3, 4];
-//!
-//! let rand_variable = neuronika::rand(shape);
-//! let ones_variable = neuronika::ones(shape);
-//! let constant_variable = neuronika::full(shape, 7.);
-//!
-//! print!("Full variable:\n{}", constant_variable);
-//! ```
-//!
-//! Out:
-//!
-//! ```text
-//! [[7, 7, 7, 7],
-//! [7, 7, 7, 7],
-//! [7, 7, 7, 7]]
-//! ```
-//!
-//! **From a ndarray array**
-//!
-//! ```
-//! use ndarray::array;
-//!
-//! let array = array![1., 2.];
-//! let x_ndarray = neuronika::from_ndarray(array);
-//!
-//! print!("From ndarray:\n{}", x_ndarray);
-//! ```
-//! Out:
-//!
-//! ```text
-//! [1, 2]
-//! ```
-//!
-//! Accessing the underlying data is possible by using [`.data()`](crate::Data):
-//!
-//! ```
-//! let dim = (2, 2);
-//!
-//! let x = neuronika::rand(dim);
-//!
-//! assert_eq!(x.data().dim(), dim);
-//! ```
-//!
-//! ## Leaf Variables
-//!
-//! You can create leaf variables by using one of the many provided functions, such as [`zeros()`],
-//! [`ones()`], [`full()`] and [`rand()`]. Refer to the [complete list](#functions) for additional
-//! information.
-//!
-//! Leaf variables are so called because they form the *leaves* of the computational graph, as are
-//! not the result of any computation.
-//!
-//! Every leaf variable is by default created as non-differentiable, to promote it to a
-//! *differentiable* leaf, i. e. a variable for which you can compute the gradient, you can use
-//! [`.requires_grad()`](Var::requires_grad()).
-//!
-//! Differentiable leaf variables are leaves that have been promoted. You will encounter them
-//! very often in your journey through neuronika as they are the the main components of the
-//! neural networks' building blocks. To learn more in detail about those check the
-//! [`nn`](module@nn) module.
-//!
-//! Differentiable leaves hold a gradient, you can access it with [`.grad()`](VarDiff::grad()).
-//!
-//! ## Differentiability Arithmetic
-//!
-//! As stated before, you can manipulate variables by performing operations on them; the results of
-//! those computations will also be variables, although not leaf ones.
-//!
-//! The result of an operation between two differentiable variables will also be a differentiable
-//! variable and the converse holds for non-differentiable variables. However, things behave
-//! slightly differently when an operation is performed between a non-differentiable variable and a
-//! differentiable one, as the resulting variable will be differentiable.
-//!
-//! You can think of differentiability as a *sticky* property. The table that follows is a summary
-//! of how differentiability is broadcasted through variables.
-//!
-//!  **Operands** | Var     | VarDiff
-//! --------------|---------|---------
-//!  **Var**      | Var     | VarDiff
-//!  **VarDiff**  | VarDiff | VarDiff
-//!
-//!
-//! ## Differentiable Ancestors
-//!
-//! The differentiable ancestors of a variable are the differentiable leaves of the graph involved
-//! in its computation. Obviously, only [`VarDiff`] can have a set of ancestors.
-//!
-//! You can gain access, via mutable views, to all the ancestors of a variable by iterating through
-//! the vector of [`Param`] returned by [`.parameters()`](VarDiff::parameters()).
-//! To gain more insights about the role that such components fulfil in neuronika feel free to check
-//! the [`optim`] module.
-//!
-//! # Computational Graph
-//!
-//! A computational graph is implicitly created as you write your program. You can differentiate it
-//! with respect to some of the differentiable leaves, thus populating their gradients, by using
-//! [`.backward()`](VarDiff::backward()).
-//!
-//! It is important to note that the computational graph is *lazily* evaluated, this means that
-//! neuronika decouples the construction of the graph from the actual computation of the nodes'
-//! values. You must use `.forward()` in order to obtain the actual result of the computation.
-//!
-//!```
-//! # #[cfg(feature = "blas")]
-//! # extern crate blas_src;
-//!use neuronika;
-//!
-//!let x = neuronika::rand(5);      //----+
-//!let q = neuronika::rand((5, 5)); //    |- Those lines build the graph.
-//!                                 //    |
-//!let y = x.clone().vm(q).vv(x);   //----+
-//!                                 //
-//!y.forward();                     // After .forward() is called y contains the result.
-//!```
-//!
-//! ## Freeing and keeping the graph
-//!
-//! By default, computational graphs will persist in the program's memory. If you want or need to be
-//! more conservative about that you can wrap any arbitrary subset of the computations in an inner
-//! scope. This allows for the corresponding portion of the graph to be freed when the end of
-//! the scope is reached by the execution of your program.
-//!
-//!```
-//! # #[cfg(feature = "blas")]
-//! # extern crate blas_src;
-//!use neuronika;
-//!
-//!let w = neuronika::rand((3, 3)).requires_grad(); // -----------------+
-//!let b = neuronika::rand(3).requires_grad();      //                  |
-//!let x = neuronika::rand((10, 3));                // -----------------+- Leaves are created
-//!                                                 //                  
-//!{                                                // ---+             
-//!     let h = x.mm(w.t()) + b;                    //    | w's and b's
-//!     h.forward();                                //    | grads are   
-//!     h.backward(1.0);                            //    | accumulated
-//!}                                                // ---+             |- Graph is freed and
-//!                                                 // -----------------+  only leaves remain
-//!```
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/neuronika/neuronika/main/misc/neuronika_brain.svg"
-)]
-#![doc(
-    html_favicon_url = "https://raw.githubusercontent.com/neuronika/neuronika/main/misc/neuronika_brain.ico"
-)]
+// //! The `neuronika` crate provides auto-differentiation and dynamic neural networks.
+// //!
+// //! Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
+// //! use, fast experimentation and performance.
+// //!
+// //! # Highlights
+// //!
+// //! * Define by run computational graphs.
+// //! * Reverse-mode automatic differentiation.
+// //! * Dynamic neural networks.
+// //!
+// //! # Variables
+// //!
+// //! The main building blocks of neuronika are *variables* and *differentiable variables*.
+// //! This means that when using this crate you will be handling and manipulating instances of [`Var`]
+// //! and [`VarDiff`].
+// //!
+// //! Variables are lean and powerful abstractions over the computational graph's nodes. Neuronika
+// //! empowers you with the ability of imperatively building and differentiating such graphs with
+// //! minimal amount of code and effort.
+// //!
+// //! Both differentiable and non-differentiable variables can be understood as *tensors*. You
+// //! can perform all the basic arithmetic operations on them, such as: `+`, `-`, `*` and `/`.
+// //! Refer to [`Var`] and [`VarDiff`] for a complete list of the available operations.
+// //!
+// //! It is important to note that cloning variables is extremely memory efficient as only a shallow
+// //! copy is returned. Cloning a variable is thus the way to go if you need to use it several times.
+// //!
+// //! The provided API is linear in thought and minimal as it is carefully tailored around you, the
+// //! user.
+// //!
+// //! ### Quickstart
+// //!
+// //! If you’re familiar with Pytorch or Numpy, you will easily follow these example. If not, brace
+// //! yourself and follow along.
+// //!
+// //! First thing first, you should import neuronika.
+// //!
+// //! ```
+// //! use neuronika;
+// //! ```
+// //!
+// //! Neuronika's variables are designed to work with the [`f32`] data type, although this may change in
+// //! the future, and can be initialized in many ways. In the following, we will show some of
+// //! the possible alternatives:
+// //!
+// //! **With random or constant values**:
+// //!
+// //! Here `shape` determines the dimensionality of the output variable.
+// //! ```
+// //! let shape = [3, 4];
+// //!
+// //! let rand_variable = neuronika::rand(shape);
+// //! let ones_variable = neuronika::ones(shape);
+// //! let constant_variable = neuronika::full(shape, 7.);
+// //!
+// //! print!("Full variable:\n{}", constant_variable);
+// //! ```
+// //!
+// //! Out:
+// //!
+// //! ```text
+// //! [[7, 7, 7, 7],
+// //! [7, 7, 7, 7],
+// //! [7, 7, 7, 7]]
+// //! ```
+// //!
+// //! **From a ndarray array**
+// //!
+// //! ```
+// //! use ndarray::array;
+// //!
+// //! let array = array![1., 2.];
+// //! let x_ndarray = neuronika::from_ndarray(array);
+// //!
+// //! print!("From ndarray:\n{}", x_ndarray);
+// //! ```
+// //! Out:
+// //!
+// //! ```text
+// //! [1, 2]
+// //! ```
+// //!
+// //! Accessing the underlying data is possible by using [`.data()`](crate::Data):
+// //!
+// //! ```
+// //! let dim = (2, 2);
+// //!
+// //! let x = neuronika::rand(dim);
+// //!
+// //! assert_eq!(x.data().dim(), dim);
+// //! ```
+// //!
+// //! ## Leaf Variables
+// //!
+// //! You can create leaf variables by using one of the many provided functions, such as [`zeros()`],
+// //! [`ones()`], [`full()`] and [`rand()`]. Refer to the [complete list](#functions) for additional
+// //! information.
+// //!
+// //! Leaf variables are so called because they form the *leaves* of the computational graph, as are
+// //! not the result of any computation.
+// //!
+// //! Every leaf variable is by default created as non-differentiable, to promote it to a
+// //! *differentiable* leaf, i. e. a variable for which you can compute the gradient, you can use
+// //! [`.requires_grad()`](Var::requires_grad()).
+// //!
+// //! Differentiable leaf variables are leaves that have been promoted. You will encounter them
+// //! very often in your journey through neuronika as they are the the main components of the
+// //! neural networks' building blocks. To learn more in detail about those check the
+// //! [`nn`](module@nn) module.
+// //!
+// //! Differentiable leaves hold a gradient, you can access it with [`.grad()`](VarDiff::grad()).
+// //!
+// //! ## Differentiability Arithmetic
+// //!
+// //! As stated before, you can manipulate variables by performing operations on them; the results of
+// //! those computations will also be variables, although not leaf ones.
+// //!
+// //! The result of an operation between two differentiable variables will also be a differentiable
+// //! variable and the converse holds for non-differentiable variables. However, things behave
+// //! slightly differently when an operation is performed between a non-differentiable variable and a
+// //! differentiable one, as the resulting variable will be differentiable.
+// //!
+// //! You can think of differentiability as a *sticky* property. The table that follows is a summary
+// //! of how differentiability is broadcasted through variables.
+// //!
+// //!  **Operands** | Var     | VarDiff
+// //! --------------|---------|---------
+// //!  **Var**      | Var     | VarDiff
+// //!  **VarDiff**  | VarDiff | VarDiff
+// //!
+// //!
+// //! ## Differentiable Ancestors
+// //!
+// //! The differentiable ancestors of a variable are the differentiable leaves of the graph involved
+// //! in its computation. Obviously, only [`VarDiff`] can have a set of ancestors.
+// //!
+// //! You can gain access, via mutable views, to all the ancestors of a variable by iterating through
+// //! the vector of [`Param`] returned by [`.parameters()`](VarDiff::parameters()).
+// //! To gain more insights about the role that such components fulfil in neuronika feel free to check
+// //! the [`optim`] module.
+// //!
+// //! # Computational Graph
+// //!
+// //! A computational graph is implicitly created as you write your program. You can differentiate it
+// //! with respect to some of the differentiable leaves, thus populating their gradients, by using
+// //! [`.backward()`](VarDiff::backward()).
+// //!
+// //! It is important to note that the computational graph is *lazily* evaluated, this means that
+// //! neuronika decouples the construction of the graph from the actual computation of the nodes'
+// //! values. You must use `.forward()` in order to obtain the actual result of the computation.
+// //!
+// //!```
+// //! # #[cfg(feature = "blas")]
+// //! # extern crate blas_src;
+// //!use neuronika;
+// //!
+// //!let x = neuronika::rand(5);      //----+
+// //!let q = neuronika::rand((5, 5)); //    |- Those lines build the graph.
+// //!                                 //    |
+// //!let y = x.clone().vm(q).vv(x);   //----+
+// //!                                 //
+// //!y.forward();                     // After .forward() is called y contains the result.
+// //!```
+// //!
+// //! ## Freeing and keeping the graph
+// //!
+// //! By default, computational graphs will persist in the program's memory. If you want or need to be
+// //! more conservative about that you can wrap any arbitrary subset of the computations in an inner
+// //! scope. This allows for the corresponding portion of the graph to be freed when the end of
+// //! the scope is reached by the execution of your program.
+// //!
+// //!```
+// //! # #[cfg(feature = "blas")]
+// //! # extern crate blas_src;
+// //!use neuronika;
+// //!
+// //!let w = neuronika::rand((3, 3)).requires_grad(); // -----------------+
+// //!let b = neuronika::rand(3).requires_grad();      //                  |
+// //!let x = neuronika::rand((10, 3));                // -----------------+- Leaves are created
+// //!                                                 //
+// //!{                                                // ---+
+// //!     let h = x.mm(w.t()) + b;                    //    | w's and b's
+// //!     h.forward();                                //    | grads are
+// //!     h.backward(1.0);                            //    | accumulated
+// //!}                                                // ---+             |- Graph is freed and
+// //!                                                 // -----------------+  only leaves remain
+// //!```
+// #![doc(
+//     html_logo_url = "https://raw.githubusercontent.com/neuronika/neuronika/main/misc/neuronika_brain.svg"
+// )]
+// #![doc(
+//     html_favicon_url = "https://raw.githubusercontent.com/neuronika/neuronika/main/misc/neuronika_brain.ico"
+// )]
 
-pub mod data;
-pub mod nn;
-pub mod optim;
+// pub mod data;
+// pub mod nn;
+// pub mod optim;
 mod variable;
+
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 pub use variable::{
-    Backward, Cache, Cat, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, MatMatMul,
-    MatMatMulT, MatVecMul, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
+    Backward, Cat, /*Convolve, ConvolveWithGroups*/ Forward, MatMatMul, MatMatMulT, MatVecMul,
+    Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
-use variable::{Input, InputBackward};
 
 /// Creates a variable from a **[ndarray]** array that owns its data.
 ///
@@ -219,13 +219,14 @@ use variable::{Input, InputBackward};
 ///
 /// assert_eq!(*t.data(), a);
 /// ```
-pub fn from_ndarray<D: Dimension>(array: Array<f32, D>) -> Var<Input<D>> {
-    Input::new(array)
+pub fn from_ndarray<D>(array: Array<f32, D>) -> Var<D>
+where
+    D: Dimension,
+{
+    Var::leaf(array)
 }
 
 /// Creates a variable with zeroed data.
-///
-/// The shape is of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
@@ -239,13 +240,15 @@ pub fn from_ndarray<D: Dimension>(array: Array<f32, D>) -> Var<Input<D>> {
 /// assert_eq!(t2.data().shape(), &[1, 5]);
 /// assert_eq!(t3.data().shape(), &[1, 2, 3]);
 /// ```
-pub fn zeros<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>> {
-    Input::new(Array::from_elem(shape, 0.0))
+pub fn zeros<D, Sh>(shape: Sh) -> Var<D>
+where
+    D: Dimension,
+    Sh: ShapeBuilder<Dim = D>,
+{
+    Var::leaf(Array::from_elem(shape, 0.0))
 }
 
 /// Creates a variable with data filled with ones.
-///
-/// The shape is of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
@@ -259,13 +262,15 @@ pub fn zeros<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>
 /// assert_eq!(t2.data().shape(), &[1, 5]);
 /// assert_eq!(t3.data().shape(), &[1, 2, 3]);
 /// ```
-pub fn ones<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>> {
-    Input::new(Array::from_elem(shape, 1.0))
+pub fn ones<D, Sh>(shape: Sh) -> Var<D>
+where
+    D: Dimension,
+    Sh: ShapeBuilder<Dim = D>,
+{
+    Var::leaf(Array::from_elem(shape, 1.0))
 }
 
 /// Creates a variable with data filled with a constant value.
-///
-/// `el` must be `f32` and the shape of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
@@ -279,13 +284,15 @@ pub fn ones<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
 /// assert_eq!(t2.data().shape(), &[1, 5]);
 /// assert_eq!(t3.data().shape(), &[1, 2, 3]);
 /// ```
-pub fn full<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh, elem: f32) -> Var<Input<D>> {
-    Input::new(Array::from_elem(shape, elem))
+pub fn full<D, Sh>(shape: Sh, elem: f32) -> Var<D>
+where
+    D: Dimension,
+    Sh: ShapeBuilder<Dim = D>,
+{
+    Var::leaf(Array::from_elem(shape, elem))
 }
 
 /// Creates a variable with values sampled from a uniform distribution on the interval *[0,1)*.
-///
-/// The shape is of type [`ndarray::ShapeBuilder`].
 ///
 /// # Examples
 ///
@@ -295,8 +302,12 @@ pub fn full<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh, elem: f32) -> Va
 ///
 /// assert_eq!(t.data().shape(), &[4, 5, 6]);
 /// ```
-pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>> {
-    Input::new(Array::random(shape, Uniform::new(0., 1.)))
+pub fn rand<D, Sh>(shape: Sh) -> Var<D>
+where
+    D: Dimension,
+    Sh: ShapeBuilder<Dim = D>,
+{
+    Var::leaf(Array::random(shape, Uniform::new(0., 1.)))
 }
 
 /// Creates a variable with an identity matrix of size *n*.
@@ -314,8 +325,8 @@ pub fn rand<D: Dimension, Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Var<Input<D>>
 /// let tensor = neuronika::eye(3);
 /// assert_eq!(*tensor.data(), Array2::eye(3));
 /// ```
-pub fn eye(n: usize) -> Var<Input<Ix2>> {
-    Input::new(Array2::eye(n))
+pub fn eye(n: usize) -> Var<Ix2> {
+    Var::leaf(Array2::eye(n))
 }
 
 /// Creates a one-dimensional variable with *n* evenly spaced elements.
@@ -337,8 +348,8 @@ pub fn eye(n: usize) -> Var<Input<Ix2>> {
 /// let tensor = neuronika::linspace(0., 1., 5);
 /// assert!(*tensor.data() == arr1(&[0.0, 0.25, 0.5, 0.75, 1.0]))
 /// ```
-pub fn linspace(start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
-    Input::new(Array::linspace(start, end, n))
+pub fn linspace(start: f32, end: f32, n: usize) -> Var<Ix1> {
+    Var::leaf(Array::linspace(start, end, n))
 }
 
 /// Creates a one-dimensional variable with *n* logarithmically spaced elements.
@@ -352,8 +363,8 @@ pub fn linspace(start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
 /// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
 ///
 /// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
-pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
-    Input::new(Array::logspace(base, start, end, n))
+pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Ix1> {
+    Var::leaf(Array::logspace(base, start, end, n))
 }
 
 /// Creates a one-dimensional variable with *n* geometrically spaced elements.
@@ -368,8 +379,8 @@ pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Input<Ix1>> {
 /// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
 ///
 /// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
-pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
-    Array::geomspace(start, end, n).map(Input::new)
+pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Ix1>> {
+    Array::geomspace(start, end, n).map(Var::leaf)
 }
 
 /// Creates a one-dimensional variable with elements from *start* to *end* spaced by *step*.
@@ -392,8 +403,8 @@ pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Input<Ix1>>> {
 /// let tensor = neuronika::range(0., 5., 1.);
 /// assert!(*tensor.data() == arr1(&[0., 1., 2., 3., 4.]))
 /// ```
-pub fn range(start: f32, end: f32, step: f32) -> Var<Input<Ix1>> {
-    Input::new(Array::range(start, end, step))
+pub fn range(start: f32, end: f32, step: f32) -> Var<Ix1> {
+    Var::leaf(Array::range(start, end, step))
 }
 
 /// Concatenates the variables `lhs` and `rhs` along `axis`.

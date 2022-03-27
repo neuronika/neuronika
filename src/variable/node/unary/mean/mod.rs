@@ -1,43 +1,47 @@
 #[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-use super::{
-    expect_tensor, expect_tensor_mut, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
-};
-use ndarray::{arr0, Ix0, Zip};
+use super::{assert_almost_equals, new_tensor};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use ndarray::{arr0, Dimension, Ix0, Zip};
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
-    fmt::{Debug, Display},
+    cell::{Cell, RefCell},
     rc::Rc,
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Mean ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct Mean<T: ?Sized>
+pub struct Mean<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    operand: Rc<T>,
-    data: RefCell<Tensor<Ix0>>,
+    operand_data: Rc<RefCell<Tensor<D>>>,
+    data: Rc<RefCell<Tensor<Ix0>>>,
     computed: Cell<bool>,
 }
 
-impl<T: ?Sized + Data> Mean<T> {
-    pub fn new(operand: Rc<T>) -> Self {
-        let data = RefCell::new(arr0(0.));
-
+impl<D> Mean<D>
+where
+    D: Dimension,
+{
+    pub fn new(operand_data: Rc<RefCell<Tensor<D>>>, data: Rc<RefCell<Tensor<Ix0>>>) -> Self {
         Self {
-            operand,
+            operand_data,
             data,
-            computed: Cell::new(false),
+            computed: Cell::default(),
         }
     }
 }
 
-impl<T: ?Sized> Cache for Mean<T>
+impl<D> Forward for Mean<D>
 where
-    T: Data,
+    D: Dimension,
 {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
+
+        self.computed.set(true);
+        *self.data.borrow_mut() = arr0(self.operand_data.borrow().mean().unwrap());
+    }
+
     fn was_computed(&self) -> bool {
         self.computed.get()
     }
@@ -47,125 +51,41 @@ where
     }
 }
 
-impl<T: ?Sized> Forward for Mean<T>
+pub struct MeanBackward<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    fn forward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.computed.set(true);
-        *self.data.borrow_mut() = arr0(self.operand.data().mean().unwrap());
-    }
+    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
 }
 
-impl<T: ?Sized> Data for Mean<T>
+impl<D> MeanBackward<D>
 where
-    T: Data,
+    D: Dimension,
 {
-    type Dim = Ix0;
-
-    fn data(&self) -> Ref<Tensor<Self::Dim>> {
-        self.data.borrow()
-    }
-
-    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.data.borrow_mut()
-    }
-}
-
-impl<T: ?Sized> Debug for Mean<T>
-where
-    T: Data,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Mean")
-            .field("data", &self.data.borrow())
-            .field("computed", &self.computed.get())
-            .finish()
-    }
-}
-
-impl<T: ?Sized> Display for Mean<T>
-where
-    T: Data,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", &self.data.borrow())
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MeanBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MeanBackward<T: ?Sized>
-where
-    T: Gradient,
-{
-    gradient: RefCell<Option<Tensor<Ix0>>>,
-    overwrite: Cell<bool>,
-    operand: Rc<T>,
-}
-
-impl<T: ?Sized> MeanBackward<T>
-where
-    T: Gradient,
-{
-    pub fn new(operand: Rc<T>) -> Self {
+    pub fn new(
+        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
+    ) -> Self {
         Self {
-            operand,
-            gradient: RefCell::new(Some(arr0(0.))),
-            overwrite: Cell::new(true),
+            operand_gradient,
+            gradient,
         }
     }
 }
 
-impl<T: ?Sized> Gradient for MeanBackward<T>
+impl<D> Backward for MeanBackward<D>
 where
-    T: Gradient,
-{
-    type Dim = Ix0;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        expect_tensor(&self.gradient)
-    }
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        expect_tensor_mut(&self.gradient)
-    }
-}
-
-impl<T: ?Sized> Overwrite for MeanBackward<T>
-where
-    T: Gradient,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
-    }
-
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
-    }
-}
-
-impl<T: ?Sized> Backward for MeanBackward<T>
-where
-    T: Gradient,
+    D: Dimension,
 {
     fn backward(&self) {
-        let numel = self.operand.gradient().len() as f32;
-        let mut op_grad = self.operand.gradient_mut();
-        let grad = self.gradient();
+        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
+        let gradient = expect_tensor(&self.gradient);
+        let den = operand_gradient.len() as f32;
 
-        let zip = Zip::from(&mut *op_grad).and_broadcast(&*grad);
-        if self.operand.can_overwrite() {
-            zip.for_each(|op_grad_el, grad_el| *op_grad_el = *grad_el / numel);
-            self.operand.set_overwrite(false);
-        } else {
-            zip.for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el / numel);
-        }
+        Zip::from(&mut *operand_gradient)
+            .and_broadcast(&*gradient)
+            .for_each(|op_grad_el, grad_el| *op_grad_el += *grad_el / den);
     }
 
     fn no_grad(&self) {
@@ -177,32 +97,8 @@ where
     }
 }
 
-impl<T: ?Sized> Debug for MeanBackward<T>
-where
-    T: Gradient,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeanBackward")
-            .field("gradient", &self.gradient.borrow())
-            .field("overwrite", &self.overwrite.get())
-            .finish()
-    }
-}
-
-impl<T: ?Sized> Display for MeanBackward<T>
-where
-    T: Gradient,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &*self.gradient.borrow() {
-            Some(gradient) => write!(f, "{}", &gradient),
-            None => write!(f, "None"),
-        }
-    }
-}
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;

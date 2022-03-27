@@ -1,3 +1,5 @@
+use std::{cell::Cell, rc::Rc};
+
 #[test]
 fn data_mut() {
     // Var
@@ -48,24 +50,6 @@ fn add_scalar() {
     y.forward();
 
     assert_eq!(*y.data(), ndarray::array![[2., 2.], [2., 2.]]);
-}
-
-#[test]
-fn param_test() {
-    use super::RawParam;
-
-    let mut data = ndarray::array![[1., 2.], [3., 4.]];
-    let mut grad = ndarray::array![[4., 5.], [6., 7.]];
-
-    {
-        let raw_param = RawParam::new(data.as_mut_ptr(), grad.as_mut_ptr(), data.shape().to_vec());
-        let mut param = raw_param.into_param();
-        param.data += 1.;
-        param.grad += 1.;
-    }
-
-    assert_eq!(data, ndarray::array![[2., 3.], [4., 5.]]);
-    assert_eq!(grad, ndarray::array![[5., 6.], [7., 8.]]);
 }
 
 #[test]
@@ -163,29 +147,18 @@ fn div_scalar() {
 
 #[test]
 fn differentiate_loop() {
-    let mut x = crate::ones(()).requires_grad().into_dyn();
+    let mut x = crate::ones(()).requires_grad();
     let y = x.clone();
 
     for _ in 0..5 {
-        x = (x.clone() * 4.).into_dyn();
+        x = x.clone() * 4.0;
     }
 
     x.forward();
-    x.backward(1.);
+    x.backward(1.0);
 
-    assert_eq!(y.grad()[()], 1024.);
     assert_eq!(x.data()[()], 1024.);
-}
-
-#[test]
-fn parameters_test() {
-    let x = crate::rand((2, 2)).requires_grad();
-    let y = crate::rand((2, 2)).requires_grad();
-    let z = crate::rand((1, 1)).requires_grad();
-
-    let w = x.clone() + y + z + x;
-
-    assert_eq!(w.parameters().len(), 3);
+    assert_eq!(y.grad()[()], 1024.);
 }
 
 #[test]
@@ -193,8 +166,7 @@ fn sum() {
     let input = crate::ones((2, 2));
     let sum = input.sum();
 
-    assert_eq!(sum.past.len(), 1);
-    assert!(sum.past.changeables.is_empty());
+    assert_eq!(sum.history.len(), 1);
 }
 
 #[test]
@@ -202,8 +174,7 @@ fn sum_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let sum = input.sum();
 
-    assert_eq!(sum.past.len(), 1);
-    assert_eq!(sum.past.parameters.len(), 1);
+    assert_eq!(sum.history.len(), 1);
 }
 
 #[test]
@@ -211,8 +182,7 @@ fn mean() {
     let input = crate::ones((2, 2));
     let mean = input.mean();
 
-    assert_eq!(mean.past.len(), 1);
-    assert!(mean.past.changeables.is_empty());
+    assert_eq!(mean.history.len(), 1);
 }
 
 #[test]
@@ -220,8 +190,7 @@ fn mean_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let mean = input.mean();
 
-    assert_eq!(mean.past.len(), 1);
-    assert_eq!(mean.past.parameters.len(), 1);
+    assert_eq!(mean.history.len(), 1);
 }
 
 #[test]
@@ -229,8 +198,7 @@ fn pow() {
     let input = crate::ones((2, 2));
     let pow = input.pow(2);
 
-    assert_eq!(pow.past.len(), 1);
-    assert!(pow.past.changeables.is_empty());
+    assert_eq!(pow.history.len(), 1);
 }
 
 #[test]
@@ -238,8 +206,7 @@ fn pow_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let pow = input.pow(2);
 
-    assert_eq!(pow.past.len(), 1);
-    assert_eq!(pow.past.parameters.len(), 1);
+    assert_eq!(pow.history.len(), 1);
 }
 
 #[test]
@@ -247,8 +214,7 @@ fn sqrt() {
     let input = crate::ones((2, 2));
     let relu = input.sqrt();
 
-    assert_eq!(relu.past.len(), 1);
-    assert!(relu.past.changeables.is_empty());
+    assert_eq!(relu.history.len(), 1);
 }
 
 #[test]
@@ -256,8 +222,7 @@ fn sqrt_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let relu = input.sqrt();
 
-    assert_eq!(relu.past.len(), 1);
-    assert_eq!(relu.past.parameters.len(), 1);
+    assert_eq!(relu.history.len(), 1);
 }
 
 #[test]
@@ -265,8 +230,7 @@ fn relu() {
     let input = crate::ones((2, 2));
     let relu = input.relu();
 
-    assert_eq!(relu.past.len(), 1);
-    assert!(relu.past.changeables.is_empty());
+    assert_eq!(relu.history.len(), 1);
 }
 
 #[test]
@@ -274,8 +238,7 @@ fn relu_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let relu = input.relu();
 
-    assert_eq!(relu.past.len(), 1);
-    assert_eq!(relu.past.parameters.len(), 1);
+    assert_eq!(relu.history.len(), 1);
 }
 
 #[test]
@@ -283,8 +246,7 @@ fn leaky_relu() {
     let input = crate::ones((2, 2));
     let leaky_relu = input.leaky_relu();
 
-    assert_eq!(leaky_relu.past.len(), 1);
-    assert!(leaky_relu.past.changeables.is_empty());
+    assert_eq!(leaky_relu.history.len(), 1);
 }
 
 #[test]
@@ -292,8 +254,7 @@ fn leaky_relu_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let leaky_relu = input.leaky_relu();
 
-    assert_eq!(leaky_relu.past.len(), 1);
-    assert_eq!(leaky_relu.past.parameters.len(), 1);
+    assert_eq!(leaky_relu.history.len(), 1);
 }
 
 #[test]
@@ -301,8 +262,7 @@ fn softplus() {
     let input = crate::ones((2, 2));
     let softplus = input.softplus();
 
-    assert_eq!(softplus.past.len(), 1);
-    assert!(softplus.past.changeables.is_empty());
+    assert_eq!(softplus.history.len(), 1);
 }
 
 #[test]
@@ -310,8 +270,7 @@ fn softplus_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let softplus = input.softplus();
 
-    assert_eq!(softplus.past.len(), 1);
-    assert_eq!(softplus.past.parameters.len(), 1);
+    assert_eq!(softplus.history.len(), 1);
 }
 
 #[test]
@@ -319,8 +278,7 @@ fn sigmoid() {
     let input = crate::ones((2, 2));
     let sigmoid = input.sigmoid();
 
-    assert_eq!(sigmoid.past.len(), 1);
-    assert!(sigmoid.past.changeables.is_empty());
+    assert_eq!(sigmoid.history.len(), 1);
 }
 
 #[test]
@@ -328,8 +286,7 @@ fn sigmoid_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let sigmoid = input.sigmoid();
 
-    assert_eq!(sigmoid.past.len(), 1);
-    assert_eq!(sigmoid.past.parameters.len(), 1);
+    assert_eq!(sigmoid.history.len(), 1);
 }
 
 #[test]
@@ -337,8 +294,7 @@ fn tanh() {
     let input = crate::ones((2, 2));
     let tanh = input.tanh();
 
-    assert_eq!(tanh.past.len(), 1);
-    assert!(tanh.past.changeables.is_empty());
+    assert_eq!(tanh.history.len(), 1);
 }
 
 #[test]
@@ -346,8 +302,7 @@ fn tanh_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let tanh = input.tanh();
 
-    assert_eq!(tanh.past.len(), 1);
-    assert_eq!(tanh.past.parameters.len(), 1);
+    assert_eq!(tanh.history.len(), 1);
 }
 
 #[test]
@@ -355,8 +310,7 @@ fn ln() {
     let input = crate::ones((2, 2));
     let ln = input.ln();
 
-    assert_eq!(ln.past.len(), 1);
-    assert!(ln.past.changeables.is_empty());
+    assert_eq!(ln.history.len(), 1);
 }
 
 #[test]
@@ -364,8 +318,7 @@ fn ln_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let ln = input.ln();
 
-    assert_eq!(ln.past.len(), 1);
-    assert_eq!(ln.past.parameters.len(), 1);
+    assert_eq!(ln.history.len(), 1);
 }
 
 #[test]
@@ -373,8 +326,7 @@ fn exp() {
     let input = crate::ones((2, 2));
     let exp = input.exp();
 
-    assert_eq!(exp.past.len(), 1);
-    assert!(exp.past.changeables.is_empty());
+    assert_eq!(exp.history.len(), 1);
 }
 
 #[test]
@@ -382,8 +334,7 @@ fn exp_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let exp = input.exp();
 
-    assert_eq!(exp.past.len(), 1);
-    assert_eq!(exp.past.parameters.len(), 1);
+    assert_eq!(exp.history.len(), 1);
 }
 
 #[test]
@@ -391,8 +342,7 @@ fn softmax() {
     let input = crate::ones((2, 2));
     let softmax = input.softmax(1);
 
-    assert_eq!(softmax.past.len(), 1);
-    assert!(softmax.past.changeables.is_empty());
+    assert_eq!(softmax.history.len(), 1);
 }
 
 #[test]
@@ -400,8 +350,7 @@ fn softmax_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let softmax = input.softmax(1);
 
-    assert_eq!(softmax.past.len(), 1);
-    assert_eq!(softmax.past.parameters.len(), 1);
+    assert_eq!(softmax.history.len(), 1);
 }
 
 #[test]
@@ -409,8 +358,7 @@ fn log_softmax() {
     let input = crate::ones((2, 2));
     let log_softmax = input.log_softmax(1);
 
-    assert_eq!(log_softmax.past.len(), 1);
-    assert!(log_softmax.past.changeables.is_empty());
+    assert_eq!(log_softmax.history.len(), 1);
 }
 
 #[test]
@@ -418,8 +366,7 @@ fn log_softmax_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let log_softmax = input.log_softmax(1);
 
-    assert_eq!(log_softmax.past.len(), 1);
-    assert_eq!(log_softmax.past.parameters.len(), 1);
+    assert_eq!(log_softmax.history.len(), 1);
 }
 
 #[test]
@@ -427,8 +374,7 @@ fn t() {
     let input = crate::ones((2, 2));
     let t = input.t();
 
-    assert_eq!(t.past.len(), 1);
-    assert!(t.past.changeables.is_empty());
+    assert_eq!(t.history.len(), 1);
 }
 
 #[test]
@@ -436,26 +382,25 @@ fn t_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let t = input.t();
 
-    assert_eq!(t.past.len(), 1);
-    assert_eq!(t.past.parameters.len(), 1);
+    assert_eq!(t.history.len(), 1);
 }
 
 #[test]
 fn dropout() {
     let input = crate::ones((2, 2));
-    let dropout = input.dropout(0.5);
+    let status = Rc::new(Cell::default());
+    let dropout = input.dropout(0.5, status);
 
-    assert_eq!(dropout.past.len(), 1);
-    assert_eq!(dropout.past.changeables.len(), 1);
+    assert_eq!(dropout.history.len(), 1);
 }
 
 #[test]
 fn dropout_diff() {
     let input = crate::ones((2, 2)).requires_grad();
-    let dropout = input.dropout(0.5);
+    let status = Rc::new(Cell::default());
+    let dropout = input.dropout(0.5, status);
 
-    assert_eq!(dropout.past.len(), 1);
-    assert_eq!(dropout.past.parameters.len(), 1);
+    assert_eq!(dropout.history.len(), 1);
 }
 
 #[test]
@@ -463,11 +408,8 @@ fn chunks() {
     let input = crate::ones((2, 2));
     let chunks = input.chunks((1, 1));
 
-    assert_eq!(chunks[0].past.len(), 1);
-    assert_eq!(chunks[1].past.len(), 1);
-
-    assert!(chunks[0].past.changeables.is_empty());
-    assert!(chunks[1].past.changeables.is_empty());
+    assert_eq!(chunks[0].history.len(), 1);
+    assert_eq!(chunks[1].history.len(), 1);
 }
 
 #[test]
@@ -475,11 +417,8 @@ fn chunks_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let chunks = input.chunks((1, 1));
 
-    assert_eq!(chunks[0].past.len(), 1);
-    assert_eq!(chunks[1].past.len(), 1);
-
-    assert_eq!(chunks[0].past.parameters.len(), 1);
-    assert_eq!(chunks[1].past.parameters.len(), 1);
+    assert_eq!(chunks[0].history.len(), 1);
+    assert_eq!(chunks[1].history.len(), 1);
 }
 
 #[test]
@@ -487,8 +426,7 @@ fn unsqueeze() {
     let input = crate::ones((2, 2));
     let unsqueeze = input.unsqueeze(0);
 
-    assert_eq!(unsqueeze.past.len(), 1);
-    assert!(unsqueeze.past.changeables.is_empty());
+    assert_eq!(unsqueeze.history.len(), 1);
 }
 
 #[test]
@@ -496,8 +434,7 @@ fn unsqueeze_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let unsqueeze = input.unsqueeze(0);
 
-    assert_eq!(unsqueeze.past.len(), 1);
-    assert_eq!(unsqueeze.past.parameters.len(), 1);
+    assert_eq!(unsqueeze.history.len(), 1);
 }
 
 #[test]
@@ -506,15 +443,13 @@ fn cat() {
     let rhs = crate::zeros((2, 2));
     let cat = super::Cat::cat(lhs, rhs, 1);
 
-    assert_eq!(cat.past.len(), 1);
-    assert!(cat.past.changeables.is_empty());
+    assert_eq!(cat.history.len(), 1);
 
     let lhs = crate::ones((2, 2));
     let rhs = crate::zeros((2, 2)).requires_grad();
     let cat = super::Cat::cat(lhs, rhs, 1);
 
-    assert_eq!(cat.past.len(), 1);
-    assert_eq!(cat.past.parameters.len(), 1);
+    assert_eq!(cat.history.len(), 1);
 }
 
 #[test]
@@ -523,15 +458,13 @@ fn cat_diff() {
     let rhs = crate::zeros((2, 2));
     let cat = super::Cat::cat(lhs, rhs, 1);
 
-    assert_eq!(cat.past.len(), 1);
-    assert_eq!(cat.past.parameters.len(), 1);
+    assert_eq!(cat.history.len(), 1);
 
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let cat = super::Cat::cat(lhs, rhs, 1);
 
-    assert_eq!(cat.past.len(), 1);
-    assert_eq!(cat.past.parameters.len(), 2);
+    assert_eq!(cat.history.len(), 1);
 }
 
 #[test]
@@ -540,9 +473,8 @@ fn multi_cat() {
     let b = 18. / crate::full((2, 2), 9.);
     let c = crate::full((2, 1), 3.) * 4.;
 
-    let d = crate::Var::cat(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 1);
-    assert_eq!(d.past.len(), 4);
-    assert!(d.past.changeables.is_empty());
+    let d = a.cat(&[b, c], 1);
+    assert_eq!(d.history.len(), 4);
 }
 
 #[test]
@@ -551,9 +483,8 @@ fn multi_cat_diff() {
     let b = 18. / crate::full((2, 2), 9.).requires_grad();
     let c = crate::full((2, 1), 3.).requires_grad() * 4.;
 
-    let d = crate::VarDiff::cat(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 1);
-    assert_eq!(d.past.len(), 4);
-    assert_eq!(d.past.parameters.len(), 3);
+    let d = a.cat(&[b, c], 1);
+    assert_eq!(d.history.len(), 4);
 }
 
 #[test]
@@ -562,15 +493,13 @@ fn stack() {
     let rhs = crate::zeros((2, 2));
     let stack = super::Stack::stack(lhs, rhs, 1);
 
-    assert_eq!(stack.past.len(), 1);
-    assert!(stack.past.changeables.is_empty());
+    assert_eq!(stack.history.len(), 1);
 
     let lhs = crate::ones((2, 2));
     let rhs = crate::zeros((2, 2)).requires_grad();
     let cat = super::Stack::stack(lhs, rhs, 1);
 
-    assert_eq!(cat.past.len(), 1);
-    assert_eq!(cat.past.parameters.len(), 1);
+    assert_eq!(cat.history.len(), 1);
 }
 
 #[test]
@@ -579,15 +508,13 @@ fn stack_diff() {
     let rhs = crate::zeros((2, 2));
     let cat = super::Stack::stack(lhs, rhs, 1);
 
-    assert_eq!(cat.past.len(), 1);
-    assert_eq!(cat.past.parameters.len(), 1);
+    assert_eq!(cat.history.len(), 1);
 
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let stack = super::Stack::stack(lhs, rhs, 1);
 
-    assert_eq!(stack.past.len(), 1);
-    assert_eq!(stack.past.parameters.len(), 2);
+    assert_eq!(stack.history.len(), 1);
 }
 
 #[test]
@@ -596,9 +523,11 @@ fn multi_stack() {
     let b = 18. / crate::full((2, 2), 9.);
     let c = crate::full((2, 2), 3.) * 4.;
 
-    let d = crate::Var::stack(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 0);
-    assert_eq!(d.past.len(), 4);
-    assert!(d.past.changeables.is_empty());
+    let d = a.stack(&[b, c], 0);
+    d.forward();
+
+    print!("{d}");
+    //assert_eq!(d.history.len(), 4);
 }
 
 #[test]
@@ -607,9 +536,8 @@ fn multi_stack_diff() {
     let b = 18. / crate::full((2, 2), 9.).requires_grad();
     let c = crate::full((2, 2), 3.).requires_grad() * 4.;
 
-    let d = crate::VarDiff::stack(&[a.into_dyn(), b.into_dyn(), c.into_dyn()], 0);
-    assert_eq!(d.past.len(), 4);
-    assert_eq!(d.past.parameters.len(), 3);
+    let d = a.stack(&[b, c], 0);
+    assert_eq!(d.history.len(), 4);
 }
 
 #[test]
@@ -617,8 +545,7 @@ fn neg() {
     let input = crate::ones((2, 2));
     let neg = -input;
 
-    assert_eq!(neg.past.len(), 1);
-    assert!(neg.past.changeables.is_empty());
+    assert_eq!(neg.history.len(), 1);
 }
 
 #[test]
@@ -626,8 +553,7 @@ fn neg_diff() {
     let input = crate::ones((2, 2)).requires_grad();
     let neg = -input;
 
-    assert_eq!(neg.past.len(), 1);
-    assert_eq!(neg.past.parameters.len(), 1);
+    assert_eq!(neg.history.len(), 1);
 }
 
 #[test]
@@ -636,8 +562,7 @@ fn add() {
     let rhs = crate::zeros((2, 2));
     let add = lhs + rhs;
 
-    assert_eq!(add.past.len(), 1);
-    assert!(add.past.changeables.is_empty());
+    assert_eq!(add.history.len(), 1);
 }
 
 #[test]
@@ -646,22 +571,19 @@ fn add_diff() {
     let rhs = crate::zeros((2, 2));
     let add = lhs + rhs;
 
-    assert_eq!(add.past.len(), 1);
-    assert_eq!(add.past.parameters.len(), 1);
+    assert_eq!(add.history.len(), 1);
 
     let lhs = crate::ones((2, 2));
     let rhs = crate::zeros((2, 2)).requires_grad();
     let add = lhs + rhs;
 
-    assert_eq!(add.past.len(), 1);
-    assert_eq!(add.past.parameters.len(), 1);
+    assert_eq!(add.history.len(), 1);
 
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let add = lhs + rhs;
 
-    assert_eq!(add.past.len(), 1);
-    assert_eq!(add.past.parameters.len(), 2);
+    assert_eq!(add.history.len(), 1);
 }
 
 #[test]
@@ -670,8 +592,7 @@ fn sub() {
     let rhs = crate::zeros((2, 2));
     let sub = lhs - rhs;
 
-    assert_eq!(sub.past.len(), 1);
-    assert!(sub.past.changeables.is_empty());
+    assert_eq!(sub.history.len(), 1);
 }
 
 #[test]
@@ -680,22 +601,19 @@ fn sub_diff() {
     let rhs = crate::zeros((2, 2));
     let sub = lhs - rhs;
 
-    assert_eq!(sub.past.len(), 1);
-    assert_eq!(sub.past.parameters.len(), 1);
+    assert_eq!(sub.history.len(), 1);
 
     let lhs = crate::ones((2, 2));
     let rhs = crate::zeros((2, 2)).requires_grad();
     let sub = lhs - rhs;
 
-    assert_eq!(sub.past.len(), 1);
-    assert_eq!(sub.past.parameters.len(), 1);
+    assert_eq!(sub.history.len(), 1);
 
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let sub = lhs - rhs;
 
-    assert_eq!(sub.past.len(), 1);
-    assert_eq!(sub.past.parameters.len(), 2);
+    assert_eq!(sub.history.len(), 1);
 }
 
 #[test]
@@ -704,8 +622,7 @@ fn mul() {
     let rhs = crate::zeros((2, 2));
     let mul = lhs * rhs;
 
-    assert_eq!(mul.past.len(), 1);
-    assert!(mul.past.changeables.is_empty());
+    assert_eq!(mul.history.len(), 1);
 }
 
 #[test]
@@ -714,22 +631,19 @@ fn mul_diff() {
     let rhs = crate::zeros((2, 2));
     let mul = lhs * rhs;
 
-    assert_eq!(mul.past.len(), 1);
-    assert_eq!(mul.past.parameters.len(), 1);
+    assert_eq!(mul.history.len(), 1);
 
     let lhs = crate::ones((2, 2));
     let rhs = crate::zeros((2, 2)).requires_grad();
     let mul = lhs * rhs;
 
-    assert_eq!(mul.past.len(), 1);
-    assert_eq!(mul.past.parameters.len(), 1);
+    assert_eq!(mul.history.len(), 1);
 
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let mul = lhs * rhs;
 
-    assert_eq!(mul.past.len(), 1);
-    assert_eq!(mul.past.parameters.len(), 2);
+    assert_eq!(mul.history.len(), 1);
 }
 
 #[test]
@@ -738,8 +652,7 @@ fn div() {
     let rhs = crate::zeros((2, 2));
     let div = lhs / rhs;
 
-    assert_eq!(div.past.len(), 1);
-    assert!(div.past.changeables.is_empty());
+    assert_eq!(div.history.len(), 1);
 }
 
 #[test]
@@ -748,22 +661,19 @@ fn div_diff() {
     let rhs = crate::zeros((2, 2));
     let div = lhs / rhs;
 
-    assert_eq!(div.past.len(), 1);
-    assert_eq!(div.past.parameters.len(), 1);
+    assert_eq!(div.history.len(), 1);
 
     let lhs = crate::ones((2, 2));
     let rhs = crate::zeros((2, 2)).requires_grad();
     let div = lhs / rhs;
 
-    assert_eq!(div.past.len(), 1);
-    assert_eq!(div.past.parameters.len(), 1);
+    assert_eq!(div.history.len(), 1);
 
     let lhs = crate::ones((2, 2)).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let div = lhs / rhs;
 
-    assert_eq!(div.past.len(), 1);
-    assert_eq!(div.past.parameters.len(), 2);
+    assert_eq!(div.history.len(), 1);
 }
 
 #[test]
@@ -772,8 +682,7 @@ fn vv() {
     let rhs = crate::zeros(2);
     let vv = lhs.vv(rhs);
 
-    assert_eq!(vv.past.len(), 1);
-    assert!(vv.past.changeables.is_empty());
+    assert_eq!(vv.history.len(), 1);
 }
 
 #[test]
@@ -782,22 +691,19 @@ fn vv_diff() {
     let rhs = crate::zeros(2).requires_grad();
     let vv = lhs.vv(rhs);
 
-    assert_eq!(vv.past.len(), 1);
-    assert_eq!(vv.past.parameters.len(), 1);
+    assert_eq!(vv.history.len(), 1);
 
     let lhs = crate::ones(2).requires_grad();
     let rhs = crate::zeros(2);
     let vv = lhs.vv(rhs);
 
-    assert_eq!(vv.past.len(), 1);
-    assert_eq!(vv.past.parameters.len(), 1);
+    assert_eq!(vv.history.len(), 1);
 
     let lhs = crate::ones(2).requires_grad();
     let rhs = crate::zeros(2).requires_grad();
     let vv = lhs.vv(rhs);
 
-    assert_eq!(vv.past.len(), 1);
-    assert_eq!(vv.past.parameters.len(), 2);
+    assert_eq!(vv.history.len(), 1);
 }
 
 #[test]
@@ -806,8 +712,7 @@ fn vm() {
     let rhs = crate::zeros((2, 2));
     let vm = lhs.vm(rhs);
 
-    assert_eq!(vm.past.len(), 1);
-    assert!(vm.past.changeables.is_empty());
+    assert_eq!(vm.history.len(), 1);
 }
 
 #[test]
@@ -816,22 +721,19 @@ fn vm_diff() {
     let rhs = crate::zeros((2, 2)).requires_grad();
     let vm = lhs.vm(rhs);
 
-    assert_eq!(vm.past.len(), 1);
-    assert_eq!(vm.past.parameters.len(), 1);
+    assert_eq!(vm.history.len(), 1);
 
     let lhs = crate::ones(2).requires_grad();
     let rhs = crate::zeros((2, 2));
     let vm = lhs.vm(rhs);
 
-    assert_eq!(vm.past.len(), 1);
-    assert_eq!(vm.past.parameters.len(), 1);
+    assert_eq!(vm.history.len(), 1);
 
     let lhs = crate::ones(2).requires_grad();
     let rhs = crate::zeros((2, 2)).requires_grad();
     let vm = lhs.vm(rhs);
 
-    assert_eq!(vm.past.len(), 1);
-    assert_eq!(vm.past.parameters.len(), 2);
+    assert_eq!(vm.history.len(), 1);
 }
 
 #[test]
@@ -840,8 +742,7 @@ fn mv() {
     let rhs = crate::ones(2);
     let mv = lhs.mv(rhs);
 
-    assert_eq!(mv.past.len(), 1);
-    assert!(mv.past.changeables.is_empty());
+    assert_eq!(mv.history.len(), 1);
 }
 
 #[test]
@@ -850,22 +751,19 @@ fn mv_diff() {
     let rhs = crate::ones(2);
     let mv = lhs.mv(rhs);
 
-    assert_eq!(mv.past.len(), 1);
-    assert_eq!(mv.past.parameters.len(), 1);
+    assert_eq!(mv.history.len(), 1);
 
     let lhs = crate::zeros((2, 2));
     let rhs = crate::ones(2).requires_grad();
     let mv = lhs.mv(rhs);
 
-    assert_eq!(mv.past.len(), 1);
-    assert_eq!(mv.past.parameters.len(), 1);
+    assert_eq!(mv.history.len(), 1);
 
     let lhs = crate::zeros((2, 2)).requires_grad();
     let rhs = crate::ones(2).requires_grad();
     let mv = lhs.mv(rhs);
 
-    assert_eq!(mv.past.len(), 1);
-    assert_eq!(mv.past.parameters.len(), 2);
+    assert_eq!(mv.history.len(), 1);
 }
 
 #[test]
@@ -874,8 +772,7 @@ fn mm() {
     let rhs = crate::ones((2, 2));
     let mm = lhs.mm(rhs);
 
-    assert_eq!(mm.past.len(), 1);
-    assert!(mm.past.changeables.is_empty());
+    assert_eq!(mm.history.len(), 1);
 }
 
 #[test]
@@ -884,22 +781,19 @@ fn mm_diff() {
     let rhs = crate::ones((2, 2));
     let mm = lhs.mm(rhs);
 
-    assert_eq!(mm.past.len(), 1);
-    assert_eq!(mm.past.parameters.len(), 1);
+    assert_eq!(mm.history.len(), 1);
 
     let lhs = crate::zeros((2, 2));
     let rhs = crate::ones((2, 2)).requires_grad();
     let mm = lhs.mm(rhs);
 
-    assert_eq!(mm.past.len(), 1);
-    assert_eq!(mm.past.parameters.len(), 1);
+    assert_eq!(mm.history.len(), 1);
 
     let lhs = crate::zeros((2, 2)).requires_grad();
     let rhs = crate::ones((2, 2)).requires_grad();
     let mm = lhs.mm(rhs);
 
-    assert_eq!(mm.past.len(), 1);
-    assert_eq!(mm.past.parameters.len(), 2);
+    assert_eq!(mm.history.len(), 1);
 }
 
 #[test]
@@ -908,8 +802,7 @@ fn mm_t() {
     let rhs = crate::ones((2, 2));
     let mm_t = lhs.mm_t(rhs);
 
-    assert_eq!(mm_t.past.len(), 1);
-    assert!(mm_t.past.changeables.is_empty());
+    assert_eq!(mm_t.history.len(), 1);
 }
 
 #[test]
@@ -918,127 +811,124 @@ fn mm_t_diff() {
     let rhs = crate::ones((2, 2));
     let mm_t = lhs.mm_t(rhs);
 
-    assert_eq!(mm_t.past.len(), 1);
-    assert_eq!(mm_t.past.parameters.len(), 1);
+    assert_eq!(mm_t.history.len(), 1);
 
     let lhs = crate::zeros((2, 2));
     let rhs = crate::ones((2, 2)).requires_grad();
     let mm_t = lhs.mm_t(rhs);
 
-    assert_eq!(mm_t.past.len(), 1);
-    assert_eq!(mm_t.past.parameters.len(), 1);
+    assert_eq!(mm_t.history.len(), 1);
 
     let lhs = crate::zeros((2, 2)).requires_grad();
     let rhs = crate::ones((2, 2)).requires_grad();
     let mm_t = lhs.mm_t(rhs);
 
-    assert_eq!(mm_t.past.len(), 1);
-    assert_eq!(mm_t.past.parameters.len(), 2);
+    assert_eq!(mm_t.history.len(), 1);
 }
 
-#[test]
-fn convolve() {
-    use crate::Convolve;
+// #[test]
+// fn convolve() {
+//     use crate::Convolve;
 
-    let kernel = crate::zeros((2, 2, 2, 2));
-    let input = crate::ones((4, 2, 6, 6));
-    let convolve = super::Var::convolve(
-        input,
-        kernel,
-        &[1, 1],
-        &[1, 1],
-        &[0, 0],
-        crate::variable::Zero,
-    );
+//     let kernel = crate::zeros((2, 2, 2, 2));
+//     let input = crate::ones((4, 2, 6, 6));
+//     let convolve = super::Var::convolve(
+//         input,
+//         kernel,
+//         &[1, 1],
+//         &[1, 1],
+//         &[0, 0],
+//         crate::variable::Zero,
+//     );
 
-    assert_eq!(convolve.past.len(), 1);
-    assert!(convolve.past.changeables.is_empty());
-}
+//     assert_eq!(convolve.history.len(), 1);
+//     assert!(convolve.history.changeables.is_empty());
+// }
 
-#[test]
-fn convolve_diff() {
-    use crate::Convolve;
+// #[test]
+// fn convolve_diff() {
+//     use crate::Convolve;
 
-    let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
-    let input = crate::ones((4, 2, 6, 6));
-    let convolve = super::Var::convolve(
-        input,
-        kernel,
-        &[1, 1],
-        &[1, 1],
-        &[0, 0],
-        crate::variable::Zero,
-    );
+//     let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+//     let input = crate::ones((4, 2, 6, 6));
+//     let convolve = super::Var::convolve(
+//         input,
+//         kernel,
+//         &[1, 1],
+//         &[1, 1],
+//         &[0, 0],
+//         crate::variable::Zero,
+//     );
 
-    assert_eq!(convolve.past.len(), 1);
-    assert_eq!(convolve.past.parameters.len(), 1);
+//     assert_eq!(convolve.history.len(), 1);
+//     assert_eq!(convolve.history.parameters.len(), 1);
 
-    let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
-    let input = crate::ones((4, 2, 6, 6)).requires_grad();
-    let convolve = super::VarDiff::convolve(
-        input,
-        kernel,
-        &[1, 1],
-        &[1, 1],
-        &[0, 0],
-        crate::variable::Zero,
-    );
+//     let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+//     let input = crate::ones((4, 2, 6, 6)).requires_grad();
+//     let convolve = super::VarDiff::convolve(
+//         input,
+//         kernel,
+//         &[1, 1],
+//         &[1, 1],
+//         &[0, 0],
+//         crate::variable::Zero,
+//     );
 
-    assert_eq!(convolve.past.len(), 1);
-    assert_eq!(convolve.past.parameters.len(), 2);
-}
+//     assert_eq!(convolve.history.len(), 1);
+//     assert_eq!(convolve.history.parameters.len(), 2);
+// }
 
-#[test]
-fn convolve_groups() {
-    use crate::ConvolveWithGroups;
+// #[test]
+// fn convolve_groups() {
+//     use crate::ConvolveWithGroups;
 
-    let kernel = crate::zeros((2, 2, 2, 2));
-    let input = crate::ones((4, 2, 6, 6));
-    let convolve = super::Var::convolve_with_groups(
-        input,
-        kernel,
-        &[1, 1],
-        &[1, 1],
-        &[0, 0],
-        crate::variable::Zero,
-        2,
-    );
+//     let kernel = crate::zeros((2, 2, 2, 2));
+//     let input = crate::ones((4, 2, 6, 6));
+//     let convolve = super::Var::convolve_with_groups(
+//         input,
+//         kernel,
+//         &[1, 1],
+//         &[1, 1],
+//         &[0, 0],
+//         crate::variable::Zero,
+//         2,
+//     );
 
-    assert_eq!(convolve.past.len(), 1);
-    assert!(convolve.past.changeables.is_empty());
-}
+//     assert_eq!(convolve.history.len(), 1);
+//     assert!(convolve.history.changeables.is_empty());
+// }
 
-#[test]
-fn convolve_groups_diff() {
-    use crate::ConvolveWithGroups;
+// #[test]
+// fn convolve_groups_diff() {
+//     use crate::ConvolveWithGroups;
 
-    let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
-    let input = crate::ones((4, 2, 6, 6));
-    let convolve = super::Var::convolve_with_groups(
-        input,
-        kernel,
-        &[1, 1],
-        &[1, 1],
-        &[0, 0],
-        crate::variable::Zero,
-        2,
-    );
+//     let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+//     let input = crate::ones((4, 2, 6, 6));
+//     let convolve = super::Var::convolve_with_groups(
+//         input,
+//         kernel,
+//         &[1, 1],
+//         &[1, 1],
+//         &[0, 0],
+//         crate::variable::Zero,
+//         2,
+//     );
 
-    assert_eq!(convolve.past.len(), 1);
-    assert_eq!(convolve.past.parameters.len(), 1);
+//     assert_eq!(convolve.history.len(), 1);
+//     assert_eq!(convolve.history.parameters.len(), 1);
 
-    let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
-    let input = crate::ones((4, 2, 6, 6)).requires_grad();
-    let convolve = super::VarDiff::convolve_with_groups(
-        input,
-        kernel,
-        &[1, 1],
-        &[1, 1],
-        &[0, 0],
-        crate::variable::Zero,
-        2,
-    );
+//     let kernel = crate::zeros((2, 2, 2, 2)).requires_grad();
+//     let input = crate::ones((4, 2, 6, 6)).requires_grad();
+//     let convolve = super::VarDiff::convolve_with_groups(
+//         input,
+//         kernel,
+//         &[1, 1],
+//         &[1, 1],
+//         &[0, 0],
+//         crate::variable::Zero,
+//         2,
+//     );
 
-    assert_eq!(convolve.past.len(), 1);
-    assert_eq!(convolve.past.parameters.len(), 2);
-}
+//     assert_eq!(convolve.history.len(), 1);
+//     assert_eq!(convolve.history.parameters.len(), 2);
+// }

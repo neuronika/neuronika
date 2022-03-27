@@ -1,69 +1,50 @@
 #[cfg(test)]
-use super::{assert_almost_equals, new_backward_input, new_input, new_tensor};
-use super::{
-    expect_tensor, expect_tensor_mut, push_mat_mat_gradient, Backward, Cache, Data, DotDim,
-    Forward, Gradient, Overwrite, Tensor,
-};
+use super::{assert_almost_equals, new_tensor};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
 use ndarray::{linalg::general_mat_mul, Ix2};
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
-    fmt::{Debug, Display},
+    cell::{Cell, RefCell},
     rc::Rc,
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixMatrixMulT<Lhs: ?Sized, Rhs: ?Sized>
-where
-    Lhs: Data<Dim = Ix2>,
-    Rhs: Data<Dim = Ix2>,
-{
-    left: Rc<Lhs>,
-    right: Rc<Rhs>,
-    data: RefCell<Tensor<Ix2>>,
+pub struct MatrixMatrixMulT {
+    left_data: Rc<RefCell<Tensor<Ix2>>>,
+    right_data: Rc<RefCell<Tensor<Ix2>>>,
+    data: Rc<RefCell<Tensor<Ix2>>>,
     computed: Cell<bool>,
 }
 
-impl<Lhs: ?Sized, Rhs: ?Sized> MatrixMatrixMulT<Lhs, Rhs>
-where
-    Lhs: Data<Dim = Ix2>,
-    Rhs: Data<Dim = Ix2>,
-{
-    pub fn new(left: Rc<Lhs>, right: Rc<Rhs>) -> Self {
-        let shape = DotDim::shape(left.data().raw_dim(), right.data().t().raw_dim());
-        let data = RefCell::new(Tensor::zeros((shape[0], shape[1])));
-
+impl MatrixMatrixMulT {
+    pub fn new(
+        left_data: Rc<RefCell<Tensor<Ix2>>>,
+        right_data: Rc<RefCell<Tensor<Ix2>>>,
+        data: Rc<RefCell<Tensor<Ix2>>>,
+    ) -> Self {
         Self {
-            left,
-            right,
+            left_data,
+            right_data,
             data,
-            computed: Cell::new(false),
+            computed: Cell::default(),
         }
     }
 }
 
-impl<Lhs: ?Sized, Rhs: ?Sized> Data for MatrixMatrixMulT<Lhs, Rhs>
-where
-    Lhs: Data<Dim = Ix2>,
-    Rhs: Data<Dim = Ix2>,
-{
-    type Dim = Ix2;
+impl Forward for MatrixMatrixMulT {
+    fn forward(&self) {
+        if self.was_computed() {
+            return;
+        }
 
-    fn data(&self) -> Ref<Tensor<Self::Dim>> {
-        self.data.borrow()
+        self.computed.set(true);
+        general_mat_mul(
+            1.0,
+            &*self.left_data.borrow(),
+            &self.right_data.borrow().t(),
+            0.0,
+            &mut *self.data.borrow_mut(),
+        );
     }
 
-    fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        self.data.borrow_mut()
-    }
-}
-
-impl<Lhs: ?Sized, Rhs: ?Sized> Cache for MatrixMatrixMulT<Lhs, Rhs>
-where
-    Lhs: Data<Dim = Ix2>,
-    Rhs: Data<Dim = Ix2>,
-{
     fn was_computed(&self) -> bool {
         self.computed.get()
     }
@@ -73,148 +54,53 @@ where
     }
 }
 
-impl<Lhs: ?Sized, Rhs: ?Sized> Forward for MatrixMatrixMulT<Lhs, Rhs>
-where
-    Lhs: Data<Dim = Ix2>,
-    Rhs: Data<Dim = Ix2>,
-{
-    fn forward(&self) {
-        if self.was_computed() {
-            return;
-        }
-
-        self.computed.set(true);
-        general_mat_mul(
-            1.0,
-            &*self.left.data(),
-            &self.right.data().t(),
-            0.0,
-            &mut *self.data.borrow_mut(),
-        );
-    }
-}
-
-impl<Lhs: ?Sized, Rhs: ?Sized> Debug for MatrixMatrixMulT<Lhs, Rhs>
-where
-    Lhs: Data<Dim = Ix2>,
-    Rhs: Data<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MatrixMatrixMulT")
-            .field("data", &self.data.borrow())
-            .field("computed", &self.computed.get())
-            .finish()
-    }
-}
-
-impl<Lhs: ?Sized, Rhs: ?Sized> Display for MatrixMatrixMulT<Lhs, Rhs>
-where
-    Lhs: Data<Dim = Ix2>,
-    Rhs: Data<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", &self.data.borrow())
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulTBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixMatrixMulTBackward<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    gradient: RefCell<Option<Tensor<Ix2>>>,
+pub struct MatrixMatrixMulTBackward {
+    left_data: Rc<RefCell<Tensor<Ix2>>>,
+    left_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+    right_data: Rc<RefCell<Tensor<Ix2>>>,
+    right_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+    gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
     shape: Ix2,
-    overwrite: Cell<bool>,
-    left_data: Rc<LhsD>,
-    left_grad: Rc<LhsG>,
-    right_data: Rc<RhsD>,
-    right_grad: Rc<RhsG>,
 }
 
-impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized>
-    MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
+impl MatrixMatrixMulTBackward {
     pub fn new(
-        left_data: Rc<LhsD>,
-        left_grad: Rc<LhsG>,
-        right_data: Rc<RhsD>,
-        right_grad: Rc<RhsG>,
+        left_data: Rc<RefCell<Tensor<Ix2>>>,
+        left_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+        right_data: Rc<RefCell<Tensor<Ix2>>>,
+        right_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+        gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+        shape: Ix2,
     ) -> Self {
-        let shape = DotDim::shape(
-            left_grad.gradient().raw_dim(),
-            right_grad.gradient().t().raw_dim(),
-        );
-
         Self {
-            gradient: RefCell::new(Some(Tensor::zeros(shape))),
-            shape,
-            overwrite: Cell::new(true),
             left_data,
-            left_grad,
+            left_gradient,
             right_data,
-            right_grad,
+            right_gradient,
+            gradient,
+            shape,
         }
     }
 }
 
-impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Gradient
-    for MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    type Dim = Ix2;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        expect_tensor(&self.gradient)
-    }
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        expect_tensor_mut(&self.gradient)
-    }
-}
-
-impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Overwrite
-    for MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
-    }
-
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
-    }
-}
-
-impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Backward
-    for MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
+impl Backward for MatrixMatrixMulTBackward {
     fn backward(&self) {
-        let gradient = self.gradient();
-        push_mat_mat_gradient(&*self.left_grad, &gradient, &self.right_data.data());
-        push_mat_mat_gradient(&*self.right_grad, &gradient.t(), &self.left_data.data());
+        let gradient = expect_tensor(&self.gradient);
+        {
+            {
+                let mut left_gradient = expect_tensor_mut(&self.left_gradient);
+                let right_data = self.right_data.borrow();
+
+                general_mat_mul(1.0, &*gradient, &right_data, 1.0, &mut *left_gradient);
+            }
+
+            {
+                let mut right_gradient = expect_tensor_mut(&self.right_gradient);
+                let left_data = self.left_data.borrow();
+
+                general_mat_mul(1.0, &gradient.t(), &left_data, 1.0, &mut *right_gradient)
+            }
+        }
     }
 
     fn no_grad(&self) {
@@ -226,111 +112,36 @@ where
     }
 }
 
-impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Debug
-    for MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MatrixMatrixMulTBackward")
-            .field("gradient", &self.gradient.borrow())
-            .field("overwrite", &self.overwrite.get())
-            .finish()
-    }
-}
-
-impl<LhsD: ?Sized, LhsG: ?Sized, RhsD: ?Sized, RhsG: ?Sized> Display
-    for MatrixMatrixMulTBackward<LhsD, LhsG, RhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &*self.gradient.borrow() {
-            Some(gradient) => write!(f, "{}", &gradient),
-            None => write!(f, "None"),
-        }
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulTBackwardLeft ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixMatrixMulTBackwardLeft<LhsG: ?Sized, RhsD: ?Sized>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-{
-    gradient: RefCell<Option<Tensor<Ix2>>>,
+pub struct MatrixMatrixMulTBackwardLeft {
+    left_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+    right_data: Rc<RefCell<Tensor<Ix2>>>,
+    gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
     shape: Ix2,
-    overwrite: Cell<bool>,
-    left_grad: Rc<LhsG>,
-    right_data: Rc<RhsD>,
 }
 
-impl<LhsG: ?Sized, RhsD: ?Sized> MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-{
-    pub fn new(left_grad: Rc<LhsG>, right_data: Rc<RhsD>) -> Self {
-        let shape = DotDim::shape(
-            left_grad.gradient().raw_dim(),
-            right_data.data().t().raw_dim(),
-        );
-
+impl MatrixMatrixMulTBackwardLeft {
+    pub fn new(
+        left_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+        right_data: Rc<RefCell<Tensor<Ix2>>>,
+        gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+        shape: Ix2,
+    ) -> Self {
         Self {
-            gradient: RefCell::new(Some(Tensor::zeros(shape))),
-            shape,
-            overwrite: Cell::new(true),
-            left_grad,
+            left_gradient,
             right_data,
+            gradient,
+            shape,
         }
     }
 }
 
-impl<LhsG: ?Sized, RhsD: ?Sized> Gradient for MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-{
-    type Dim = Ix2;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        expect_tensor(&self.gradient)
-    }
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        expect_tensor_mut(&self.gradient)
-    }
-}
-
-impl<LhsG: ?Sized, RhsD: ?Sized> Overwrite for MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
-    }
-
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
-    }
-}
-
-impl<LhsG: ?Sized, RhsD: ?Sized> Backward for MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-{
+impl Backward for MatrixMatrixMulTBackwardLeft {
     fn backward(&self) {
-        push_mat_mat_gradient(&*self.left_grad, &self.gradient(), &self.right_data.data());
+        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
+        let right_data = self.right_data.borrow();
+        let gradient = expect_tensor(&self.gradient);
+
+        general_mat_mul(1.0, &*gradient, &right_data, 1.0, &mut *left_gradient);
     }
 
     fn no_grad(&self) {
@@ -342,109 +153,36 @@ where
     }
 }
 
-impl<LhsG: ?Sized, RhsD: ?Sized> Debug for MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MatrixMatrixMulTBackwardLeft")
-            .field("gradient", &self.gradient.borrow())
-            .field("overwrite", &self.overwrite.get())
-            .finish()
-    }
-}
-
-impl<LhsG: ?Sized, RhsD: ?Sized> Display for MatrixMatrixMulTBackwardLeft<LhsG, RhsD>
-where
-    RhsD: Data<Dim = Ix2>,
-    LhsG: Gradient<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &*self.gradient.borrow() {
-            Some(gradient) => write!(f, "{}", &gradient),
-            None => write!(f, "None"),
-        }
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ MatrixMatrixMulTBackwardRight ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pub struct MatrixMatrixMulTBackwardRight<LhsD: ?Sized, RhsG: ?Sized>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    gradient: RefCell<Option<Tensor<Ix2>>>,
+pub struct MatrixMatrixMulTBackwardRight {
+    left_data: Rc<RefCell<Tensor<Ix2>>>,
+    right_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+    gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
     shape: Ix2,
-    overwrite: Cell<bool>,
-    left_data: Rc<LhsD>,
-    right_grad: Rc<RhsG>,
 }
 
-impl<LhsD: ?Sized, RhsG: ?Sized> MatrixMatrixMulTBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    pub fn new(left_data: Rc<LhsD>, right_grad: Rc<RhsG>) -> Self {
-        let shape = DotDim::shape(
-            left_data.data().raw_dim(),
-            right_grad.gradient().t().raw_dim(),
-        );
-
+impl MatrixMatrixMulTBackwardRight {
+    pub fn new(
+        left_data: Rc<RefCell<Tensor<Ix2>>>,
+        right_gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+        gradient: Rc<RefCell<Option<Tensor<Ix2>>>>,
+        shape: Ix2,
+    ) -> Self {
         Self {
-            gradient: RefCell::new(Some(Tensor::zeros(shape))),
-            shape,
-            overwrite: Cell::new(true),
             left_data,
-            right_grad,
+            right_gradient,
+            gradient,
+            shape,
         }
     }
 }
 
-impl<LhsD: ?Sized, RhsG: ?Sized> Gradient for MatrixMatrixMulTBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    type Dim = Ix2;
-
-    fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-        expect_tensor(&self.gradient)
-    }
-
-    fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-        expect_tensor_mut(&self.gradient)
-    }
-}
-
-impl<LhsD: ?Sized, RhsG: ?Sized> Overwrite for MatrixMatrixMulTBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    fn can_overwrite(&self) -> bool {
-        self.overwrite.get()
-    }
-
-    fn set_overwrite(&self, state: bool) {
-        self.overwrite.set(state);
-    }
-}
-
-impl<LhsD: ?Sized, RhsG: ?Sized> Backward for MatrixMatrixMulTBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
+impl Backward for MatrixMatrixMulTBackwardRight {
     fn backward(&self) {
-        push_mat_mat_gradient(
-            &*self.right_grad,
-            &self.gradient().t(),
-            &self.left_data.data(),
-        );
+        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
+        let gradient = expect_tensor(&self.gradient);
+        let left_data = self.left_data.borrow();
+
+        general_mat_mul(1.0, &gradient.t(), &left_data, 1.0, &mut *right_gradient)
     }
 
     fn no_grad(&self) {
@@ -453,37 +191,11 @@ where
 
     fn with_grad(&self) {
         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape));
-    }
-}
-
-impl<LhsD: ?Sized, RhsG: ?Sized> Debug for MatrixMatrixMulTBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MatrixMatrixMulTBackwardRight")
-            .field("gradient", &self.gradient.borrow())
-            .field("overwrite", &self.overwrite.get())
-            .finish()
-    }
-}
-
-impl<LhsD: ?Sized, RhsG: ?Sized> Display for MatrixMatrixMulTBackwardRight<LhsD, RhsG>
-where
-    LhsD: Data<Dim = Ix2>,
-    RhsG: Gradient<Dim = Ix2>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &*self.gradient.borrow() {
-            Some(gradient) => write!(f, "{}", &gradient),
-            None => write!(f, "None"),
-        }
     }
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;

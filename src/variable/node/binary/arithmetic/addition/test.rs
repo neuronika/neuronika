@@ -1,209 +1,130 @@
 use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Addition, AdditionBackward,
-    AdditionBackwardUnary, Backward, Cache, Data, Forward, Gradient, Overwrite, Tensor,
+    assert_almost_equals, new_tensor, Addition, AdditionBackward, Backward, Cache, Forward, Tensor,
 };
 
 mod forward {
-    use super::{
-        assert_almost_equals, new_input, new_tensor, Addition, Cache, Data, Forward, Tensor,
-    };
+    use super::{assert_almost_equals, new_tensor, Addition, Cache, Forward, Tensor};
 
     #[test]
     fn creation() {
-        let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-        let right = new_input((3, 3), vec![1.; 9]);
-        let node = Addition::new(left, right);
+        let left_data = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let right_data = new_tensor((3, 3), vec![1.; 9]);
+        let data = new_tensor((3, 3), vec![0.0; 9]);
+        let op = Addition::new(left_data, right_data, data);
 
-        assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-        assert_eq!(*node.data_mut(), Tensor::from_elem((3, 3), 0.));
-        assert!(!node.was_computed());
+        assert!(!op.was_computed());
     }
 
     #[test]
     fn computation_was_computed_transition() {
-        let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-        let right = new_input((3, 3), vec![1.; 9]);
-        let node = Addition::new(left, right);
+        let left_data = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let right_data = new_tensor((3, 3), vec![1.; 9]);
+        let data = new_tensor((3, 3), vec![0.0; 9]);
+        let op = Addition::new(left_data, right_data, data);
 
-        node.forward();
-        assert!(node.was_computed());
+        op.forward();
+        assert!(op.was_computed());
 
-        node.forward();
-        assert!(node.was_computed());
+        op.forward();
+        assert!(op.was_computed());
 
-        node.reset_computation();
-        assert!(!node.was_computed());
+        op.reset_computation();
+        assert!(!op.was_computed());
 
-        node.reset_computation();
-        assert!(!node.was_computed());
+        op.reset_computation();
+        assert!(!op.was_computed());
     }
 
     #[test]
     fn forward() {
-        let left = new_input((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-        let right = new_input((3, 3), vec![1.; 9]);
-        let node = Addition::new(left.clone(), right);
+        let left_data = new_tensor((3, 3), vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let right_data = new_tensor((3, 3), vec![1.; 9]);
+        let data = new_tensor((3, 3), vec![0.0; 9]);
+        let op = Addition::new(left_data.clone(), right_data, data);
+
+        let target = new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]);
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
-        );
+        op.forward();
+        assert_almost_equals(&*op.data.borrow(), &*target.borrow());
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         {
-            let mut data = left.data_mut();
+            let mut data = left_data.borrow_mut();
             *data = &*data + &Tensor::from_elem(1, 10.);
         }
         assert_almost_equals(
-            &*left.data(),
-            &new_tensor((3, 3), vec![11., 12., 13., 14., 15., 16., 17., 18., 19.]),
+            &*left_data.borrow(),
+            &*new_tensor((3, 3), vec![11., 12., 13., 14., 15., 16., 17., 18., 19.]).borrow(),
         );
 
-        node.forward();
+        op.forward();
         assert_almost_equals(
-            &*node.data(),
-            &new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]),
+            &*op.data.borrow(),
+            &*new_tensor((3, 3), vec![2., 3., 4., 5., 6., 7., 8., 9., 10.]).borrow(),
         );
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.reset_computation();
-        node.forward();
+        op.reset_computation();
+        op.forward();
         assert_almost_equals(
-            &*node.data(),
-            &new_tensor((3, 3), vec![12., 13., 14., 15., 16., 17., 18., 19., 20.]),
+            &*op.data.borrow(),
+            &*new_tensor((3, 3), vec![12., 13., 14., 15., 16., 17., 18., 19., 20.]).borrow(),
         );
     }
 
     #[test]
     fn left_broadcast_forward() {
-        let left = new_input((1, 3), vec![1., 2., 3.]);
-        let right = new_input((2, 2, 3), vec![1.; 12]);
-        let node = Addition::new(left, right);
+        let left_data = new_tensor((1, 3), vec![1., 2., 3.]);
+        let right_data = new_tensor((2, 2, 3), vec![1.; 12]);
+        let data = new_tensor((2, 2, 3), vec![0.0; 12]);
+        let op = Addition::new(left_data, right_data, data);
 
-        assert_eq!(*node.data(), Tensor::from_elem((2, 2, 3), 0.));
-        node.forward();
+        op.forward();
         assert_almost_equals(
-            &*node.data(),
-            &new_tensor(
+            &*op.data.borrow(),
+            &*new_tensor(
                 (2, 2, 3),
                 vec![2., 3., 4., 2., 3., 4., 2., 3., 4., 2., 3., 4.],
-            ),
+            )
+            .borrow(),
         );
     }
 
     #[test]
     fn right_broadcast_forward() {
-        let left = new_input((2, 2, 3), vec![1.; 12]);
-        let right = new_input((1, 3), vec![1., 2., 3.]);
-        let node = Addition::new(left, right);
+        let left_data = new_tensor((2, 2, 3), vec![1.; 12]);
+        let right_data = new_tensor((1, 3), vec![1., 2., 3.]);
+        let data = new_tensor((2, 2, 3), vec![0.0; 12]);
+        let op = Addition::new(left_data, right_data, data);
 
-        assert_eq!(*node.data(), Tensor::from_elem((2, 2, 3), 0.));
-        node.forward();
+        op.forward();
         assert_almost_equals(
-            &*node.data(),
+            &*op.data.borrow(),
             &new_tensor(
                 (2, 2, 3),
                 vec![2., 3., 4., 2., 3., 4., 2., 3., 4., 2., 3., 4.],
-            ),
+            )
+            .borrow(),
         );
-    }
-
-    #[test]
-    fn debug() {
-        let left = new_input(1, vec![0.]);
-        let right = new_input(1, vec![0.]);
-        let node = Addition::new(left, right);
-
-        let output = "Addition { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
-
-        assert_eq!(output, format!("{:?}", node));
-    }
-
-    #[test]
-    fn display() {
-        let left = new_input(1, vec![0.]);
-        let right = new_input(1, vec![0.]);
-        let node = Addition::new(left, right);
-
-        assert_eq!(format!("{}", node.data()), format!("{}", node));
     }
 }
 
 mod backward {
-    use super::{
-        assert_almost_equals, new_backward_input, new_input, new_tensor, AdditionBackward,
-        AdditionBackwardUnary, Backward, Gradient, Overwrite, Tensor,
-    };
+    use super::{assert_almost_equals, new_tensor, AdditionBackward, Backward, Tensor};
 
     #[test]
     fn creation() {
         let node = AdditionBackward::new(
-            new_backward_input((3, 3), vec![0.; 9]),
-            new_backward_input((3, 3), vec![0.; 9]),
+            new_opt_tensor((3, 3), vec![0.; 9]),
+            new_opt_tensor((3, 3), vec![0.; 9]),
+            new_opt_tensor((3, 3), vec![0.; 9]),
+            (3, 3).into_dimension(),
         );
 
         assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
         assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
         assert!(node.can_overwrite());
-    }
-
-    #[test]
-    fn computation_state_transition() {
-        let lhs = new_backward_input((3, 3), vec![0.; 9]);
-        let rhs = new_backward_input((3, 3), vec![0.; 9]);
-        let node = AdditionBackward::new(lhs.clone(), rhs.clone());
-
-        node.backward();
-        assert!(node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        node.backward();
-        assert!(node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        lhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        lhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        rhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        rhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        node.set_overwrite(false);
-        assert!(!node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        node.set_overwrite(false);
-        assert!(!node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        node.backward();
-        assert!(!node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        node.backward();
-        assert!(!node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
     }
 
     #[test]
@@ -361,45 +282,5 @@ mod backward {
 
         node.with_grad();
         assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
-    }
-
-    #[test]
-    fn debug() {
-        {
-            let node = AdditionBackward::new(
-                new_backward_input(1, vec![0.]),
-                new_backward_input(1, vec![0.]),
-            );
-
-            let output = "AdditionBackward { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
-            assert_eq!(output, format!("{:?}", node));
-        }
-    }
-
-    #[test]
-    fn debug_unary() {
-        let node =
-            AdditionBackwardUnary::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]));
-
-        let output = "AdditionBackwardUnary { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
-        assert_eq!(output, format!("{:?}", node));
-    }
-
-    #[test]
-    fn display() {
-        {
-            let node = AdditionBackward::new(
-                new_backward_input(1, vec![0.]),
-                new_backward_input(1, vec![0.]),
-            );
-            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
-        }
-    }
-
-    #[test]
-    fn display_unary() {
-        let node =
-            AdditionBackwardUnary::new(new_backward_input(1, vec![0.]), new_input(1, vec![0.]));
-        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
     }
 }
