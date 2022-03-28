@@ -170,53 +170,6 @@ pub(super) fn check_groups_args(input_shape: &[usize], kernel_shape: &[usize], g
 /// * `stride` - the stride
 ///
 /// * `dilation` - the dilation
-///
-/// ## 1-dimensional convolution
-///
-/// The **input** must be of shape **(N, Cin, L)**.
-/// * **N** is the batch size.
-/// * **Cin** is the number of input channels.
-/// * **L** is the **length** of the input.
-///
-/// The **kernel** must be of shape **(Cout, Cin, Lk)**.
-/// * **Cout** is the number of output channels.
-/// * **Cin** is the number of input channels.
-/// * **Lk** is the **length** of the kernel.
-/// The resulting output shape will be **(N, Cout, Lout)**.
-///
-/// ## 2-dimensional convolution
-///
-/// The **input** must be of shape **(N, Cin, H, W)**.
-/// * **N** is the batch size.
-/// * **Cin** is the number of input channels.
-/// * **H** is the **height** of the input.
-/// * **W** is the **width** of the input.
-///
-/// The **kernel** must be of shape **(Cout, Cin, Hk, Wk)**.
-/// * **Cout** is the number of output channels.
-/// * **Cin** is the number of input channels.
-/// * **Hk** is the **height** of the kernel.
-/// * **Wk** is the **width** of the kernel.
-///
-/// The resulting output shape will be **(N, Cout, Hout, Wout)**.
-///
-/// ## 3-dimensional convolution
-///
-/// The **input** must be of shape **(N, Cin, D, H, W)**.
-/// * **N** is the batch size.
-/// * **Cin** is the number of input channels.
-/// * **D** is the **depth** of the input.
-/// * **H** is the **height** of the input.
-/// * **W** is the **width** of the input.
-///
-/// The **kernel** must be of shape **(Cout, Cin, Dk,  Hk, Wk)**.
-/// * **Cout** is the number of output channels.
-/// * **Cin** is the number of input channels.
-/// * **Dk** is the **depth** of the kernel.
-/// * **Hk** is the **height** of the kernel.
-/// * **Wk** is the **width** of the kernel.
-///
-/// The resulting output shape will be **(N, Cout, Dout, Hout, Wout)**.
 pub(super) fn conv_out_shape<D: Dimension>(
     input_shape: &[usize],
     kernel_shape: &[usize],
@@ -234,184 +187,6 @@ pub(super) fn conv_out_shape<D: Dimension>(
     )
     .for_each(|(output_map_dim, padding, stride)| *output_map_dim += 2 * padding / stride);
     output_map_shape
-}
-
-/// Computes the shape of the array resulting from the **n**-dimensional convolution
-/// performed with the given parameters. `input_shape` is assumed to be the shape of an **already**
-/// padded input.
-///
-/// # Arguments
-///
-/// * `input_shape` - the shape of the input.
-///
-/// * `kernel_shape` - the shape of the kernel.
-///
-/// * `stride` - the stride.
-///
-/// * `dilation` - the dilation.
-fn conv_out_shape_padded<D: Dimension>(
-    input_shape: &[usize],
-    kernel_shape: &[usize],
-    stride: &[usize],
-    dilation: &[usize],
-) -> D {
-    // Initialize the dimension to be all 0s.
-    let mut output_map_shape = D::zeros(input_shape.len());
-    // Sets the batch size. The batch size doesn't change.
-    output_map_shape[0] = input_shape[0];
-    // Sets the output channels.
-    output_map_shape[1] = kernel_shape[0];
-    // First two components of the shape are always
-    // the batch size and channels.
-    itertools::izip!(
-        output_map_shape.slice_mut().iter_mut().skip(2), // Skips batch size and out channels.
-        input_shape.iter().skip(2),                      // Skips batch size and out channels.
-        kernel_shape.iter().skip(2),                     // Skips out channels and in channels.
-        stride,
-        dilation
-    )
-    .for_each(
-        |(output_map_dim, input_dim, kernel_dim, stride, dilation)| {
-            *output_map_dim = (input_dim - dilation * (kernel_dim - 1) - 1) / stride + 1
-        },
-    );
-    output_map_shape
-}
-
-/// Computes the shape of the **input** after the padding is applied.
-///
-/// # Arguments
-///
-/// * `input_shape` - the shape of the input.
-///
-/// * `padding` - the padding around the input.
-fn padded_shape<D: Dimension>(input_shape: &[usize], padding: &[usize]) -> D {
-    let mut padded_input_shape = D::zeros(input_shape.len());
-    padded_input_shape[0] = input_shape[0]; // Copy batch size.
-    padded_input_shape[1] = input_shape[1]; // Copy input channels.
-    padded_input_shape
-        .slice_mut()
-        .iter_mut()
-        .skip(2)
-        .zip(input_shape.iter().skip(2))
-        .zip(padding.iter())
-        .for_each(|((padded_dim, original_dim), padding)| *padded_dim = original_dim + 2 * padding);
-    padded_input_shape
-}
-
-/// Pads the input array accordingly to padding and the supplied padding mode.
-///
-/// This function expects arrays of the following shapes:
-///
-/// * *(N, C, L)*, where L is the length of the sequences.
-///
-/// * *(N, C, H, W)*, where H and W are respectively the height and width of the images.
-///
-/// * *(N, C, D, H, W)*, where H, W, and D are respectively the depth, height and width of the
-/// volumes.
-///
-/// In all three cases N is the batch size and C is the number of channels.
-///
-/// See also [`constant_pad`], [`reflection_pad`] and [`replication_pad`].
-///
-/// # Arguments
-///
-/// * `array` - array to be padded.
-///
-/// * `padding` - padding around to be applied to input.
-///
-/// * `padding_mode` - padding type. Can be either [`Zero`], [`Constant`], [`Reflective`] or
-/// [`Replicative`].
-pub(super) fn pad<D: Dimension, T: PaddingMode>(
-    array: &Array<f32, D>,
-    padding: &[usize],
-    padding_mode: &T,
-) -> Array<f32, D>
-where
-    <D as Dimension>::Smaller: RemoveAxis,
-    <<D as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-{
-    // Computes the final shape.
-    let mut padded = {
-        let padded_shape = padded_shape::<D>(array.shape(), padding);
-        Array::<f32, D>::zeros(padded_shape)
-    };
-
-    let (padded_dim, original_dim) = (padded.raw_dim(), array.raw_dim());
-
-    // This is the dimension of a single sample in the batch.
-    let (padded_sample_dim, original_sample_dim) = (
-        padded_dim.slice().iter().skip(2),
-        original_dim.slice().iter().skip(2),
-    );
-
-    // The number of single samples in the batch.
-    let outer_dimension: usize = original_dim.slice().iter().take(2).product();
-
-    // Reshapes by removing an axis, so that all samples, from all channels, can be iterated on and
-    // padded.
-    let (mut cumulative_dim, mut original_dim): (
-        <D as Dimension>::Smaller,
-        <D as Dimension>::Smaller,
-    ) = (
-        <D as Dimension>::Smaller::zeros(padded_dim.ndim() - 1),
-        <D as Dimension>::Smaller::zeros(original_dim.ndim() - 1),
-    );
-    cumulative_dim[0] = outer_dimension;
-    original_dim[0] = outer_dimension;
-
-    cumulative_dim
-        .slice_mut()
-        .iter_mut()
-        .skip(1)
-        .zip(padded_sample_dim)
-        .for_each(|(view_dim, inner_dim)| *view_dim = *inner_dim);
-    original_dim
-        .slice_mut()
-        .iter_mut()
-        .skip(1)
-        .zip(original_sample_dim)
-        .for_each(|(view_dim, inner_dim)| *view_dim = *inner_dim);
-
-    let (mut padded_view_mut, original_view) = (
-        padded.view_mut().into_shape(cumulative_dim).unwrap(),
-        array.view().into_shape(original_dim).unwrap(),
-    );
-
-    padded_view_mut
-        .outer_iter_mut()
-        .into_par_iter()
-        .zip(original_view.outer_iter())
-        .for_each(|(mut pad_sample, original_sample)| {
-            padding_mode.pad_inplace(&mut pad_sample, &original_sample, padding)
-        });
-    padded
-}
-
-/// Returns an **un-padded** view of `array`. This method is supposed to be used only with arrays
-/// of dimension greater or equal than *3*. The length of the padding slice must be *dim - 2* where
-/// *dim* is the array's dimensionality. Returns an un-padded view.
-///
-/// # Arguments
-///
-/// * `array` - array to strip the padding off to.
-///
-/// * `padding` - padding.
-fn unpad<'a, S: Data<Elem = f32> + 'a, D: Dimension + 'a>(
-    array: &'a ArrayBase<S, D>,
-    padding: &[usize],
-) -> ArrayBase<ViewRepr<&'a f32>, D> {
-    array.slice_each_axis(|ax| {
-        let (index, len) = (ax.axis.index(), array.len_of(ax.axis));
-        let range = {
-            if index > 1 && padding[index - 2] != 0 {
-                padding[index - 2] as isize..-(padding[index - 2] as isize)
-            } else {
-                0..len as isize
-            }
-        };
-        Slice::from(range)
-    })
 }
 
 /// Computes the shape of a rolling window view.
@@ -584,7 +359,6 @@ fn columns_shape<D: Dimension, S: Data<Elem = f32>>(
 /// # Arguments
 ///
 /// ` array` - array to be flattened.
-///
 fn flat_shape<D: Dimension, S: RawData>(array: &ArrayBase<S, D>) -> Ix2 {
     let (original_shape, mut flat_shape) = (array.raw_dim(), Ix2::zeros(2));
     flat_shape[0] = original_shape[0];
@@ -804,9 +578,6 @@ pub(super) fn convolution<
 ///
 /// * `kernel` -  kernel.
 ///
-/// * `padding` - padding that must be taken into account while accumulating the input's
-/// gradient.
-///
 /// * `stride` - stride.
 ///
 /// * `dilation` - the dilation.
@@ -821,7 +592,6 @@ pub(super) fn convolution_backward_input<
     input_grad: &mut ArrayBase<S, D>,
     grad: &ArrayBase<T, D>,
     kernel: &ArrayBase<T, D>,
-    padding: &[usize],
     stride: &[usize],
     dilation: &[usize],
     overwrite_input_grad: bool,
@@ -854,25 +624,7 @@ pub(super) fn convolution_backward_input<
             );
         });
 
-    if padding.iter().all(|pad| *pad == 0) {
-        assign_from_cols(input_grad, buffer, kernel_shape, stride, dilation);
-    } else {
-        let mut padded_buffer: Array<f32, D> =
-            Array::zeros(padded_shape::<D>(input_grad.shape(), padding));
-        assign_from_cols(&mut padded_buffer, buffer, kernel.shape(), stride, dilation);
-
-        // The actual input's incoming gradient is extracted from the buffer and assigned.
-        let actual_gradient = unpad(&padded_buffer, padding);
-        let input_gradient_zip = Zip::from(input_grad).and(actual_gradient);
-        if overwrite_input_grad {
-            input_gradient_zip
-                .par_for_each(|input_grad_el, incoming_grad_el| *input_grad_el = *incoming_grad_el);
-        } else {
-            input_gradient_zip.par_for_each(|input_grad_el, incoming_grad_el| {
-                *input_grad_el += *incoming_grad_el
-            });
-        }
-    }
+    assign_from_cols(input_grad, buffer, kernel_shape, stride, dilation);
 }
 
 /// Performs the **back-propagation** for an an **n-dimensional** convolution where
@@ -930,10 +682,10 @@ pub(super) fn convolution_backward_kernel<
             let grad_view_numel = grad_view.shape().iter().product::<usize>();
 
             general_mat_mul(
-                1.,
+                1.0,
                 &grad_view.to_shape((1, grad_view_numel)).unwrap(),
                 &input_matrix,
-                if overwrite_kernel_grad { 0. } else { 1. },
+                1.0,
                 &mut kernel_grad_view_mut
                     .into_shape((1, kernel_grad_numel))
                     .unwrap(),

@@ -6,6 +6,7 @@ mod logn;
 mod logsoftmax;
 mod mean;
 mod negation;
+mod pad;
 mod power;
 mod relu;
 mod sigmoid;
