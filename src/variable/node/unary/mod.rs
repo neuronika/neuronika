@@ -18,7 +18,7 @@ mod tanh;
 mod transpose;
 mod unsqueeze;
 
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, OptionalTensor, Tensor};
 
 #[cfg(test)]
 use super::{assert_almost_equals, new_tensor};

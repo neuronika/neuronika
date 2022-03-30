@@ -1,17 +1,20 @@
-use super::history::History;
 use super::{
-    cobroadcasted_zeros, AdditionBackward, AdditionBackwardLeft, Backward, Cat, ChunkBackward,
-    ConcatenateBackward, ConcatenateBackwardLeft, DivisionBackward, DivisionBackwardLeft, DotDim,
-    DropoutBackward, ExpBackward, LeakyReLUBackward, LogSoftmaxBackward, LognBackward, MatMatMul,
-    MatMatMulT, MatVecMul, MatrixMatrixMulBackward, MatrixMatrixMulBackwardLeft,
-    MatrixMatrixMulTBackward, MatrixMatrixMulTBackwardLeft, MatrixVectorMulBackward,
-    MatrixVectorMulBackwardLeft, MeanBackward, MultiConcatenateBackward, MultiStackBackward,
-    MultiplicationBackward, MultiplicationBackwardLeft, NegationBackward, PowerBackward,
-    ReLUBackward, SigmoidBackward, SoftPlusBackward, SoftmaxBackward, SqrtBackward, Stack,
-    StackBackward, StackBackwardLeft, SubtractionBackward, SubtractionBackwardLeft, SumBackward,
-    TanHBackward, Tensor, TransposeBackward, UnsqueezeBackward, Var, VecMatMul, VecVecMul,
-    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorVectorMulBackward,
-    VectorVectorMulBackwardUnary,
+    cobroadcasted_zeros, history::History, AdditionBackward, AdditionBackwardLeft,
+    AdditionBackwardRight, Backward, Cat, ChunkBackward, ConcatenateBackward,
+    ConcatenateBackwardLeft, ConcatenateBackwardRight, DivisionBackward, DivisionBackwardLeft,
+    DivisionBackwardRight, DotDim, DropoutBackward, ExpBackward, LeakyReLUBackward,
+    LogSoftmaxBackward, LognBackward, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMulBackward,
+    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixMatrixMulTBackward,
+    MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight, MatrixVectorMulBackward,
+    MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight, MeanBackward,
+    MultiConcatenateBackward, MultiStackBackward, MultiplicationBackward,
+    MultiplicationBackwardLeft, MultiplicationBackwardRight, NegationBackward, OptionalTensor,
+    PowerBackward, ReLUBackward, SigmoidBackward, SoftPlusBackward, SoftmaxBackward, SqrtBackward,
+    Stack, StackBackward, StackBackwardLeft, StackBackwardRight, SubtractionBackward,
+    SubtractionBackwardLeft, SubtractionBackwardRight, SumBackward, SwitchTensor, TanHBackward,
+    Tensor, TransposeBackward, UnsqueezeBackward, Var, VecMatMul, VecVecMul,
+    VectorMatrixMulBackward, VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight,
+    VectorVectorMulBackward, VectorVectorMulBackwardUnary,
 };
 
 use ndarray::{
@@ -46,8 +49,9 @@ where
     D: 'static + Dimension,
 {
     pub(crate) var: Var<D>,
-    pub(crate) gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    pub(crate) gradient: Rc<OptionalTensor<D>>,
     pub(crate) history: History<Rc<dyn Backward>>,
+    pub(crate) switchables: History<Rc<dyn SwitchTensor>>,
 }
 
 impl<D> VarDiff<D>
@@ -55,34 +59,36 @@ where
     D: 'static + Dimension,
 {
     pub(crate) fn leaf(var: Var<D>, array: Tensor<D>) -> Self {
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let history = History::default();
-
         Self {
             var,
-            gradient,
-            history,
+            gradient: Rc::new(OptionalTensor::from_ndarray(array)),
+            history: History::default(),
+            switchables: History::default(),
         }
     }
 
     pub(crate) fn new<T>(
         var: Var<D>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        gradient: Rc<OptionalTensor<D>>,
         op: T,
         mut history: History<Rc<dyn Backward>>,
+        mut switchables: History<Rc<dyn SwitchTensor>>,
     ) -> VarDiff<D>
     where
         T: 'static + Backward,
     {
         let op = Rc::new(op);
         let id = Rc::as_ptr(&op) as *const () as usize;
-
         history.insert(id, op);
+
+        let id = Rc::as_ptr(&gradient) as *const () as usize;
+        switchables.insert(id, gradient.clone());
 
         Self {
             var,
             gradient,
             history,
+            switchables,
         }
     }
 }
@@ -112,9 +118,7 @@ where
     /// At the differentiable variable's creation the gradient is filled with zeros. You can
     /// populate it with a call to [`.backward()`](VarDiff::backward()).
     pub fn grad(&self) -> Ref<Tensor<D>> {
-        Ref::map(self.gradient.borrow(), |gradient| {
-            gradient.as_ref().unwrap()
-        })
+        self.gradient.content()
     }
 
     /// Returns a mutable reference to the gradient inside `self`.
@@ -122,9 +126,7 @@ where
     /// At the differentiable variable's creation the gradient is filled with zeros. You can
     /// populate it with a call to [`.backward()`](VarDiff::backward()).
     pub fn grad_mut(&self) -> RefMut<Tensor<D>> {
-        RefMut::map(self.gradient.borrow_mut(), |gradient| {
-            gradient.as_mut().unwrap()
-        })
+        self.gradient.content_mut()
     }
 
     /// Propagates the computations forwards and populates all the variables and differentiable
@@ -134,10 +136,9 @@ where
 
         // Prepares the buffer for the backward pass.
         let mut buffer = self.history.buffer_mut();
-        let len = buffer.len();
 
         // If the buffer is empty populate it.
-        if len == 0 {
+        if buffer.is_empty() {
             *buffer = self.history.to_vec()
         }
     }
@@ -190,27 +191,23 @@ where
     /// Disables gradient computation and de-allocates the gradient for `self` and all of its
     /// ancestors.
     pub fn no_grad(&self) {
-        let mut buffer = self.history.buffer_mut();
-        let len = buffer.len();
-
-        if len == 0 {
-            *buffer = self.history.to_vec();
+        let mut buffer = self.switchables.buffer_mut();
+        if buffer.is_empty() {
+            *buffer = self.switchables.to_vec();
         }
 
-        buffer.iter().for_each(|op| op.no_grad());
+        buffer.iter().for_each(|op| op.deallocate());
     }
 
     /// Re-enables gradient computation and re-allocates the gradient for `self` and all of its
     /// ancestors.
     pub fn with_grad(&self) {
-        let mut buffer = self.history.buffer_mut();
-        let len = buffer.len();
-
-        if len == 0 {
-            *buffer = self.history.to_vec();
+        let mut buffer = self.switchables.buffer_mut();
+        if buffer.is_empty() {
+            *buffer = self.switchables.to_vec();
         }
 
-        buffer.iter().for_each(|op| op.with_grad());
+        buffer.iter().for_each(|op| op.allocate());
     }
 }
 
@@ -278,18 +275,24 @@ where
 {
     /// Returns the sum of all elements in `self`.
     pub fn sum(self) -> VarDiff<Ix0> {
-        let gradient = Rc::new(RefCell::new(Some(arr0(0.0))));
+        let gradient = Rc::new(OptionalTensor::from_ndarray(arr0(0.)));
         let op = SumBackward::new(self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.sum(), gradient, op, self.history)
+        VarDiff::new(self.var.sum(), gradient, op, self.history, self.switchables)
     }
 
     /// Returns the mean of all elements in `self`.
     pub fn mean(self) -> VarDiff<Ix0> {
-        let gradient = Rc::new(RefCell::new(Some(arr0(0.0))));
+        let gradient = Rc::new(OptionalTensor::from_ndarray(arr0(0.)));
         let op = MeanBackward::new(self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.mean(), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mean(),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 
     /// Takes the power of each element in `self` with exponent `exp` and returns a differentiable
@@ -299,27 +302,25 @@ where
     ///
     /// `exp` - exponent.
     pub fn pow(self, exp: i32) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = PowerBackward::new(
-            self.gradient,
-            self.var.data.clone(),
-            gradient.clone(),
-            shape,
-            exp,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let op = PowerBackward::new(self.gradient, self.var.data.clone(), gradient.clone(), exp);
 
-        VarDiff::new(self.var.pow(exp), gradient, op, self.history)
+        VarDiff::new(
+            self.var.pow(exp),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 
     /// Takes the square root element-wise and returns a differentiable variable with the result.
     pub fn sqrt(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
         let var = self.var.sqrt();
-        let op = SqrtBackward::new(self.gradient, var.data.clone(), gradient.clone(), shape);
+        let op = SqrtBackward::new(self.gradient, var.data.clone(), gradient.clone());
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Applies the *rectified linear unit* element-wise and and returns a differentiable
@@ -327,16 +328,16 @@ where
     ///
     /// *ReLU(x) = max(0, x)*
     pub fn relu(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = ReLUBackward::new(
-            self.gradient,
-            self.var.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let op = ReLUBackward::new(self.gradient, self.var.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.relu(), gradient, op, self.history)
+        VarDiff::new(
+            self.var.relu(),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 
     /// Applies the *leaky rectified linear unit* element-wise and returns a differentiable
@@ -344,78 +345,69 @@ where
     ///
     /// *LeakyReLU(x) = max(0, x) + 0.01 * min(0, x)*
     pub fn leaky_relu(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = LeakyReLUBackward::new(
-            self.gradient,
-            self.var.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let op = LeakyReLUBackward::new(self.gradient, self.var.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.leaky_relu(), gradient, op, self.history)
+        VarDiff::new(
+            self.var.leaky_relu(),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 
     /// Applies the *softplus* element-wise and returns a differentiable variable with the result.
     ///
     /// *Softplus(x) = log(1 + exp(x))*
     pub fn softplus(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = SoftPlusBackward::new(
-            self.gradient,
-            self.var.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let op = SoftPlusBackward::new(self.gradient, self.var.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.softplus(), gradient, op, self.history)
+        VarDiff::new(
+            self.var.softplus(),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 
     /// Applies the *sigmoid* element-wise and returns a differentiable variable with the result.
     pub fn sigmoid(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
         let var = self.var.sigmoid();
-        let op = SigmoidBackward::new(self.gradient, var.data.clone(), gradient.clone(), shape);
+        let op = SigmoidBackward::new(self.gradient, var.data.clone(), gradient.clone());
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Applies the *tanh* element-wise and returns a differentiable variable with the result.
     pub fn tanh(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
         let var = self.var.tanh();
-        let op = TanHBackward::new(self.gradient, var.data.clone(), gradient.clone(), shape);
+        let op = TanHBackward::new(self.gradient, var.data.clone(), gradient.clone());
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Applies the *natural logarithm* element-wise and returns a differentiable variable with the
     /// result.
     pub fn ln(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = LognBackward::new(
-            self.gradient,
-            self.var.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let op = LognBackward::new(self.gradient, self.var.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.ln(), gradient, op, self.history)
+        VarDiff::new(self.var.ln(), gradient, op, self.history, self.switchables)
     }
 
     /// Applies the *exponential* element-wise and returns a differentiable variable with the
     /// result.
     pub fn exp(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
         let var = self.var.exp();
-        let op = ExpBackward::new(self.gradient, var.data.clone(), gradient.clone(), shape);
+        let op = ExpBackward::new(self.gradient, var.data.clone(), gradient.clone());
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Applies the *softmax* to `self` and returns a differentiable variable with the result.
@@ -427,18 +419,11 @@ where
     ///
     /// `axis` - axis along which softmax will be computed.
     pub fn softmax(self, axis: usize) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
         let var = self.var.softmax(axis);
-        let op = SoftmaxBackward::new(
-            self.gradient,
-            var.data.clone(),
-            gradient.clone(),
-            shape,
-            axis,
-        );
+        let op = SoftmaxBackward::new(self.gradient, var.data.clone(), gradient.clone(), axis);
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Applies the *log-softmax* to `self` and returns a differentiable variable with the result.
@@ -456,27 +441,19 @@ where
     ///
     /// `axis` - axis along which log-softmax will be computed.
     pub fn log_softmax(self, axis: usize) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
         let var = self.var.log_softmax(axis);
-        let op = LogSoftmaxBackward::new(
-            self.gradient,
-            var.data.clone(),
-            gradient.clone(),
-            shape,
-            axis,
-        );
+        let op = LogSoftmaxBackward::new(self.gradient, var.data.clone(), gradient.clone(), axis);
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Returns a differentiable variable equivalent to `self` with its dimensions reversed.
     pub fn t(self) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = TransposeBackward::new(self.gradient, gradient.clone(), shape);
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let op = TransposeBackward::new(self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.t(), gradient, op, self.history)
+        VarDiff::new(self.var.t(), gradient, op, self.history, self.switchables)
     }
 
     /// Applies *dropout* to `self` and returns a differentiable variable with the result.
@@ -500,15 +477,14 @@ where
     ///
     /// * `status` - dropout status.
     pub fn dropout(self, p: f64, status: Rc<Cell<bool>>) -> VarDiff<D> {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let noise = Rc::new(RefCell::new(Tensor::zeros(shape.clone())));
-        let var = self
-            .var
-            .dropout_with_noise(shape.clone(), p, noise.clone(), status.clone());
-        let op = DropoutBackward::new(self.gradient, gradient.clone(), shape, noise, p, status);
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let noise = Rc::new(RefCell::new(Tensor::zeros(self.gradient.shape())));
+        let var =
+            self.var
+                .dropout_with_noise(self.gradient.shape(), p, noise.clone(), status.clone());
+        let op = DropoutBackward::new(self.gradient, gradient.clone(), noise, p, status);
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
@@ -525,10 +501,15 @@ where
         vars.into_iter()
             .enumerate()
             .map(|(i, var)| {
-                let shape = var.data.borrow().raw_dim();
-                let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-                let op = ChunkBackward::new(self.gradient.clone(), gradient.clone(), shape, i);
-                VarDiff::new(var, gradient, op, self.history.clone())
+                let gradient = Rc::new(OptionalTensor::zeros(var.data.borrow().raw_dim()));
+                let op = ChunkBackward::new(self.gradient.clone(), gradient.clone(), i);
+                VarDiff::new(
+                    var,
+                    gradient,
+                    op,
+                    self.history.clone(),
+                    self.switchables.clone(),
+                )
             })
             .collect()
     }
@@ -536,17 +517,18 @@ where
     /// Returns a new differentiable variable with a dimension of size one inserted at the position
     /// specified by `axis`.
     pub fn unsqueeze(self, axis: usize) -> VarDiff<D::Larger> {
-        let shape = self
-            .gradient
-            .borrow()
-            .as_ref()
-            .unwrap()
-            .raw_dim()
-            .insert_axis(Axis(axis));
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = UnsqueezeBackward::new(self.gradient, gradient.clone(), shape);
+        let gradient = Rc::new(OptionalTensor::zeros(
+            self.gradient.shape().insert_axis(Axis(axis)),
+        ));
+        let op = UnsqueezeBackward::new(self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.unsqueeze(axis), gradient, op, self.history)
+        VarDiff::new(
+            self.var.unsqueeze(axis),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -591,20 +573,17 @@ where
             let vars: Vec<Var<D>> = variables.iter().cloned().map(|x| x.var).collect();
             self.var.cat(&vars, axis)
         };
-        let shape = var.data.borrow().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-
+        let gradient = Rc::new(OptionalTensor::zeros(var.data.borrow().raw_dim()));
         let mut operands_gradients = Vec::with_capacity(variables.len());
-        operands_gradients.push(self.gradient);
 
+        operands_gradients.push(self.gradient);
         variables.iter().cloned().for_each(|variable| {
             self.history.merge(variable.history);
             operands_gradients.push(variable.gradient);
         });
+        let op = MultiConcatenateBackward::new(operands_gradients, gradient.clone(), axis);
 
-        let op = MultiConcatenateBackward::new(operands_gradients, gradient.clone(), shape, axis);
-
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 
     /// Stacks the given sequence of differentiable variables `variables`, including
@@ -649,20 +628,17 @@ where
             let vars: Vec<Var<D>> = variables.iter().cloned().map(|x| x.var).collect();
             self.var.stack(&vars, axis)
         };
-        let shape = var.data.borrow().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-
+        let gradient = Rc::new(OptionalTensor::zeros(var.data.borrow().raw_dim()));
         let mut operands_gradients = Vec::with_capacity(variables.len());
         operands_gradients.push(self.gradient);
-
         variables.iter().cloned().for_each(|variable| {
             self.history.merge(variable.history);
             operands_gradients.push(variable.gradient);
         });
 
-        let op = MultiStackBackward::new(operands_gradients, gradient.clone(), shape, axis);
+        let op = MultiStackBackward::new(operands_gradients, gradient.clone(), axis);
 
-        VarDiff::new(var, gradient, op, self.history)
+        VarDiff::new(var, gradient, op, self.history, self.switchables)
     }
 }
 
@@ -779,11 +755,10 @@ where
     type Output = VarDiff<D>;
 
     fn neg(self) -> Self::Output {
-        let shape = self.gradient.borrow().as_ref().unwrap().raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape.clone()))));
-        let op = NegationBackward::new(self.gradient, gradient.clone(), shape);
+        let gradient = Rc::new(OptionalTensor::zeros(self.gradient.shape()));
+        let op = NegationBackward::new(self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.neg(), gradient, op, self.history)
+        VarDiff::new(self.var.neg(), gradient, op, self.history, self.switchables)
     }
 }
 
@@ -797,12 +772,19 @@ where
     type Output = VarDiff<<D as DimMax<E>>::Output>;
 
     fn add(self, rhs: Var<E>) -> Self::Output {
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op = AdditionBackwardLeft::<D, E>::new(self.gradient, gradient.clone(), shape);
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let op = AdditionBackwardLeft::<D, E>::new(self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.add(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.add(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -815,12 +797,24 @@ where
 
     fn add(mut self, rhs: VarDiff<E>) -> Self::Output {
         self.history.merge(rhs.history);
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.var.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op = AdditionBackward::new(self.gradient, rhs.gradient, gradient.clone(), shape);
+        self.switchables.merge(rhs.switchables);
 
-        VarDiff::new(self.var.add(rhs.var), gradient, op, self.history)
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.var.data.borrow(),
+        )));
+        let op = AdditionBackward::new(
+            AdditionBackwardLeft::new(self.gradient, gradient.clone()),
+            AdditionBackwardRight::new(rhs.gradient, gradient.clone()),
+        );
+
+        VarDiff::new(
+            self.var.add(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -834,12 +828,19 @@ where
     type Output = VarDiff<<D as DimMax<E>>::Output>;
 
     fn sub(self, rhs: Var<E>) -> Self::Output {
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op = SubtractionBackwardLeft::<D, E>::new(self.gradient, gradient.clone(), shape);
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let op = SubtractionBackwardLeft::<D, E>::new(self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.sub(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.sub(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -852,13 +853,22 @@ where
 
     fn sub(mut self, rhs: VarDiff<E>) -> Self::Output {
         self.history.merge(rhs.history);
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.var.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op =
-            SubtractionBackward::<D, E>::new(self.gradient, rhs.gradient, gradient.clone(), shape);
 
-        VarDiff::new(self.var.sub(rhs.var), gradient, op, self.history)
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.var.data.borrow(),
+        )));
+        let left = SubtractionBackwardLeft::new(self.gradient, gradient.clone());
+        let right = SubtractionBackwardRight::new(rhs.gradient, gradient.clone());
+        let op = SubtractionBackward::new(left, right);
+
+        VarDiff::new(
+            self.var.sub(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -872,19 +882,27 @@ where
     type Output = VarDiff<<D as DimMax<E>>::Output>;
 
     fn mul(self, rhs: Var<E>) -> Self::Output {
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array.clone())));
-        let buffer = Rc::new(RefCell::new(Some(array)));
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let buffer = Rc::new(OptionalTensor::zeros(gradient.shape()));
+        // Va inserito in `switchables`
+
         let op = MultiplicationBackwardLeft::new(
             self.gradient,
             rhs.data.clone(),
             gradient.clone(),
-            shape,
             buffer,
         );
 
-        VarDiff::new(self.var.mul(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mul(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -897,21 +915,34 @@ where
 
     fn mul(mut self, rhs: VarDiff<E>) -> Self::Output {
         self.history.merge(rhs.history);
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.var.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array.clone())));
-        let buffer = Rc::new(RefCell::new(Some(array)));
-        let op = MultiplicationBackward::new(
-            self.var.data.clone(),
+
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.var.data.borrow(),
+        )));
+        let buffer = Rc::new(OptionalTensor::zeros(gradient.shape()));
+        // Va inserito in `switchables`!
+        let left = MultiplicationBackwardLeft::new(
             self.gradient,
             rhs.var.data.clone(),
-            rhs.gradient,
             gradient.clone(),
-            shape,
-            buffer,
+            buffer.clone(),
         );
+        let right = MultiplicationBackwardRight::new(
+            rhs.gradient,
+            self.var.data.clone(),
+            gradient.clone(),
+            buffer.clone(),
+        );
+        let op = MultiplicationBackward::new(left, right);
 
-        VarDiff::new(self.var.mul(rhs.var), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mul(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -925,19 +956,21 @@ where
     type Output = VarDiff<<D as DimMax<E>>::Output>;
 
     fn div(self, rhs: Var<E>) -> Self::Output {
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array.clone())));
-        let buffer = Rc::new(RefCell::new(Some(array)));
-        let op = DivisionBackwardLeft::new(
-            self.gradient,
-            rhs.data.clone(),
-            gradient.clone(),
-            shape,
-            buffer,
-        );
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.data.borrow(),
+        )));
+        let buffer = Rc::new(OptionalTensor::zeros(gradient.shape()));
+        let op =
+            DivisionBackwardLeft::new(self.gradient, rhs.data.clone(), gradient.clone(), buffer);
 
-        VarDiff::new(self.var.div(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.div(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -950,21 +983,34 @@ where
 
     fn div(mut self, rhs: VarDiff<E>) -> Self::Output {
         self.history.merge(rhs.history);
-        let array = cobroadcasted_zeros(&self.var.data.borrow(), &rhs.var.data.borrow());
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array.clone())));
-        let buffer = Rc::new(RefCell::new(Some(array)));
-        let op = DivisionBackward::new(
-            self.var.data.clone(),
+
+        let gradient = Rc::new(OptionalTensor::from_ndarray(cobroadcasted_zeros(
+            &self.var.data.borrow(),
+            &rhs.var.data.borrow(),
+        )));
+        let buffer = Rc::new(OptionalTensor::zeros(gradient.shape()));
+        let left = DivisionBackwardLeft::new(
             self.gradient,
+            rhs.var.data.clone(),
+            gradient.clone(),
+            buffer.clone(),
+        );
+        let right = DivisionBackwardRight::new(
+            self.var.data.clone(),
             rhs.var.data.clone(),
             rhs.gradient,
             gradient.clone(),
-            shape,
-            buffer,
+            buffer.clone(),
         );
+        let op = DivisionBackward::new(left, right);
 
-        VarDiff::new(self.var.div(rhs.var), gradient, op, self.history)
+        VarDiff::new(
+            self.var.div(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -978,16 +1024,20 @@ impl MatMatMul<Var<Ix2>> for VarDiff<Ix2> {
     type Output = VarDiff<Ix2>;
 
     fn mm(self, rhs: Var<Ix2>) -> Self::Output {
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.data().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = MatrixMatrixMulBackwardLeft::new(
-            self.gradient,
-            rhs.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.data().raw_dim(),
+        )));
+        let op =
+            MatrixMatrixMulBackwardLeft::new(self.gradient, rhs.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.mm(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mm(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -996,18 +1046,27 @@ impl MatMatMul<VarDiff<Ix2>> for VarDiff<Ix2> {
 
     fn mm(mut self, rhs: VarDiff<Ix2>) -> Self::Output {
         self.history.merge(rhs.history);
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.var.data().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = MatrixMatrixMulBackward::new(
+
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.var.data().raw_dim(),
+        )));
+        let left =
+            MatrixMatrixMulBackwardLeft::new(self.gradient, rhs.var.data.clone(), gradient.clone());
+        let right = MatrixMatrixMulBackwardRight::new(
             self.var.data.clone(),
-            self.gradient,
-            rhs.var.data.clone(),
             rhs.gradient,
             gradient.clone(),
-            shape,
         );
+        let op = MatrixMatrixMulBackward::new(left, right);
 
-        VarDiff::new(self.var.mm(rhs.var), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mm(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1017,16 +1076,20 @@ impl MatMatMulT<Var<Ix2>> for VarDiff<Ix2> {
     type Output = VarDiff<Ix2>;
 
     fn mm_t(self, rhs: Var<Ix2>) -> Self::Output {
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.data.borrow().t().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = MatrixMatrixMulTBackwardLeft::new(
-            self.gradient,
-            rhs.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.data.borrow().t().raw_dim(),
+        )));
+        let op =
+            MatrixMatrixMulTBackwardLeft::new(self.gradient, rhs.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.mm_t(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mm_t(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1035,18 +1098,30 @@ impl MatMatMulT<VarDiff<Ix2>> for VarDiff<Ix2> {
 
     fn mm_t(mut self, rhs: VarDiff<Ix2>) -> Self::Output {
         self.history.merge(rhs.history);
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.var.data().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = MatrixMatrixMulTBackward::new(
-            self.var.data.clone(),
+
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.var.data().raw_dim(),
+        )));
+        let left = MatrixMatrixMulTBackwardLeft::new(
             self.gradient,
             rhs.var.data.clone(),
+            gradient.clone(),
+        );
+        let right = MatrixMatrixMulTBackwardRight::new(
+            self.var.data.clone(),
             rhs.gradient,
             gradient.clone(),
-            shape,
         );
+        let op = MatrixMatrixMulTBackward::new(left, right);
 
-        VarDiff::new(self.var.mm_t(rhs.var), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mm_t(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1056,16 +1131,20 @@ impl MatVecMul<Var<Ix1>> for VarDiff<Ix2> {
     type Output = VarDiff<Ix1>;
 
     fn mv(self, rhs: Var<Ix1>) -> Self::Output {
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.data().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = MatrixVectorMulBackwardLeft::new(
-            self.gradient,
-            rhs.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.data().raw_dim(),
+        )));
+        let op =
+            MatrixVectorMulBackwardLeft::new(self.gradient, rhs.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.mv(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mv(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1074,18 +1153,27 @@ impl MatVecMul<VarDiff<Ix1>> for VarDiff<Ix2> {
 
     fn mv(mut self, rhs: VarDiff<Ix1>) -> Self::Output {
         self.history.merge(rhs.history);
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.var.data().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = MatrixVectorMulBackward::new(
+
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.var.data().raw_dim(),
+        )));
+        let left =
+            MatrixVectorMulBackwardLeft::new(self.gradient, rhs.var.data.clone(), gradient.clone());
+        let right = MatrixVectorMulBackwardRight::new(
             self.var.data.clone(),
-            self.gradient,
-            rhs.var.data.clone(),
             rhs.gradient,
             gradient.clone(),
-            shape,
         );
+        let op = MatrixVectorMulBackward::new(left, right);
 
-        VarDiff::new(self.var.mv(rhs.var), gradient, op, self.history)
+        VarDiff::new(
+            self.var.mv(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1095,16 +1183,20 @@ impl VecMatMul<Var<Ix2>> for VarDiff<Ix1> {
     type Output = VarDiff<Ix1>;
 
     fn vm(self, rhs: Var<Ix2>) -> Self::Output {
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.data().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = VectorMatrixMulBackwardLeft::new(
-            self.gradient,
-            rhs.data.clone(),
-            gradient.clone(),
-            shape,
-        );
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.data().raw_dim(),
+        )));
+        let op =
+            VectorMatrixMulBackwardLeft::new(self.gradient, rhs.data.clone(), gradient.clone());
 
-        VarDiff::new(self.var.vm(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.vm(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1113,18 +1205,27 @@ impl VecMatMul<VarDiff<Ix2>> for VarDiff<Ix1> {
 
     fn vm(mut self, rhs: VarDiff<Ix2>) -> Self::Output {
         self.history.merge(rhs.history);
-        let shape = DotDim::shape(self.var.data().raw_dim(), rhs.var.data().raw_dim());
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(shape))));
-        let op = VectorMatrixMulBackward::new(
+
+        let gradient = Rc::new(OptionalTensor::zeros(DotDim::shape(
+            self.var.data().raw_dim(),
+            rhs.var.data().raw_dim(),
+        )));
+        let left =
+            VectorMatrixMulBackwardLeft::new(self.gradient, rhs.var.data.clone(), gradient.clone());
+        let right = VectorMatrixMulBackwardRight::new(
             self.var.data.clone(),
-            self.gradient,
-            rhs.var.data.clone(),
             rhs.gradient,
             gradient.clone(),
-            shape,
         );
+        let op = VectorMatrixMulBackward::new(left, right);
 
-        VarDiff::new(self.var.vm(rhs.var), gradient, op, self.history)
+        VarDiff::new(
+            self.var.vm(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1134,11 +1235,17 @@ impl VecVecMul<Var<Ix1>> for VarDiff<Ix1> {
     type Output = VarDiff<Ix0>;
 
     fn vv(self, rhs: Var<Ix1>) -> Self::Output {
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(()))));
+        let gradient = Rc::new(OptionalTensor::from_ndarray(Tensor::zeros(())));
         let op =
             VectorVectorMulBackwardUnary::new(rhs.data.clone(), self.gradient, gradient.clone());
 
-        VarDiff::new(self.var.vv(rhs), gradient, op, self.history)
+        VarDiff::new(
+            self.var.vv(rhs),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1147,16 +1254,27 @@ impl VecVecMul<VarDiff<Ix1>> for VarDiff<Ix1> {
 
     fn vv(mut self, rhs: VarDiff<Ix1>) -> Self::Output {
         self.history.merge(rhs.history);
-        let gradient = Rc::new(RefCell::new(Some(Tensor::zeros(()))));
-        let op = VectorVectorMulBackward::new(
+
+        let gradient = Rc::new(OptionalTensor::from_ndarray(Tensor::zeros(())));
+        let left = VectorVectorMulBackwardUnary::new(
             self.var.data.clone(),
-            self.gradient,
-            rhs.var.data.clone(),
-            rhs.gradient,
+            self.gradient.clone(),
             gradient.clone(),
         );
+        let right = VectorVectorMulBackwardUnary::new(
+            rhs.var.data.clone(),
+            rhs.gradient.clone(),
+            gradient.clone(),
+        );
+        let op = VectorVectorMulBackward::new(left, right);
 
-        VarDiff::new(self.var.vv(rhs.var), gradient, op, self.history)
+        VarDiff::new(
+            self.var.vv(rhs.var),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1178,11 +1296,16 @@ where
             &[self.var.data.borrow().view(), rhs.data.borrow().view()],
         )
         .unwrap();
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op = ConcatenateBackwardLeft::new(self.gradient, gradient.clone(), shape, axis);
+        let gradient = Rc::new(OptionalTensor::from_ndarray(array));
+        let op = ConcatenateBackwardLeft::new(self.gradient, gradient.clone(), axis);
 
-        VarDiff::new(Cat::cat(self.var, rhs, axis), gradient, op, self.history)
+        VarDiff::new(
+            Cat::cat(self.var, rhs, axis),
+            gradient,
+            op,
+            self.history,
+            self.switchables,
+        )
     }
 }
 
@@ -1199,16 +1322,22 @@ where
             &[self.var.data.borrow().view(), rhs.var.data.borrow().view()],
         )
         .unwrap();
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op =
-            ConcatenateBackward::new(self.gradient, rhs.gradient, gradient.clone(), shape, axis);
+        let gradient = Rc::new(OptionalTensor::from_ndarray(array));
+        let left = ConcatenateBackwardLeft::new(self.gradient, gradient.clone(), axis);
+        let right = ConcatenateBackwardRight::new(
+            rhs.gradient,
+            gradient.clone(),
+            axis,
+            self.var.data.borrow().len_of(Axis(axis)),
+        );
+        let op = ConcatenateBackward::new(left, right);
 
         VarDiff::new(
             Cat::cat(self.var, rhs.var, axis),
             gradient,
             op,
             self.history,
+            self.switchables,
         )
     }
 }
@@ -1227,15 +1356,15 @@ where
             &[self.var.data.borrow().view(), rhs.data.borrow().view()],
         )
         .unwrap();
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op = StackBackwardLeft::new(self.gradient, gradient.clone(), shape, axis);
+        let gradient = Rc::new(OptionalTensor::from_ndarray(array));
+        let op = StackBackwardLeft::new(self.gradient, gradient.clone(), axis);
 
         VarDiff::new(
             Stack::stack(self.var, rhs, axis),
             gradient,
             op,
             self.history,
+            self.switchables,
         )
     }
 }
@@ -1253,15 +1382,17 @@ where
             &[self.var.data.borrow().view(), rhs.var.data.borrow().view()],
         )
         .unwrap();
-        let shape = array.raw_dim();
-        let gradient = Rc::new(RefCell::new(Some(array)));
-        let op = StackBackward::new(self.gradient, rhs.gradient, gradient.clone(), shape, axis);
+        let gradient = Rc::new(OptionalTensor::from_ndarray(array));
+        let left = StackBackwardLeft::new(self.gradient, gradient.clone(), axis);
+        let right = StackBackwardRight::new(rhs.gradient, gradient.clone(), axis);
+        let op = StackBackward::new(left, right);
 
         VarDiff::new(
             Stack::stack(self.var, rhs.var, axis),
             gradient,
             op,
             self.history,
+            self.switchables,
         )
     }
 }

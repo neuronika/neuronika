@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{Axis, Dimension, RemoveAxis, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -84,73 +82,13 @@ where
     }
 }
 
-pub struct StackBackward<D>
-where
-    D: Dimension + RemoveAxis,
-{
-    left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    right_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-    shape: D::Larger,
-    axis: usize,
-}
-
-impl<D> StackBackward<D>
-where
-    D: Dimension + RemoveAxis,
-{
-    pub fn new(
-        left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        right_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-        shape: D::Larger,
-        axis: usize,
-    ) -> Self {
-        Self {
-            left_gradient,
-            right_gradient,
-            gradient,
-            shape,
-            axis,
-        }
-    }
-}
-
-impl<D> Backward for StackBackward<D>
-where
-    D: Dimension + RemoveAxis,
-{
-    fn backward(&self) {
-        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
-        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
-        let mut subviews = gradient.axis_iter(Axis(self.axis));
-
-        let left_gradient_slice = subviews.next().unwrap().into_dimensionality::<D>().unwrap();
-        *left_gradient += &left_gradient_slice;
-
-        let right_gradient_slice = subviews.next().unwrap().into_dimensionality::<D>().unwrap();
-        *right_gradient += &right_gradient_slice;
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-    }
-}
-
 pub struct StackBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-    shape: D::Larger,
-    axis: usize,
+    operand_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<D::Larger>>,
+    axis: Axis,
 }
 
 impl<D> StackBackwardLeft<D>
@@ -158,16 +96,14 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-        shape: D::Larger,
+        operand_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
-            axis,
+            axis: Axis(axis),
         }
     }
 }
@@ -177,24 +113,15 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
+        let gradient = self.gradient.content();
         let operand_gradient_slice = gradient
-            .axis_iter(Axis(self.axis))
+            .axis_iter(self.axis)
             .next()
             .unwrap()
             .into_dimensionality::<D>()
             .unwrap();
-        *operand_gradient += &operand_gradient_slice;
-    }
 
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+        *self.operand_gradient.content_mut() += &operand_gradient_slice;
     }
 }
 
@@ -202,10 +129,9 @@ pub struct StackBackwardRight<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-    shape: D::Larger,
-    axis: usize,
+    operand_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<D::Larger>>,
+    axis: Axis,
 }
 
 impl<D> StackBackwardRight<D>
@@ -213,16 +139,14 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-        shape: D::Larger,
+        operand_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
-            axis,
+            axis: Axis(axis),
         }
     }
 }
@@ -232,25 +156,42 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
+        let gradient = self.gradient.content();
         let operand_gradient_slice = gradient
-            .axis_iter(Axis(self.axis))
+            .axis_iter(self.axis)
             .nth(1)
             .unwrap()
             .into_dimensionality::<D>()
             .unwrap();
 
-        *operand_gradient += &operand_gradient_slice;
+        *self.operand_gradient.content_mut() += &operand_gradient_slice;
     }
+}
 
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
+pub struct StackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    left: StackBackwardLeft<D>,
+    right: StackBackwardRight<D>,
+}
+
+impl<D> StackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(left: StackBackwardLeft<D>, right: StackBackwardRight<D>) -> Self {
+        Self { left, right }
     }
+}
 
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+impl<D> Backward for StackBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&self) {
+        self.left.backward();
+        self.right.backward();
     }
 }
 

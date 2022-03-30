@@ -6,7 +6,8 @@ mod loss;
 mod stack;
 
 use super::{
-    expect_tensor, expect_tensor_mut, reduce, Backward, BroadTensor, Broadcasted, Forward, Tensor,
+    expect_tensor, expect_tensor_mut, reduce, Backward, BroadTensor, Broadcasted, Forward,
+    OptionalTensor, Shared, Tensor,
 };
 
 #[cfg(test)]

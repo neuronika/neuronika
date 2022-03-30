@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, reduction::Reduction, Backward, Forward, Tensor};
+use super::{reduction::Reduction, Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{arr0, Axis, Dimension, Ix0, RemoveAxis, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -93,8 +91,8 @@ where
     D: Dimension + RemoveAxis,
 {
     target_data: Rc<RefCell<Tensor<D::Smaller>>>,
-    input_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
+    input_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<Ix0>>,
     reduction: Reduction,
 }
 
@@ -104,8 +102,8 @@ where
 {
     pub(crate) fn new(
         target_data: Rc<RefCell<Tensor<D::Smaller>>>,
-        input_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
+        input_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -122,14 +120,9 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let (mut input_gradient, gradient, target_data) = {
-            (
-                expect_tensor_mut(&self.input_gradient),
-                expect_tensor(&self.gradient)[()],
-                self.target_data.borrow(),
-            )
-        };
-
+        let mut input_gradient = self.input_gradient.content_mut();
+        let gradient = self.gradient.content()[()];
+        let target_data = self.target_data.borrow();
         let iter = input_gradient.outer_iter_mut().enumerate();
 
         match self.reduction {
@@ -138,8 +131,8 @@ where
                 iter.for_each(|(idx, gradient_channel)| {
                     Zip::from(gradient_channel)
                         .and(&*target_data)
-                        .for_each(|grad_el, target| {
-                            *grad_el -= gradient * ((*target as usize == idx) as u8 as f32) / n
+                        .for_each(|grad_el, &target| {
+                            *grad_el -= gradient * ((target as usize == idx) as u8 as f32) / n
                         })
                 });
             }
@@ -147,20 +140,12 @@ where
                 iter.for_each(|(idx, gradient_channel)| {
                     Zip::from(gradient_channel)
                         .and(&*target_data)
-                        .for_each(|grad_el, target| {
-                            *grad_el -= gradient * (*target as usize == idx) as u8 as f32
+                        .for_each(|grad_el, &target| {
+                            *grad_el -= gradient * (target as usize == idx) as u8 as f32
                         })
                 });
             }
         }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 

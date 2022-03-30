@@ -6,7 +6,7 @@ mod mse_loss;
 mod nll_loss;
 mod reduction;
 
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{expect_tensor, expect_tensor_mut, Backward, Forward, OptionalTensor, Tensor};
 
 #[cfg(test)]
 use super::{assert_almost_equals, new_tensor};

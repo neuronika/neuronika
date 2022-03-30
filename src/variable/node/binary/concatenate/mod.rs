@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{Axis, Dimension, RemoveAxis, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -14,7 +12,7 @@ where
     left: Rc<RefCell<Tensor<D>>>,
     right: Rc<RefCell<Tensor<D>>>,
     data: Rc<RefCell<Tensor<D>>>,
-    axis: usize,
+    axis: Axis,
     computed: Cell<bool>,
 }
 
@@ -32,7 +30,7 @@ where
             left,
             right,
             data,
-            axis,
+            axis: Axis(axis),
             computed: Cell::default(),
         }
     }
@@ -49,21 +47,18 @@ where
 
         self.computed.set(true);
         let lhs_data = self.left.borrow();
-        let rhs_data = self.right.borrow();
         let mut data = self.data.borrow_mut();
-        let axis = self.axis;
-
         let (mut lhs_portion, mut rhs_portion) = data
             .view_mut()
-            .split_at(Axis(axis), lhs_data.len_of(Axis(axis)));
+            .split_at(self.axis, lhs_data.len_of(self.axis));
 
-        Zip::from(&*lhs_data)
-            .and(&mut lhs_portion)
-            .for_each(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(&mut lhs_portion)
+            .and(&*lhs_data)
+            .for_each(|fused_el, &single_el| *fused_el = single_el);
 
-        Zip::from(&*rhs_data)
-            .and(&mut rhs_portion)
-            .for_each(|single_el, fused_el| *fused_el = *single_el);
+        Zip::from(&mut rhs_portion)
+            .and(&*self.right.borrow())
+            .for_each(|fused_el, &single_el| *fused_el = single_el);
     }
 
     fn was_computed(&self) -> bool {
@@ -75,72 +70,13 @@ where
     }
 }
 
-pub struct ConcatenateBackward<D>
-where
-    D: Dimension + RemoveAxis,
-{
-    left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    right_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
-    axis: usize,
-}
-
-impl<D> ConcatenateBackward<D>
-where
-    D: Dimension + RemoveAxis,
-{
-    pub fn new(
-        left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        right_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
-        axis: usize,
-    ) -> Self {
-        Self {
-            left_gradient,
-            right_gradient,
-            gradient,
-            shape,
-            axis,
-        }
-    }
-}
-
-impl<D> Backward for ConcatenateBackward<D>
-where
-    D: Dimension + RemoveAxis,
-{
-    fn backward(&self) {
-        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
-        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
-        let (left_gradient_slice, right_gradient_slice) = gradient
-            .view()
-            .split_at(Axis(self.axis), left_gradient.len_of(Axis(self.axis)));
-
-        *left_gradient += &left_gradient_slice;
-        *right_gradient += &right_gradient_slice;
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-    }
-}
-
 pub struct ConcatenateBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
-    axis: usize,
+    operand_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<D>>,
+    axis: Axis,
 }
 
 impl<D> ConcatenateBackwardLeft<D>
@@ -148,16 +84,14 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
+        operand_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<D>>,
         axis: usize,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
-            axis,
+            axis: Axis(axis),
         }
     }
 }
@@ -167,22 +101,13 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
+        let mut operand_gradient = self.operand_gradient.content_mut();
+        let gradient = self.gradient.content();
         let (operand_gradient_slice, _) = gradient
             .view()
-            .split_at(Axis(self.axis), operand_gradient.len_of(Axis(self.axis)));
+            .split_at(self.axis, operand_gradient.len_of(self.axis));
 
         *operand_gradient += &operand_gradient_slice;
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 
@@ -190,11 +115,10 @@ pub struct ConcatenateBackwardRight<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
+    operand_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<D>>,
+    axis: Axis,
     offset: usize,
-    axis: usize,
 }
 
 impl<D> ConcatenateBackwardRight<D>
@@ -202,18 +126,16 @@ where
     D: Dimension + RemoveAxis,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
-        offset: usize,
+        operand_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<D>>,
         axis: usize,
+        offset: usize,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
+            axis: Axis(axis),
             offset,
-            axis,
         }
     }
 }
@@ -223,20 +145,37 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
+        let gradient = self.gradient.content();
+        let (_, operand_gradient_slice) = gradient.view().split_at(self.axis, self.offset);
 
-        let (_, operand_gradient_slice) = gradient.view().split_at(Axis(self.axis), self.offset);
-
-        *operand_gradient += &operand_gradient_slice;
+        *self.operand_gradient.content_mut() += &operand_gradient_slice;
     }
+}
 
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
+pub struct ConcatenateBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    left: ConcatenateBackwardLeft<D>,
+    right: ConcatenateBackwardRight<D>,
+}
+
+impl<D> ConcatenateBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub fn new(left: ConcatenateBackwardLeft<D>, right: ConcatenateBackwardRight<D>) -> Self {
+        Self { left, right }
     }
+}
 
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+impl<D> Backward for ConcatenateBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&self) {
+        self.left.backward();
+        self.right.backward();
     }
 }
 

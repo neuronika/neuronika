@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{Backward, Forward, OptionalTensor, Tensor};
 use ndarray::Dimension;
 use std::{
     cell::{Cell, RefCell},
@@ -58,9 +56,8 @@ pub struct UnsqueezeBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-    shape: D::Larger,
+    operand_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<D::Larger>>,
 }
 
 impl<D> UnsqueezeBackward<D>
@@ -68,14 +65,12 @@ where
     D: Dimension,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D::Larger>>>>,
-        shape: D::Larger,
+        operand_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<D::Larger>>,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
         }
     }
 }
@@ -85,23 +80,13 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
+        let gradient = self.gradient.content();
         let view = gradient
             .view()
-            .into_shape(operand_gradient.raw_dim())
+            .into_shape(self.operand_gradient.shape())
             .unwrap();
 
-        *operand_gradient += &view;
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+        *self.operand_gradient.content_mut() += &view;
     }
 }
 

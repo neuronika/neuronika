@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{Axis, Dimension, Slice};
 use std::{
     cell::{Cell, RefCell},
@@ -13,7 +11,7 @@ where
 {
     operands_data: Vec<Rc<RefCell<Tensor<D>>>>,
     data: Rc<RefCell<Tensor<D>>>,
-    axis: usize,
+    axis: Axis,
     computed: Cell<bool>,
 }
 
@@ -29,7 +27,7 @@ where
         Self {
             operands_data,
             data,
-            axis,
+            axis: Axis(axis),
             computed: Cell::default(),
         }
     }
@@ -45,16 +43,14 @@ where
         }
 
         self.computed.set(true);
-        let (axis, mut offset, mut data) = (self.axis, 0, self.data.borrow_mut());
+        let (mut offset, mut data) = (0, self.data.borrow_mut());
 
         self.operands_data.iter().for_each(|operand| {
             let operand_data = operand.borrow();
-            let axis_len = operand_data.len_of(Axis(axis));
+            let axis_len = operand_data.len_of(self.axis);
             let slice = Slice::from(offset..axis_len + offset);
 
-            let mut view_mut = data.slice_axis_mut(Axis(axis), slice);
-            view_mut.assign(&operand_data);
-
+            data.slice_axis_mut(self.axis, slice).assign(&operand_data);
             offset += axis_len;
         });
     }
@@ -71,10 +67,9 @@ pub struct MultiConcatenateBackward<D>
 where
     D: Dimension,
 {
-    operands_gradients: Vec<Rc<RefCell<Option<Tensor<D>>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
-    axis: usize,
+    operands_gradients: Vec<Rc<OptionalTensor<D>>>,
+    gradient: Rc<OptionalTensor<D>>,
+    axis: Axis,
 }
 
 impl<D> MultiConcatenateBackward<D>
@@ -82,16 +77,14 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operands_gradients: Vec<Rc<RefCell<Option<Tensor<D>>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
+        operands_gradients: Vec<Rc<OptionalTensor<D>>>,
+        gradient: Rc<OptionalTensor<D>>,
         axis: usize,
     ) -> Self {
         Self {
             operands_gradients,
             gradient,
-            shape,
-            axis,
+            axis: Axis(axis),
         }
     }
 }
@@ -101,27 +94,18 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let (axis, gradient, mut offset) = (self.axis, expect_tensor(&self.gradient), 0);
-
+        let gradient = self.gradient.content();
+        let mut offset = 0;
         self.operands_gradients
             .iter()
-            .map(expect_tensor_mut)
+            .map(|operand| operand.content_mut())
             .for_each(|mut operand_gradient| {
-                let axis_len = operand_gradient.len_of(Axis(axis));
-                let grad_view =
-                    gradient.slice_axis(Axis(axis), Slice::from(offset..axis_len + offset));
+                let axis_len = operand_gradient.len_of(self.axis);
 
-                *operand_gradient += &grad_view;
+                *operand_gradient +=
+                    &gradient.slice_axis(self.axis, Slice::from(offset..axis_len + offset));
                 offset += axis_len;
             });
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 

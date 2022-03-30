@@ -1,8 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{
-    expect_tensor, expect_tensor_mut, reduce, Backward, BroadTensor, Broadcasted, Forward, Tensor,
-};
+use super::{reduce, Backward, BroadTensor, Broadcasted, Forward, OptionalTensor, Tensor};
 use ndarray::{DimMax, Dimension, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -65,75 +61,13 @@ where
     }
 }
 
-pub struct SubtractionBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
-}
-
-impl<D, E> SubtractionBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    pub fn new(
-        left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
-    ) -> Self {
-        Self {
-            left_gradient,
-            right_gradient,
-            gradient,
-            shape,
-        }
-    }
-}
-
-impl<D, E> Backward for SubtractionBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    fn backward(&self) {
-        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
-        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
-        {
-            let reduced = reduce(left_gradient.raw_dim(), &gradient);
-            *left_gradient += &reduced;
-        }
-
-        {
-            let reduced = reduce(right_gradient.raw_dim(), &gradient);
-            *right_gradient -= &reduced;
-        }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-    }
-}
-
 pub struct SubtractionBackwardLeft<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
+    operand_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
 }
 
 impl<D, E> SubtractionBackwardLeft<D, E>
@@ -142,14 +76,12 @@ where
     E: Dimension,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
+        operand_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
         }
     }
 }
@@ -160,21 +92,8 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
-        {
-            let reduced = reduce(operand_gradient.raw_dim(), &gradient);
-            *operand_gradient += &reduced
-        }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+        let reduced = reduce(self.operand_gradient.shape(), &self.gradient.content());
+        *self.operand_gradient.content_mut() += &reduced
     }
 }
 
@@ -183,9 +102,8 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
+    operand_gradient: Rc<OptionalTensor<E>>,
+    gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
 }
 
 impl<D, E> SubtractionBackwardRight<D, E>
@@ -194,14 +112,12 @@ where
     E: Dimension,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
+        operand_gradient: Rc<OptionalTensor<E>>,
+        gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
         }
     }
 }
@@ -212,21 +128,38 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
-
-        {
-            let reduced = reduce(gradient.raw_dim(), &gradient);
-            *operand_gradient -= &reduced;
-        }
+        let reduced = reduce(self.gradient.shape(), &self.gradient.content());
+        *self.operand_gradient.content_mut() -= &reduced;
     }
+}
 
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
+pub struct SubtractionBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    left: SubtractionBackwardLeft<D, E>,
+    right: SubtractionBackwardRight<D, E>,
+}
+
+impl<D, E> SubtractionBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    pub fn new(left: SubtractionBackwardLeft<D, E>, right: SubtractionBackwardRight<D, E>) -> Self {
+        Self { left, right }
     }
+}
 
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+impl<D, E> Backward for SubtractionBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    fn backward(&self) {
+        self.left.backward();
+        self.right.backward();
     }
 }
 

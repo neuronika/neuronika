@@ -1,23 +1,15 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-
-use super::{
-    expect_tensor, expect_tensor_mut, reduce, Backward, BroadTensor, Broadcasted, Forward, Tensor,
-};
+use super::{reduce, Backward, BroadTensor, Broadcasted, Forward, OptionalTensor, Shared, Tensor};
 use ndarray::{DimMax, Dimension, Zip};
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-};
+use std::{cell::Cell, rc::Rc};
 
 pub struct Division<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_data: Rc<RefCell<Tensor<D>>>,
-    right_data: Rc<RefCell<Tensor<E>>>,
-    data: Rc<RefCell<BroadTensor<D, E>>>,
+    left_data: Shared<Tensor<D>>,
+    right_data: Shared<Tensor<E>>,
+    data: Shared<BroadTensor<D, E>>,
     computed: Cell<bool>,
 }
 
@@ -27,9 +19,9 @@ where
     E: Dimension,
 {
     pub fn new(
-        left_data: Rc<RefCell<Tensor<D>>>,
-        right_data: Rc<RefCell<Tensor<E>>>,
-        data: Rc<RefCell<BroadTensor<D, E>>>,
+        left_data: Shared<Tensor<D>>,
+        right_data: Shared<Tensor<E>>,
+        data: Shared<BroadTensor<D, E>>,
     ) -> Self {
         Self {
             left_data,
@@ -66,104 +58,15 @@ where
     }
 }
 
-pub struct DivisionBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    left_data: Rc<RefCell<Tensor<D>>>,
-    left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    right_data: Rc<RefCell<Tensor<E>>>,
-    right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
-    buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-}
-
-impl<D, E> DivisionBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    pub fn new(
-        left_data: Rc<RefCell<Tensor<D>>>,
-        left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        right_data: Rc<RefCell<Tensor<E>>>,
-        right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
-        buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    ) -> Self {
-        Self {
-            left_data,
-            left_gradient,
-            right_data,
-            right_gradient,
-            gradient,
-            shape,
-            buffer,
-        }
-    }
-}
-
-impl<D, E> Backward for DivisionBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    fn backward(&self) {
-        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
-        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
-        let gradient = expect_tensor(&self.gradient);
-        let mut buffer = expect_tensor_mut(&self.buffer);
-
-        {
-            let right_data = self.right_data.borrow();
-
-            {
-                Zip::from(&mut *buffer)
-                    .and(&*gradient)
-                    .and_broadcast(&*right_data)
-                    .for_each(|d, g, r| *d = g / r);
-
-                let reduced = reduce(left_gradient.raw_dim(), &buffer);
-                *left_gradient += &reduced;
-            }
-
-            {
-                let left_data = self.left_data.borrow();
-
-                Zip::from(&mut *buffer)
-                    .and(&*gradient)
-                    .and_broadcast(&*left_data)
-                    .and_broadcast(&*right_data)
-                    .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
-
-                let reduced = reduce(right_gradient.raw_dim(), &buffer);
-                *right_gradient += &reduced
-            }
-        }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-    }
-}
-
 pub struct DivisionBackwardLeft<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    right_data: Rc<RefCell<Tensor<E>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
-    buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+    left_gradient: Rc<OptionalTensor<D>>,
+    right_data: Shared<Tensor<E>>,
+    gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+    buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
 }
 
 impl<D, E> DivisionBackwardLeft<D, E>
@@ -172,17 +75,15 @@ where
     E: Dimension,
 {
     pub fn new(
-        left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        right_data: Rc<RefCell<Tensor<E>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
-        buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+        left_gradient: Rc<OptionalTensor<D>>,
+        right_data: Shared<Tensor<E>>,
+        gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+        buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
     ) -> Self {
         Self {
             left_gradient,
             right_data,
             gradient,
-            shape,
             buffer,
         }
     }
@@ -194,29 +95,14 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
-        let gradient = expect_tensor(&self.gradient);
-        let mut buffer = expect_tensor_mut(&self.buffer);
+        let mut buffer = self.buffer.content_mut();
+        Zip::from(&mut *buffer)
+            .and(&*self.gradient.content())
+            .and_broadcast(&*self.right_data.borrow())
+            .for_each(|d, g, r| *d = g / r);
 
-        {
-            let right_data = self.right_data.borrow();
-
-            Zip::from(&mut *buffer)
-                .and(&*gradient)
-                .and_broadcast(&*right_data)
-                .for_each(|d, g, r| *d = g / r);
-
-            let reduced = reduce(left_gradient.raw_dim(), &buffer);
-            *left_gradient += &reduced;
-        }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+        let reduced = reduce(self.left_gradient.shape(), &buffer);
+        *self.left_gradient.content_mut() += &reduced;
     }
 }
 
@@ -225,12 +111,11 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_data: Rc<RefCell<Tensor<D>>>,
-    right_data: Rc<RefCell<Tensor<E>>>,
-    right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
-    buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+    left_data: Shared<Tensor<D>>,
+    right_data: Shared<Tensor<E>>,
+    right_gradient: Rc<OptionalTensor<E>>,
+    gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+    buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
 }
 
 impl<D, E> DivisionBackwardRight<D, E>
@@ -239,19 +124,17 @@ where
     E: Dimension,
 {
     pub fn new(
-        left_data: Rc<RefCell<Tensor<D>>>,
-        right_data: Rc<RefCell<Tensor<E>>>,
-        right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
-        buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+        left_data: Shared<Tensor<D>>,
+        right_data: Shared<Tensor<E>>,
+        right_gradient: Rc<OptionalTensor<E>>,
+        gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+        buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
     ) -> Self {
         Self {
             left_data,
             right_data,
             right_gradient,
             gradient,
-            shape,
             buffer,
         }
     }
@@ -263,31 +146,45 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
-        let gradient = expect_tensor(&self.gradient);
-        let mut buffer = expect_tensor_mut(&self.buffer);
+        let mut buffer = self.buffer.content_mut();
+        Zip::from(&mut *buffer)
+            .and(&*self.gradient.content())
+            .and_broadcast(&*self.left_data.borrow())
+            .and_broadcast(&*self.right_data.borrow())
+            .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
 
-        {
-            let left_data = self.left_data.borrow();
-            let right_data = self.right_data.borrow();
-
-            Zip::from(&mut *buffer)
-                .and(&*gradient)
-                .and_broadcast(&*left_data)
-                .and_broadcast(&*right_data)
-                .for_each(|d, g, l, r| *d = -g * l / r.powi(2));
-
-            let reduced = reduce(right_gradient.raw_dim(), &buffer);
-            *right_gradient += &reduced;
-        }
+        let reduced = reduce(self.right_gradient.shape(), &buffer);
+        *self.right_gradient.content_mut() += &reduced;
     }
+}
 
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
+pub struct DivisionBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    left: DivisionBackwardLeft<D, E>,
+    right: DivisionBackwardRight<D, E>,
+}
+
+impl<D, E> DivisionBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    pub fn new(left: DivisionBackwardLeft<D, E>, right: DivisionBackwardRight<D, E>) -> Self {
+        Self { left, right }
     }
+}
 
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+impl<D, E> Backward for DivisionBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    fn backward(&self) {
+        self.left.backward();
+        self.right.backward();
     }
 }
 

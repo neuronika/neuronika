@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{Dimension, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -57,10 +55,9 @@ pub struct ExpBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    operand_gradient: Rc<OptionalTensor<D>>,
     data: Rc<RefCell<Tensor<D>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
+    gradient: Rc<OptionalTensor<D>>,
 }
 
 impl<D> ExpBackward<D>
@@ -68,16 +65,14 @@ where
     D: Dimension,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        operand_gradient: Rc<OptionalTensor<D>>,
         data: Rc<RefCell<Tensor<D>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
+        gradient: Rc<OptionalTensor<D>>,
     ) -> Self {
         Self {
             operand_gradient,
             data,
             gradient,
-            shape,
         }
     }
 }
@@ -87,22 +82,10 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let data = self.data.borrow();
-        let gradient = expect_tensor(&self.gradient);
-
-        Zip::from(&mut *operand_gradient)
-            .and(&*gradient)
-            .and(&*data)
+        Zip::from(&mut *self.operand_gradient.content_mut())
+            .and(&*self.gradient.content())
+            .and(&*self.data.borrow())
             .for_each(|op_grad_el, grad_el, data_el| *op_grad_el += *grad_el * data_el);
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 

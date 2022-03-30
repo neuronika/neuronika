@@ -1,8 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{
-    expect_tensor, expect_tensor_mut, reduce, Backward, BroadTensor, Broadcasted, Forward, Tensor,
-};
+use super::{reduce, Backward, BroadTensor, Broadcasted, Forward, OptionalTensor, Tensor};
 use ndarray::{DimMax, Dimension, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -65,103 +61,15 @@ where
     }
 }
 
-pub struct MultiplicationBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    left_data: Rc<RefCell<Tensor<D>>>,
-    left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    right_data: Rc<RefCell<Tensor<E>>>,
-    right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
-    buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-}
-
-impl<D, E> MultiplicationBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    pub fn new(
-        left_data: Rc<RefCell<Tensor<D>>>,
-        left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        right_data: Rc<RefCell<Tensor<E>>>,
-        right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
-        buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    ) -> Self {
-        Self {
-            left_data,
-            left_gradient,
-            right_data,
-            right_gradient,
-            gradient,
-            shape,
-            buffer,
-        }
-    }
-}
-
-impl<D, E> Backward for MultiplicationBackward<D, E>
-where
-    D: Dimension + DimMax<E>,
-    E: Dimension,
-{
-    fn backward(&self) {
-        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
-        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
-        let mut buffer = expect_tensor_mut(&self.buffer);
-        let gradient = expect_tensor(&self.gradient);
-
-        {
-            {
-                let right_data = self.right_data.borrow();
-
-                Zip::from(&mut *buffer)
-                    .and(&*gradient)
-                    .and_broadcast(&*right_data)
-                    .for_each(|d, g, r| *d = g * r);
-
-                let reduced = reduce(left_gradient.raw_dim(), &buffer);
-                *left_gradient += &reduced;
-            }
-
-            {
-                let left_data = self.left_data.borrow();
-
-                Zip::from(&mut *buffer)
-                    .and(&*gradient)
-                    .and_broadcast(&*left_data)
-                    .for_each(|d, g, r| *d = g * r);
-
-                let reduced = reduce(right_gradient.raw_dim(), &buffer);
-                *right_gradient += &reduced;
-            }
-        }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-    }
-}
-
 pub struct MultiplicationBackwardLeft<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    left_gradient: Rc<OptionalTensor<D>>,
     right_data: Rc<RefCell<Tensor<E>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
-    buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+    gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+    buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
 }
 
 impl<D, E> MultiplicationBackwardLeft<D, E>
@@ -170,17 +78,15 @@ where
     E: Dimension,
 {
     pub fn new(
-        left_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        left_gradient: Rc<OptionalTensor<D>>,
         right_data: Rc<RefCell<Tensor<E>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
-        buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+        gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+        buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
     ) -> Self {
         Self {
             left_gradient,
             right_data,
             gradient,
-            shape,
             buffer,
         }
     }
@@ -192,29 +98,15 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let mut left_gradient = expect_tensor_mut(&self.left_gradient);
-        let gradient = expect_tensor(&self.gradient);
-        let mut buffer = expect_tensor_mut(&self.buffer);
+        let mut buffer = self.buffer.content_mut();
+        let right_data = self.right_data.borrow();
+        Zip::from(&mut *buffer)
+            .and(&*self.gradient.content())
+            .and_broadcast(&*right_data)
+            .for_each(|d, g, v| *d = g * v);
 
-        {
-            let right_data = self.right_data.borrow();
-
-            Zip::from(&mut *buffer)
-                .and(&*gradient)
-                .and_broadcast(&*right_data)
-                .for_each(|d, g, v| *d = g * v);
-
-            let reduced = reduce(left_gradient.raw_dim(), &buffer);
-            *left_gradient += &reduced;
-        }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+        let reduced = reduce(self.left_gradient.shape(), &buffer);
+        *self.left_gradient.content_mut() += &reduced;
     }
 }
 
@@ -223,11 +115,10 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
+    right_gradient: Rc<OptionalTensor<E>>,
     left_data: Rc<RefCell<Tensor<D>>>,
-    right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-    gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-    shape: Broadcasted<D, E>,
-    buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+    gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+    buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
 }
 
 impl<D, E> MultiplicationBackwardRight<D, E>
@@ -236,17 +127,15 @@ where
     E: Dimension,
 {
     pub(crate) fn new(
+        right_gradient: Rc<OptionalTensor<E>>,
         left_data: Rc<RefCell<Tensor<D>>>,
-        right_gradient: Rc<RefCell<Option<Tensor<E>>>>,
-        gradient: Rc<RefCell<Option<BroadTensor<D, E>>>>,
-        shape: Broadcasted<D, E>,
-        buffer: Rc<RefCell<Option<BroadTensor<D, E>>>>,
+        gradient: Rc<OptionalTensor<Broadcasted<D, E>>>,
+        buffer: Rc<OptionalTensor<Broadcasted<D, E>>>,
     ) -> Self {
         Self {
-            left_data,
             right_gradient,
+            left_data,
             gradient,
-            shape,
             buffer,
         }
     }
@@ -258,31 +147,50 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let mut right_gradient = expect_tensor_mut(&self.right_gradient);
-        let gradient = expect_tensor(&self.gradient);
-        let mut buffer = expect_tensor_mut(&self.buffer);
+        let mut buffer = self.buffer.content_mut();
+        Zip::from(&mut *buffer)
+            .and(&*self.gradient.content())
+            .and_broadcast(&*self.left_data.borrow())
+            .for_each(|d, g, v| *d = g * v);
 
-        {
-            let left_data = self.left_data.borrow();
-
-            Zip::from(&mut *buffer)
-                .and(&*gradient)
-                .and_broadcast(&*left_data)
-                .for_each(|d, g, v| *d = g * v);
-
-            let reduced = reduce(right_gradient.raw_dim(), &buffer);
-            *right_gradient += &reduced;
-        }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+        let reduced = reduce(self.right_gradient.shape(), &buffer);
+        *self.right_gradient.content_mut() += &reduced;
     }
 }
+
+pub struct MultiplicationBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    left: MultiplicationBackwardLeft<D, E>,
+    right: MultiplicationBackwardRight<D, E>,
+}
+
+impl<D, E> MultiplicationBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    pub fn new(
+        left: MultiplicationBackwardLeft<D, E>,
+        right: MultiplicationBackwardRight<D, E>,
+    ) -> Self {
+        Self { left, right }
+    }
+}
+
+impl<D, E> Backward for MultiplicationBackward<D, E>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    fn backward(&self) {
+        self.left.backward();
+        self.right.backward();
+    }
+}
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

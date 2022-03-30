@@ -27,6 +27,7 @@ pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type DynTensor = ArrayD<f32>;
 pub(crate) type Tensor<D> = Array<f32, D>;
+pub(crate) type Shared<T> = Rc<RefCell<T>>;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Computational Nodes` Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -72,13 +73,6 @@ pub trait Backward {
     ///
     /// It also defines the logic for the back-propagation of the node.
     fn backward(&self);
-
-    /// Shuts down the computation of the gradient for the node `self` and de-allocates its gradient.
-    fn no_grad(&self);
-
-    /// Switches back on the computation of the gradient for the node `self` and re-allocates its
-    ///gradient.
-    fn with_grad(&self);
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -191,6 +185,81 @@ pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> 
         src.into_dimensionality::<D>().unwrap()
     } else {
         src.clone().into_dimensionality::<D>().unwrap()
+    }
+}
+
+pub trait SwitchTensor {
+    fn deallocate(&self);
+
+    fn allocate(&self);
+}
+
+pub struct OptionalTensor<D>
+where
+    D: Dimension,
+{
+    tensor: RefCell<Option<Tensor<D>>>,
+    shape: D,
+}
+
+impl<D> OptionalTensor<D>
+where
+    D: Dimension,
+{
+    pub fn zeros(shape: D) -> Self {
+        Self {
+            tensor: RefCell::new(Some(Tensor::zeros(shape.clone()))),
+            shape,
+        }
+    }
+
+    pub fn from_ndarray(tensor: Tensor<D>) -> Self {
+        let shape = tensor.raw_dim();
+
+        Self {
+            tensor: RefCell::new(Some(tensor)),
+            shape,
+        }
+    }
+
+    // Queste due funzioni potrebbero essere senza il controllo se venisse implementato
+    // un cambio di tipo a seconda che contengano un `Some(_)` o un `None`.
+    // Sarebbe molto piu` pulito, ma e` da valutare se ne valga la pena
+    pub fn content(&self) -> Ref<Tensor<D>> {
+        debug_assert!(self.tensor.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using with_grad().");
+
+        Ref::map(self.tensor.borrow(), |b| b.as_ref().unwrap())
+    }
+
+    // Queste due funzioni potrebbero essere senza il controllo se venisse implementato
+    // un cambio di tipo a seconda che contengano un `Some(_)` o un `None`.
+    // Sarebbe molto piu` pulito, ma e` da valutare se ne valga la pena
+    pub fn content_mut(&self) -> RefMut<Tensor<D>> {
+        debug_assert!(self.tensor.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using with_grad().");
+
+        RefMut::map(self.tensor.borrow_mut(), |b| b.as_mut().unwrap())
+    }
+
+    pub fn shape(&self) -> D {
+        self.shape.clone()
+    }
+}
+
+impl<D> SwitchTensor for OptionalTensor<D>
+where
+    D: Dimension,
+{
+    fn deallocate(&self) {
+        *self.tensor.borrow_mut() = None;
+    }
+
+    fn allocate(&self) {
+        let mut tensor = self.tensor.borrow_mut();
+        if tensor.is_some() {
+            return;
+        }
+
+        *tensor = Some(Tensor::zeros(self.shape()));
     }
 }
 

@@ -3,9 +3,7 @@ mod division;
 mod multiplication;
 mod subtraction;
 
-use super::{
-    expect_tensor, expect_tensor_mut, reduce, Backward, BroadTensor, Broadcasted, Forward, Tensor,
-};
+use super::{reduce, Backward, BroadTensor, Broadcasted, Forward, OptionalTensor, Shared, Tensor};
 
 #[cfg(test)]
 use super::{assert_almost_equals, new_tensor};

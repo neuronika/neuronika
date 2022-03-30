@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{Backward, Forward, OptionalTensor, Tensor};
 use ndarray::Dimension;
 use std::{
     cell::{Cell, RefCell},
@@ -80,9 +78,8 @@ pub struct ChunkBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
+    operand_gradient: Rc<OptionalTensor<D>>,
+    gradient: Rc<OptionalTensor<D>>,
     chunk_no: usize,
 }
 
@@ -91,15 +88,13 @@ where
     D: Dimension,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
+        operand_gradient: Rc<OptionalTensor<D>>,
+        gradient: Rc<OptionalTensor<D>>,
         chunk_no: usize,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
             chunk_no,
         }
     }
@@ -110,30 +105,16 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let (mut operand_gradient, gradient, chunk_no, shape) = (
-            expect_tensor_mut(&self.operand_gradient),
-            expect_tensor(&self.gradient),
-            self.chunk_no,
-            self.shape.clone(),
-        );
-
+        let mut operand_gradient = self.operand_gradient.content_mut();
         let mut operand_gradient_chunk = operand_gradient
-            .exact_chunks_mut(shape)
+            .exact_chunks_mut(self.gradient.shape())
             .into_iter()
-            .skip(chunk_no)
+            .skip(self.chunk_no)
             .take(1)
             .next()
             .unwrap();
 
-        operand_gradient_chunk += &*gradient;
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
+        operand_gradient_chunk += &*self.gradient.content();
     }
 }
 

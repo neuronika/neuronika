@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
+use super::{Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{Dimension, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -61,10 +59,9 @@ pub struct LeakyReLUBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    operand_gradient: Rc<OptionalTensor<D>>,
     operand_data: Rc<RefCell<Tensor<D>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
+    gradient: Rc<OptionalTensor<D>>,
 }
 
 impl<D> LeakyReLUBackward<D>
@@ -72,16 +69,14 @@ where
     D: Dimension,
 {
     pub fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        operand_gradient: Rc<OptionalTensor<D>>,
         operand_data: Rc<RefCell<Tensor<D>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
+        gradient: Rc<OptionalTensor<D>>,
     ) -> Self {
         Self {
             operand_gradient,
             operand_data,
             gradient,
-            shape,
         }
     }
 }
@@ -91,25 +86,13 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
-        let operand_data = self.operand_data.borrow();
-
-        Zip::from(&mut *operand_gradient)
-            .and(&*gradient)
-            .and(&*operand_data)
+        Zip::from(&mut *self.operand_gradient.content_mut())
+            .and(&*self.gradient.content())
+            .and(&*self.operand_data.borrow())
             .for_each(|op_grad_el, grad_el, op_data_el| {
-                *op_grad_el += ((*op_data_el > 0.0) as usize as f32) * grad_el
-                    + ((*op_data_el <= 0.0) as usize as f32) * 0.01
+                *op_grad_el += ((*op_data_el > 0.) as usize as f32) * grad_el
+                    + ((*op_data_el <= 0.) as usize as f32) * 0.01
             });
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
     }
 }
 

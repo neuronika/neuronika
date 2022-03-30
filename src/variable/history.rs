@@ -40,7 +40,7 @@ impl Ord for HistoryId {
             return std::cmp::Ordering::Less;
         }
 
-        lhs_order.cmp(&rhs_order)
+        lhs_order.cmp(rhs_order)
     }
 }
 

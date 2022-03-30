@@ -1,6 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-use super::{expect_tensor, expect_tensor_mut, reduction::Reduction, Backward, Forward, Tensor};
+use super::{reduction::Reduction, Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{arr0, Axis, Dimension, Ix0, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -89,9 +87,9 @@ pub struct KLDivLossBackward<D>
 where
     D: Dimension,
 {
-    input_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    input_gradient: Rc<OptionalTensor<D>>,
     target_data: Rc<RefCell<Tensor<D>>>,
-    gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
+    gradient: Rc<OptionalTensor<Ix0>>,
     reduction: Reduction,
 }
 
@@ -100,9 +98,9 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        input_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        input_gradient: Rc<OptionalTensor<D>>,
         target_data: Rc<RefCell<Tensor<D>>>,
-        gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
+        gradient: Rc<OptionalTensor<Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -119,13 +117,9 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let (mut input_gradient, gradient, target_data) = {
-            (
-                expect_tensor_mut(&self.input_gradient),
-                expect_tensor(&self.gradient),
-                self.target_data.borrow(),
-            )
-        };
+        let mut input_gradient = self.input_gradient.content_mut();
+        let gradient = self.gradient.content();
+        let target_data = self.target_data.borrow();
         let zip = Zip::from(&mut *input_gradient)
             .and_broadcast(&*gradient)
             .and(&*target_data);
@@ -133,20 +127,12 @@ where
         match self.reduction {
             Reduction::Mean => {
                 let n = target_data.len_of(Axis(0)) as f32;
-                zip.for_each(|op_grad, grad, target| *op_grad += -target * grad / n);
+                zip.for_each(|op_grad, &grad, &target| *op_grad += -target * grad / n);
             }
             Reduction::Sum => {
-                zip.for_each(|op_grad, grad, target| *op_grad += -target * grad);
+                zip.for_each(|op_grad, &grad, &target| *op_grad += -target * grad);
             }
         }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 

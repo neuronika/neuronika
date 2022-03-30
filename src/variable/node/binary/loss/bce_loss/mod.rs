@@ -1,7 +1,4 @@
-#[cfg(test)]
-use super::{assert_almost_equals, new_tensor};
-
-use super::{expect_tensor, expect_tensor_mut, reduction::Reduction, Backward, Forward, Tensor};
+use super::{reduction::Reduction, Backward, Forward, OptionalTensor, Tensor};
 use ndarray::{arr0, Dimension, Ix0, Zip};
 use std::{
     cell::{Cell, RefCell},
@@ -64,8 +61,8 @@ where
                 Zip::from(&*input_data)
                     .and(&*target_data)
                     .fold(0.0, |loss, input, target| {
-                        loss + (target * input.ln().clamp(MIN_LOG, std::f32::MAX)
-                            + (1. - target) * (1. - input).ln().clamp(MIN_LOG, std::f32::MAX))
+                        loss + (target * input.ln().clamp(MIN_LOG, f32::MAX)
+                            + (1. - target) * (1. - input).ln().clamp(MIN_LOG, f32::MAX))
                     });
             match self.reduction {
                 Reduction::Mean => arr0(-total_loss / input_data.len() as f32),
@@ -89,9 +86,9 @@ where
     D: Dimension,
 {
     input_data: Rc<RefCell<Tensor<D>>>,
-    input_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+    input_gradient: Rc<OptionalTensor<D>>,
     target_data: Rc<RefCell<Tensor<D>>>,
-    gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
+    gradient: Rc<OptionalTensor<Ix0>>,
     reduction: Reduction,
 }
 
@@ -101,9 +98,9 @@ where
 {
     pub(crate) fn new(
         input_data: Rc<RefCell<Tensor<D>>>,
-        input_gradient: Rc<RefCell<Option<Tensor<D>>>>,
+        input_gradient: Rc<OptionalTensor<D>>,
         target_data: Rc<RefCell<Tensor<D>>>,
-        gradient: Rc<RefCell<Option<Tensor<Ix0>>>>,
+        gradient: Rc<OptionalTensor<Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -121,15 +118,10 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let (mut input_gradient, gradient, input_data, target_data) = {
-            (
-                expect_tensor_mut(&self.input_gradient),
-                expect_tensor(&self.gradient),
-                self.input_data.borrow(),
-                self.target_data.borrow(),
-            )
-        };
-
+        let mut input_gradient = self.input_gradient.content_mut();
+        let gradient = self.gradient.content();
+        let target_data = self.target_data.borrow();
+        let input_data = self.input_data.borrow();
         let zip = Zip::from(&mut *input_gradient)
             .and_broadcast(&*gradient)
             .and(&*input_data)
@@ -138,26 +130,17 @@ where
         match self.reduction {
             Reduction::Mean => {
                 let n = input_data.len() as f32;
-                zip.for_each(|op_grad, grad, input, target| {
+                zip.for_each(|op_grad, &grad, &input, &target| {
                     *op_grad +=
-                        (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad / n
+                        (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad / n
                 });
             }
             Reduction::Sum => {
-                zip.for_each(|op_grad, grad, input, target| {
-                    *op_grad +=
-                        (input - target) / ((1. - input) * input).max(std::f32::EPSILON) * grad
+                zip.for_each(|op_grad, &grad, &input, &target| {
+                    *op_grad += (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad
                 });
             }
         }
-    }
-
-    fn no_grad(&self) {
-        *self.gradient.borrow_mut() = None;
-    }
-
-    fn with_grad(&self) {
-        *self.gradient.borrow_mut() = Some(arr0(0.));
     }
 }
 
