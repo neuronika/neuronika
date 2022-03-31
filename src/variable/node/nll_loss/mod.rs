@@ -1,0 +1,131 @@
+use super::{Backward, Forward, Reduction, SharedTensor, SwitchableTensor};
+use ndarray::{arr0, Axis, Dimension, Ix0, RemoveAxis, Zip};
+use std::rc::Rc;
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct NLLLoss<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    input_data: SharedTensor<D>,
+    target_data: SharedTensor<D::Smaller>,
+    data: SharedTensor<Ix0>,
+    reduction: Reduction,
+}
+
+impl<D> NLLLoss<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) fn new(
+        input_data: SharedTensor<D>,
+        target_data: SharedTensor<D::Smaller>,
+        data: SharedTensor<Ix0>,
+        reduction: Reduction,
+    ) -> Self {
+        Self {
+            input_data,
+            target_data,
+            data,
+            reduction,
+        }
+    }
+}
+
+impl<D> Forward for NLLLoss<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn forward(&self) {
+        let (input_data, target_data) = (self.input_data.borrow(), self.target_data.borrow());
+
+        *self.data.borrow_mut() = {
+            let total_loss = input_data
+                .outer_iter()
+                .enumerate()
+                .fold(0., |loss, (idx, logits)| {
+                    loss + Zip::from(logits).and(&*target_data).fold(
+                        0.,
+                        |partial_loss, &logit, &target| {
+                            partial_loss + ((target as usize == idx) as u8 as f32) * logit
+                        },
+                    )
+                });
+
+            match self.reduction {
+                Reduction::Mean => arr0(-total_loss / input_data.len_of(Axis(0)) as f32),
+                Reduction::Sum => arr0(-total_loss),
+            }
+        };
+    }
+}
+
+#[allow(clippy::upper_case_acronyms)]
+pub struct NLLLossBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    target_data: SharedTensor<D::Smaller>,
+    input_gradient: Rc<SwitchableTensor<D>>,
+    gradient: Rc<SwitchableTensor<Ix0>>,
+    reduction: Reduction,
+}
+
+impl<D> NLLLossBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) fn new(
+        target_data: SharedTensor<D::Smaller>,
+        input_gradient: Rc<SwitchableTensor<D>>,
+        gradient: Rc<SwitchableTensor<Ix0>>,
+        reduction: Reduction,
+    ) -> Self {
+        Self {
+            target_data,
+            input_gradient,
+            gradient,
+            reduction,
+        }
+    }
+}
+
+impl<D> Backward for NLLLossBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&self) {
+        let mut input_gradient = self.input_gradient.array_mut();
+        let gradient = self.gradient.array()[()];
+        let target_data = self.target_data.borrow();
+        let iter = input_gradient.outer_iter_mut().enumerate();
+
+        match self.reduction {
+            Reduction::Mean => {
+                let n = target_data.len() as f32;
+                iter.for_each(|(idx, gradient_channel)| {
+                    Zip::from(gradient_channel)
+                        .and(&*target_data)
+                        .for_each(|grad_el, &target| {
+                            *grad_el -= gradient * ((target as usize == idx) as u8 as f32) / n
+                        })
+                });
+            }
+            Reduction::Sum => {
+                iter.for_each(|(idx, gradient_channel)| {
+                    Zip::from(gradient_channel)
+                        .and(&*target_data)
+                        .for_each(|grad_el, &target| {
+                            *grad_el -= gradient * (target as usize == idx) as u8 as f32
+                        })
+                });
+            }
+        }
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// #[cfg(test)]
+// mod test;

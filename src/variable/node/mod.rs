@@ -1,23 +1,95 @@
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Nodes' Modules ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+mod addition;
+mod bce_loss;
+mod bce_with_logits_loss;
+mod chunk;
+mod concatenate;
+mod division;
+mod dropout;
+mod exp;
+mod kldiv_loss;
+mod leaky_relu;
+mod logn;
+mod logsoftmax;
+mod mae_loss;
+mod matrix_matrix_mul;
+mod matrix_matrix_mul_t;
+mod matrix_vector_mul;
+mod mean;
+mod mse_loss;
+mod multi_concatenate;
+mod multi_stack;
+mod multiplication;
+mod negation;
+mod nll_loss;
+mod pad;
+mod power;
+mod relu;
+mod sigmoid;
+mod softmax;
+mod softplus;
+mod sqrt;
+mod stack;
+mod subtraction;
+mod sum;
+mod tanh;
+mod transpose;
+mod unsqueeze;
+mod vector_matrix_mul;
+mod vector_vector_mul;
+
 use ndarray::{Array, ArrayD, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2, Zip};
 use std::{
     cell::{Ref, RefCell, RefMut},
     rc::Rc,
 };
 
-pub(crate) use binary::*;
-// pub use binary::{
-//     Constant, Convolve, ConvolveWithGroups, PaddingMode, Reflective, Replicative, Zero,
-// };
-pub(crate) use nary::*;
-pub(crate) use unary::*;
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Nodes' Modules ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-mod binary;
-mod nary;
-mod unary;
+pub(crate) use addition::*;
+pub(crate) use bce_loss::*;
+pub(crate) use bce_with_logits_loss::*;
+pub(crate) use chunk::*;
+pub(crate) use concatenate::*;
+pub(crate) use division::*;
+pub(crate) use dropout::*;
+pub(crate) use exp::*;
+pub(crate) use kldiv_loss::*;
+pub(crate) use kldiv_loss::*;
+pub(crate) use leaky_relu::*;
+pub(crate) use leaky_relu::*;
+pub(crate) use logn::*;
+pub(crate) use logn::*;
+pub(crate) use logsoftmax::*;
+pub(crate) use logsoftmax::*;
+pub(crate) use mae_loss::*;
+pub(crate) use mae_loss::*;
+pub(crate) use matrix_matrix_mul::*;
+pub(crate) use matrix_matrix_mul_t::*;
+pub(crate) use matrix_vector_mul::*;
+pub(crate) use mean::*;
+pub(crate) use mse_loss::*;
+pub(crate) use multi_concatenate::*;
+pub(crate) use multi_stack::*;
+pub(crate) use multiplication::*;
+pub(crate) use negation::*;
+pub(crate) use nll_loss::*;
+pub(crate) use pad::*;
+pub(crate) use power::*;
+pub(crate) use relu::*;
+pub(crate) use sigmoid::*;
+pub(crate) use softmax::*;
+pub(crate) use softplus::*;
+pub(crate) use sqrt::*;
+pub(crate) use stack::*;
+pub(crate) use subtraction::*;
+pub(crate) use sum::*;
+pub(crate) use tanh::*;
+pub(crate) use transpose::*;
+pub(crate) use unsqueeze::*;
+pub(crate) use vector_matrix_mul::*;
+pub(crate) use vector_vector_mul::*;
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Type Aliases ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -27,7 +99,17 @@ pub(crate) type Broadcasted<Lhs, Rhs> = <Lhs as DimMax<Rhs>>::Output;
 pub(crate) type BroadTensor<Lhs, Rhs> = Tensor<Broadcasted<Lhs, Rhs>>;
 pub(crate) type DynTensor = ArrayD<f32>;
 pub(crate) type Tensor<D> = Array<f32, D>;
-pub(crate) type Shared<T> = Rc<RefCell<T>>;
+pub(crate) type SharedTensor<D> = Rc<RefCell<Tensor<D>>>;
+
+/// Specifies the reduction to apply to the *loss* output.
+#[derive(Copy, Clone, Debug)]
+pub enum Reduction {
+    /// The output will be summed.
+    Sum,
+    /// The sum of the output will be divided by the batch size for the [`kldiv_loss`] and the
+    /// [`nll_loss`]. For all other losses the output will be divided by the number of elements.
+    Mean,
+}
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Computational Nodes` Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -51,12 +133,6 @@ pub trait Forward {
     ///
     /// It also defines the logic for the computation of the node.
     fn forward(&self);
-
-    /// Returns `true` if the node was computed, `false` otherwise.
-    fn was_computed(&self) -> bool;
-
-    /// Reset the node's flag, making it computable again.
-    fn reset_computation(&self);
 }
 
 /// Back-propagation behavior.
@@ -188,13 +264,13 @@ pub fn reduce<D: Dimension, E: Dimension>(dim: D, src: &Tensor<E>) -> Tensor<D> 
     }
 }
 
-pub trait SwitchTensor {
+pub trait Switch {
     fn deallocate(&self);
 
     fn allocate(&self);
 }
 
-pub struct OptionalTensor<D>
+pub struct SwitchableTensor<D>
 where
     D: Dimension,
 {
@@ -202,7 +278,7 @@ where
     shape: D,
 }
 
-impl<D> OptionalTensor<D>
+impl<D> SwitchableTensor<D>
 where
     D: Dimension,
 {
@@ -217,25 +293,19 @@ where
         let shape = tensor.raw_dim();
 
         Self {
-            tensor: RefCell::new(Some(tensor)),
             shape,
+            tensor: RefCell::new(Some(tensor)),
         }
     }
 
-    // Queste due funzioni potrebbero essere senza il controllo se venisse implementato
-    // un cambio di tipo a seconda che contengano un `Some(_)` o un `None`.
-    // Sarebbe molto piu` pulito, ma e` da valutare se ne valga la pena
-    pub fn content(&self) -> Ref<Tensor<D>> {
-        debug_assert!(self.tensor.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using with_grad().");
+    pub fn array(&self) -> Ref<Tensor<D>> {
+        debug_assert!(self.tensor.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`");
 
         Ref::map(self.tensor.borrow(), |b| b.as_ref().unwrap())
     }
 
-    // Queste due funzioni potrebbero essere senza il controllo se venisse implementato
-    // un cambio di tipo a seconda che contengano un `Some(_)` o un `None`.
-    // Sarebbe molto piu` pulito, ma e` da valutare se ne valga la pena
-    pub fn content_mut(&self) -> RefMut<Tensor<D>> {
-        debug_assert!(self.tensor.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using with_grad().");
+    pub fn array_mut(&self) -> RefMut<Tensor<D>> {
+        debug_assert!(self.tensor.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`");
 
         RefMut::map(self.tensor.borrow_mut(), |b| b.as_mut().unwrap())
     }
@@ -245,7 +315,7 @@ where
     }
 }
 
-impl<D> SwitchTensor for OptionalTensor<D>
+impl<D> Switch for SwitchableTensor<D>
 where
     D: Dimension,
 {
@@ -255,11 +325,73 @@ where
 
     fn allocate(&self) {
         let mut tensor = self.tensor.borrow_mut();
-        if tensor.is_some() {
-            return;
+        if tensor.is_none() {
+            *tensor = Some(Tensor::zeros(self.shape()));
         }
+    }
+}
 
-        *tensor = Some(Tensor::zeros(self.shape()));
+pub struct SwitchableBufferedTensor<D>
+where
+    D: Dimension,
+{
+    switchable: Rc<SwitchableTensor<D>>,
+    buffer: RefCell<Option<Tensor<D>>>,
+}
+
+impl<D> SwitchableBufferedTensor<D>
+where
+    D: Dimension,
+{
+    pub fn from_switchable(switchable: Rc<SwitchableTensor<D>>) -> Self {
+        Self {
+            buffer: RefCell::new(Some(Array::zeros(switchable.shape()))),
+            switchable,
+        }
+    }
+
+    pub fn array(&self) -> Ref<Tensor<D>> {
+        self.switchable.array()
+    }
+
+    pub fn array_mut(&self) -> RefMut<Tensor<D>> {
+        self.switchable.array_mut()
+    }
+
+    pub fn buffer(&self) -> Ref<Tensor<D>> {
+        debug_assert!(self.buffer.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`");
+
+        Ref::map(self.buffer.borrow(), |b| b.as_ref().unwrap())
+    }
+
+    pub fn buffer_mut(&self) -> RefMut<Tensor<D>> {
+        debug_assert!(self.buffer.borrow().is_some(), "Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`");
+
+        RefMut::map(self.buffer.borrow_mut(), |b| b.as_mut().unwrap())
+    }
+
+    pub fn shape(&self) -> D {
+        self.switchable.shape()
+    }
+}
+
+impl<D> Switch for SwitchableBufferedTensor<D>
+where
+    D: Dimension,
+{
+    fn deallocate(&self) {
+        self.switchable.deallocate();
+
+        *self.buffer.borrow_mut() = None;
+    }
+
+    fn allocate(&self) {
+        self.switchable.allocate();
+
+        let mut buffer = self.buffer.borrow_mut();
+        if buffer.is_none() {
+            *buffer = Some(Tensor::zeros(self.shape()));
+        }
     }
 }
 
