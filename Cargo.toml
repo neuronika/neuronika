@@ -5,7 +5,7 @@ authors     = ["Francesco Iannelli \"frjnn\"", "Stefano Pacchini \"ste-pac\""]
 description = "Tensors and dynamic neural networks."
 keywords    = ["deep-learning", "auto-differentiation", "machine-learning", "tensors"]
 edition     = "2021"
-license     = "MPL-2.0"
+license     = "MIT OR Apache-2.0"
 repository  = "https://github.com/neuronika/neuronika"
 exclude     = ["misc/*"]
 
