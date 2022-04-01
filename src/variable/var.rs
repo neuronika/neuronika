@@ -1,13 +1,14 @@
 use super::{
-    cobroadcasted_zeros, node, Addition, AdditionBackwardRight, BufferedGradient, Cat, Chunk,
-    Concatenate, ConcatenateBackwardRight, Division, DivisionBackwardRight, DotDim, Dropout, Exp,
-    Forward, Gradient, History, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT, MatVecMul,
-    MatrixMatrixMul, MatrixMatrixMulBackwardRight, MatrixMatrixMulT, MatrixMatrixMulTBackwardRight,
-    MatrixVectorMul, MatrixVectorMulBackwardRight, Mean, MultiConcatenate, MultiStack,
-    Multiplication, MultiplicationBackwardRight, Negation, Power, ReLU, Sigmoid, SoftPlus, Softmax,
-    Sqrt, Stack, StackBackwardRight, Subtraction, SubtractionBackwardRight, Sum, TanH, Transpose,
-    Unsqueeze, VarDiff, VecMatMul, VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight,
-    VectorVectorMul, VectorVectorMulBackwardUnary,
+    cobroadcasted_zeros, node, padded_shape, Addition, AdditionBackwardRight, BufferedGradient,
+    Cat, Chunk, Concatenate, ConcatenateBackwardRight, Division, DivisionBackwardRight, DotDim,
+    Dropout, Exp, Forward, Gradient, History, LeakyReLU, LogSoftmax, Logn, MatMatMul, MatMatMulT,
+    MatVecMul, MatrixMatrixMul, MatrixMatrixMulBackwardRight, MatrixMatrixMulT,
+    MatrixMatrixMulTBackwardRight, MatrixVectorMul, MatrixVectorMulBackwardRight, Mean,
+    MultiConcatenate, MultiStack, Multiplication, MultiplicationBackwardRight, Negation, Pad,
+    PaddingMode, Power, ReLU, Sigmoid, SoftPlus, Softmax, Sqrt, Stack, StackBackwardRight,
+    Subtraction, SubtractionBackwardRight, Sum, TanH, Transpose, Unsqueeze, VarDiff, VecMatMul,
+    VecVecMul, VectorMatrixMul, VectorMatrixMulBackwardRight, VectorVectorMul,
+    VectorVectorMulBackwardUnary,
 };
 use ndarray::{
     arr0, concatenate, stack, Array, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2,
@@ -528,6 +529,27 @@ where
             Rc::new(RefCell::new(stack(Axis(axis), &views).unwrap()))
         };
         let op = Rc::new(MultiStack::new(operands_data, data.clone(), axis));
+
+        Var::node(data, op, self.history)
+    }
+}
+
+impl<D> Var<D>
+where
+    D: 'static + Dimension,
+    D::Smaller: RemoveAxis,
+    <D::Smaller as Dimension>::Smaller: Copy,
+{
+    /// Applies the specified padding over the spatial dimensions of the variable.
+    pub fn pad<T, E>(self, padding: E, mode: T) -> Var<D>
+    where
+        T: 'static + PaddingMode<D>,
+        E: IntoDimension<Dim = <D::Smaller as Dimension>::Smaller>,
+    {
+        let padding = padding.into_dimension();
+        let shape = padded_shape(self.data().raw_dim(), padding);
+        let data = Rc::new(RefCell::new(Array::zeros(shape)));
+        let op = Rc::new(Pad::new(self.data, data.clone(), mode, padding));
 
         Var::node(data, op, self.history)
     }

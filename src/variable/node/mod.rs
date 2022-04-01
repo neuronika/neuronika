@@ -80,7 +80,7 @@ mod gradient;
 pub(crate) use gradient::{BufferedGradient, Gradient, NoGrad};
 
 mod utils;
-pub(crate) use utils::{cobroadcasted_zeros, reduce, Broadcast, DotDim, Shared};
+pub(crate) use utils::*;
 
 /// Forward-propagation behavior.
 ///

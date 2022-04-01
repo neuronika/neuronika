@@ -94,16 +94,6 @@ where
         self.gradient.borrow()
     }
 
-    pub(crate) fn borrow_mut(&self) -> RefMut<Array<f32, D>> {
-        self.gradient.borrow_mut()
-    }
-
-    pub(crate) fn buffer(&self) -> Ref<Array<f32, D>> {
-        Ref::map(self.buffer.borrow(), |option| {
-            option.as_ref().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
-        })
-    }
-
     pub(crate) fn buffer_mut(&self) -> RefMut<Array<f32, D>> {
         RefMut::map(self.buffer.borrow_mut(), |option| {
             option.as_mut().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")

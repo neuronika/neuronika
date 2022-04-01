@@ -8,9 +8,9 @@ use super::{
     MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight, MatrixVectorMulBackward,
     MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight, MeanBackward,
     MultiConcatenateBackward, MultiStackBackward, MultiplicationBackward,
-    MultiplicationBackwardLeft, MultiplicationBackwardRight, NegationBackward, NoGrad,
-    PowerBackward, ReLUBackward, SigmoidBackward, SoftPlusBackward, SoftmaxBackward, SqrtBackward,
-    Stack, StackBackward, StackBackwardLeft, StackBackwardRight, SubtractionBackward,
+    MultiplicationBackwardLeft, MultiplicationBackwardRight, NegationBackward, NoGrad, PadBackward,
+    PaddingMode, PowerBackward, ReLUBackward, SigmoidBackward, SoftPlusBackward, SoftmaxBackward,
+    SqrtBackward, Stack, StackBackward, StackBackwardLeft, StackBackwardRight, SubtractionBackward,
     SubtractionBackwardLeft, SubtractionBackwardRight, SumBackward, TanHBackward,
     TransposeBackward, UnsqueezeBackward, Var, VecMatMul, VecVecMul, VectorMatrixMulBackward,
     VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight, VectorVectorMulBackward,
@@ -561,6 +561,27 @@ where
 
         let grad = Rc::new(Gradient::zeros(var.data.borrow().raw_dim()));
         let op = MultiStackBackward::new(op_grands, grad.clone(), axis);
+
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
+    }
+}
+
+impl<D> VarDiff<D>
+where
+    D: 'static + Dimension,
+    D::Smaller: RemoveAxis,
+    <D::Smaller as Dimension>::Smaller: Copy,
+{
+    /// Applies the specified padding over the spatial dimensions of the variable.
+    pub fn pad<T, E>(self, padding: E, mode: T) -> VarDiff<D>
+    where
+        T: 'static + PaddingMode<D>,
+        E: IntoDimension<Dim = <D::Smaller as Dimension>::Smaller>,
+    {
+        let padding = padding.into_dimension();
+        let grad = Rc::new(Gradient::zeros(self.var.data().raw_dim()));
+        let var = self.var.pad(padding, mode);
+        let op = PadBackward::new(self.grad, grad.clone(), padding);
 
         VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }

@@ -5,6 +5,8 @@ use std::{cell::RefCell, rc::Rc};
 pub(crate) type Shared<T> = Rc<RefCell<T>>;
 /// A broadcasted ndarray's dimension.
 pub(crate) type Broadcast<D, E> = <D as DimMax<E>>::Output;
+/// Shorthand for `Dimension::Smaller::Smaller`.
+pub(crate) type SampleDim<D> = <<D as Dimension>::Smaller as Dimension>::Smaller;
 
 /// Utility trait useful to compute the dimensionality of algebraic operations' results.
 pub(crate) trait DotDim<Rhs>
@@ -56,6 +58,39 @@ impl DotDim<Ix2> for Ix2 {
         result[1] = rhs[1];
         result
     }
+}
+
+/// Computes the shape of the **input** after the padding is applied.
+///
+/// This function expects arrays having shape (batch size, channels, ...).
+///
+/// # Arguments
+///
+/// * `shape` - shape of the input.
+///
+/// * `padding` - padding around the input.
+pub(crate) fn padded_shape<D>(shape: D, padding: <D::Smaller as Dimension>::Smaller) -> D
+where
+    D: Dimension,
+{
+    let shape = shape.slice();
+    let padding = padding.slice();
+
+    // Checks that the number of spatial dimension and input dimensions is the same.
+    assert!(shape.len() - 2 == padding.len());
+
+    let mut padded_input_shape = D::zeros(shape.len());
+    padded_input_shape[0] = shape[0]; // Copy batch size.
+    padded_input_shape[1] = shape[1]; // Copy input channels.
+    padded_input_shape
+        .slice_mut()
+        .iter_mut()
+        .skip(2)
+        .zip(shape.iter().skip(2))
+        .zip(padding.iter())
+        .for_each(|((padded_dim, original_dim), padding)| *padded_dim = original_dim + 2 * padding);
+
+    padded_input_shape
 }
 
 /// Creates an empty tensor whose shape is the result of broadcasting between those of `left` and

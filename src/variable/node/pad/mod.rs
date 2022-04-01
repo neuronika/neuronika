@@ -4,14 +4,12 @@ mod reflective;
 mod replicative;
 mod zero;
 
-pub(crate) use padding_mode::SampleDim;
-
 pub use constant::Constant;
 pub use padding_mode::PaddingMode;
 pub use reflective::Reflective;
 pub use zero::Zero;
 
-use super::{Backward, Forward, Gradient, Shared};
+use super::{Backward, Forward, Gradient, SampleDim, Shared};
 use ndarray::{Array, Dimension, RemoveAxis, Slice};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use std::rc::Rc;
