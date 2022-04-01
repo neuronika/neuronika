@@ -75,3 +75,9 @@ is not there, please ask for help by opening a [discussion](https://github.com/n
 ## Project Status
 
 Neuronika is very young and rapidly evolving, we are continuously developing the project and breaking changes are expected during transitions from version to version. We adopt the newest stable Rust's features if we need them.
+
+## License
+
+Dual-licensed to be compatible with the Rust project.
+
+Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) or the [MIT license](http://opensource.org/licenses/MIT), at your option. This file may not be copied, modified, or distributed except according to those terms.

@@ -1,18 +1,18 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{arr0, Ix0, Ix1, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{arr0, Array, Ix0, Ix1, Zip};
 use std::rc::Rc;
 
-pub struct VectorVectorMul {
-    left_data: SharedTensor<Ix1>,
-    right_data: SharedTensor<Ix1>,
-    data: SharedTensor<Ix0>,
+pub(crate) struct VectorVectorMul {
+    left_data: Shared<Array<f32, Ix1>>,
+    right_data: Shared<Array<f32, Ix1>>,
+    data: Shared<Array<f32, Ix0>>,
 }
 
 impl VectorVectorMul {
-    pub fn new(
-        left_data: SharedTensor<Ix1>,
-        right_data: SharedTensor<Ix1>,
-        data: SharedTensor<Ix0>,
+    pub(crate) fn new(
+        left_data: Shared<Array<f32, Ix1>>,
+        right_data: Shared<Array<f32, Ix1>>,
+        data: Shared<Array<f32, Ix0>>,
     ) -> Self {
         Self {
             left_data,
@@ -28,17 +28,17 @@ impl Forward for VectorVectorMul {
     }
 }
 
-pub struct VectorVectorMulBackwardUnary {
-    operand_data: SharedTensor<Ix1>,
-    operand_gradient: Rc<SwitchableTensor<Ix1>>,
-    gradient: Rc<SwitchableTensor<Ix0>>,
+pub(crate) struct VectorVectorMulBackwardUnary {
+    operand_data: Shared<Array<f32, Ix1>>,
+    operand_gradient: Rc<Gradient<Ix1>>,
+    gradient: Rc<Gradient<Ix0>>,
 }
 
 impl VectorVectorMulBackwardUnary {
-    pub fn new(
-        operand_data: SharedTensor<Ix1>,
-        operand_gradient: Rc<SwitchableTensor<Ix1>>,
-        gradient: Rc<SwitchableTensor<Ix0>>,
+    pub(crate) fn new(
+        operand_data: Shared<Array<f32, Ix1>>,
+        operand_gradient: Rc<Gradient<Ix1>>,
+        gradient: Rc<Gradient<Ix0>>,
     ) -> Self {
         Self {
             operand_gradient,
@@ -50,20 +50,23 @@ impl VectorVectorMulBackwardUnary {
 
 impl Backward for VectorVectorMulBackwardUnary {
     fn backward(&self) {
-        Zip::from(&mut *self.operand_gradient.array_mut())
+        Zip::from(&mut *self.operand_gradient.borrow_mut())
             .and(&*self.operand_data.borrow())
-            .and_broadcast(&*self.gradient.array())
+            .and_broadcast(&*self.gradient.borrow())
             .for_each(|op_grad_el, &data_el, &grad_el| *op_grad_el += data_el * grad_el);
     }
 }
 
-pub struct VectorVectorMulBackward {
+pub(crate) struct VectorVectorMulBackward {
     left: VectorVectorMulBackwardUnary,
     right: VectorVectorMulBackwardUnary,
 }
 
 impl VectorVectorMulBackward {
-    pub fn new(left: VectorVectorMulBackwardUnary, right: VectorVectorMulBackwardUnary) -> Self {
+    pub(crate) fn new(
+        left: VectorVectorMulBackwardUnary,
+        right: VectorVectorMulBackwardUnary,
+    ) -> Self {
         Self { left, right }
     }
 }

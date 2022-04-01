@@ -1,21 +1,21 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Dimension, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension, Zip};
 use std::rc::Rc;
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct ReLU<D>
+pub(crate) struct ReLU<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<D>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
 }
 
 impl<D> ReLU<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<D>) -> Self {
+    pub(crate) fn new(operand_data: Shared<Array<f32, D>>, data: Shared<Array<f32, D>>) -> Self {
         Self { operand_data, data }
     }
 }
@@ -32,23 +32,23 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct ReLUBackward<D>
+pub(crate) struct ReLUBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    operand_data: SharedTensor<D>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    operand_data: Shared<Array<f32, D>>,
+    gradient: Rc<Gradient<D>>,
 }
 
 impl<D> ReLUBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        operand_data: SharedTensor<D>,
-        gradient: Rc<SwitchableTensor<D>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        operand_data: Shared<Array<f32, D>>,
+        gradient: Rc<Gradient<D>>,
     ) -> Self {
         Self {
             operand_gradient,
@@ -63,8 +63,8 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        Zip::from(&mut *self.operand_gradient.array_mut())
-            .and(&*self.gradient.array())
+        Zip::from(&mut *self.operand_gradient.borrow_mut())
+            .and(&*self.gradient.borrow())
             .and(&*self.operand_data.borrow())
             .for_each(|op_grad_el, &grad_el, &op_data_el| {
                 *op_grad_el += ((op_data_el > 0.) as usize as f32) * grad_el;

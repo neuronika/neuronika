@@ -6,12 +6,13 @@ mod vardiff;
 pub use var::Var;
 pub use vardiff::VarDiff;
 
+pub(crate) use history::History;
 pub(crate) use node::*;
-pub use node::{
-    Backward,
-    /*Constant, Convolve, ConvolveWithGroups,*/
-    Forward, /*PaddingMode, Reflective, Replicative, Zero,*/
-};
+
+// pub use node::{
+/*Constant, Convolve, ConvolveWithGroups,*/
+/*PaddingMode, Reflective, Replicative, Zero,*/
+//};
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Algebraic Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

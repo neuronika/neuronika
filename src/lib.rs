@@ -202,9 +202,20 @@ use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 pub use variable::{
-    Backward, Cat, /*Convolve, ConvolveWithGroups*/ Forward, MatMatMul, MatMatMulT, MatVecMul,
-    Stack, Var, VarDiff, VecMatMul, VecVecMul,
+    Cat, /*Convolve, ConvolveWithGroups*/ MatMatMul, MatMatMulT, MatVecMul, Stack, Var,
+    VarDiff, VecMatMul, VecVecMul,
 };
+
+/// Specifies the reduction to apply to the criterion output.
+#[derive(Copy, Clone, Debug)]
+pub enum Reduction {
+    /// The output will be summed.
+    Sum,
+    /// The sum of the output will be divided by the batch size for the Kullback-Leibler divergence
+    /// and the negative log-likelihood. For all other criterions the output will be divided by
+    /// the number of elements.
+    Mean,
+}
 
 /// Creates a variable from a **[ndarray]** array that owns its data.
 ///

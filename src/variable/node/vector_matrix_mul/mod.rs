@@ -1,18 +1,18 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{linalg::general_mat_vec_mul, s, Ix1, Ix2, NewAxis, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{linalg::general_mat_vec_mul, s, Array, Ix1, Ix2, NewAxis, Zip};
 use std::rc::Rc;
 
-pub struct VectorMatrixMul {
-    left_data: SharedTensor<Ix1>,
-    right_data: SharedTensor<Ix2>,
-    data: SharedTensor<Ix1>,
+pub(crate) struct VectorMatrixMul {
+    left_data: Shared<Array<f32, Ix1>>,
+    right_data: Shared<Array<f32, Ix2>>,
+    data: Shared<Array<f32, Ix1>>,
 }
 
 impl VectorMatrixMul {
-    pub fn new(
-        left_data: SharedTensor<Ix1>,
-        right_data: SharedTensor<Ix2>,
-        data: SharedTensor<Ix1>,
+    pub(crate) fn new(
+        left_data: Shared<Array<f32, Ix1>>,
+        right_data: Shared<Array<f32, Ix2>>,
+        data: Shared<Array<f32, Ix1>>,
     ) -> Self {
         Self {
             left_data,
@@ -34,17 +34,17 @@ impl Forward for VectorMatrixMul {
     }
 }
 
-pub struct VectorMatrixMulBackwardLeft {
-    left_gradient: Rc<SwitchableTensor<Ix1>>,
-    right_data: SharedTensor<Ix2>,
-    gradient: Rc<SwitchableTensor<Ix1>>,
+pub(crate) struct VectorMatrixMulBackwardLeft {
+    left_gradient: Rc<Gradient<Ix1>>,
+    right_data: Shared<Array<f32, Ix2>>,
+    gradient: Rc<Gradient<Ix1>>,
 }
 
 impl VectorMatrixMulBackwardLeft {
-    pub fn new(
-        left_gradient: Rc<SwitchableTensor<Ix1>>,
-        right_data: SharedTensor<Ix2>,
-        gradient: Rc<SwitchableTensor<Ix1>>,
+    pub(crate) fn new(
+        left_gradient: Rc<Gradient<Ix1>>,
+        right_data: Shared<Array<f32, Ix2>>,
+        gradient: Rc<Gradient<Ix1>>,
     ) -> Self {
         Self {
             left_gradient,
@@ -59,24 +59,24 @@ impl Backward for VectorMatrixMulBackwardLeft {
         general_mat_vec_mul(
             1.,
             &self.right_data.borrow(),
-            &*self.gradient.array(),
+            &*self.gradient.borrow(),
             1.,
-            &mut *self.left_gradient.array_mut(),
+            &mut *self.left_gradient.borrow_mut(),
         );
     }
 }
 
-pub struct VectorMatrixMulBackwardRight {
-    left_data: SharedTensor<Ix1>,
-    right_gradient: Rc<SwitchableTensor<Ix2>>,
-    gradient: Rc<SwitchableTensor<Ix1>>,
+pub(crate) struct VectorMatrixMulBackwardRight {
+    left_data: Shared<Array<f32, Ix1>>,
+    right_gradient: Rc<Gradient<Ix2>>,
+    gradient: Rc<Gradient<Ix1>>,
 }
 
 impl VectorMatrixMulBackwardRight {
-    pub fn new(
-        left_data: SharedTensor<Ix1>,
-        right_gradient: Rc<SwitchableTensor<Ix2>>,
-        gradient: Rc<SwitchableTensor<Ix1>>,
+    pub(crate) fn new(
+        left_data: Shared<Array<f32, Ix1>>,
+        right_gradient: Rc<Gradient<Ix2>>,
+        gradient: Rc<Gradient<Ix1>>,
     ) -> Self {
         Self {
             left_data,
@@ -88,20 +88,23 @@ impl VectorMatrixMulBackwardRight {
 
 impl Backward for VectorMatrixMulBackwardRight {
     fn backward(&self) {
-        Zip::from(&mut *self.right_gradient.array_mut())
+        Zip::from(&mut *self.right_gradient.borrow_mut())
             .and_broadcast(&self.left_data.borrow().slice(s![.., NewAxis]))
-            .and_broadcast(&*self.gradient.array())
+            .and_broadcast(&*self.gradient.borrow())
             .for_each(|d, &f, &s| *d += f * s);
     }
 }
 
-pub struct VectorMatrixMulBackward {
+pub(crate) struct VectorMatrixMulBackward {
     left: VectorMatrixMulBackwardLeft,
     right: VectorMatrixMulBackwardRight,
 }
 
 impl VectorMatrixMulBackward {
-    pub fn new(left: VectorMatrixMulBackwardLeft, right: VectorMatrixMulBackwardRight) -> Self {
+    pub(crate) fn new(
+        left: VectorMatrixMulBackwardLeft,
+        right: VectorMatrixMulBackwardRight,
+    ) -> Self {
         Self { left, right }
     }
 }

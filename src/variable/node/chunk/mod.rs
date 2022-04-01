@@ -1,22 +1,26 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::Dimension;
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension};
 use std::rc::Rc;
 
-pub struct Chunk<D>
+pub(crate) struct Chunk<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
+    operand_data: Shared<Array<f32, D>>,
     chunk_no: usize,
     shape: D,
-    data: SharedTensor<D>,
+    data: Shared<Array<f32, D>>,
 }
 
 impl<D> Chunk<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<D>, chunk_no: usize) -> Self {
+    pub(crate) fn new(
+        operand_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D>>,
+        chunk_no: usize,
+    ) -> Self {
         let shape = data.borrow().raw_dim();
 
         Self {
@@ -52,12 +56,12 @@ where
     }
 }
 
-pub struct ChunkBackward<D>
+pub(crate) struct ChunkBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
     chunk_no: usize,
 }
 
@@ -65,9 +69,9 @@ impl<D> ChunkBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D>>,
         chunk_no: usize,
     ) -> Self {
         Self {
@@ -83,7 +87,7 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let mut operand_gradient = self.operand_gradient.array_mut();
+        let mut operand_gradient = self.operand_gradient.borrow_mut();
         let mut operand_gradient_chunk = operand_gradient
             .exact_chunks_mut(self.gradient.shape())
             .into_iter()
@@ -92,7 +96,7 @@ where
             .next()
             .unwrap();
 
-        operand_gradient_chunk += &*self.gradient.array();
+        operand_gradient_chunk += &*self.gradient.borrow();
     }
 }
 

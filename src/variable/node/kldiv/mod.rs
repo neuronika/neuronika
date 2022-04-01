@@ -1,26 +1,28 @@
-use super::{Backward, Forward, Reduction, SharedTensor, SwitchableTensor};
-use ndarray::{arr0, Axis, Dimension, Ix0, Zip};
+use crate::Reduction;
+
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{arr0, Array, Axis, Dimension, Ix0, Zip};
 use std::rc::Rc;
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct KLDivLoss<D>
+pub(crate) struct KLDiv<D>
 where
     D: Dimension,
 {
-    input_data: SharedTensor<D>,
-    target_data: SharedTensor<D>,
-    data: SharedTensor<Ix0>,
+    input_data: Shared<Array<f32, D>>,
+    target_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, Ix0>>,
     reduction: Reduction,
 }
 
-impl<D> KLDivLoss<D>
+impl<D> KLDiv<D>
 where
     D: Dimension,
 {
     pub(crate) fn new(
-        input_data: SharedTensor<D>,
-        target_data: SharedTensor<D>,
-        data: SharedTensor<Ix0>,
+        input_data: Shared<Array<f32, D>>,
+        target_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -32,7 +34,7 @@ where
     }
 }
 
-impl<D> Forward for KLDivLoss<D>
+impl<D> Forward for KLDiv<D>
 where
     D: Dimension,
 {
@@ -55,24 +57,24 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct KLDivLossBackward<D>
+pub(crate) struct KLDivBackward<D>
 where
     D: Dimension,
 {
-    input_gradient: Rc<SwitchableTensor<D>>,
-    target_data: SharedTensor<D>,
-    gradient: Rc<SwitchableTensor<Ix0>>,
+    input_gradient: Rc<Gradient<D>>,
+    target_data: Shared<Array<f32, D>>,
+    gradient: Rc<Gradient<Ix0>>,
     reduction: Reduction,
 }
 
-impl<D> KLDivLossBackward<D>
+impl<D> KLDivBackward<D>
 where
     D: Dimension,
 {
     pub(crate) fn new(
-        input_gradient: Rc<SwitchableTensor<D>>,
-        target_data: SharedTensor<D>,
-        gradient: Rc<SwitchableTensor<Ix0>>,
+        input_gradient: Rc<Gradient<D>>,
+        target_data: Shared<Array<f32, D>>,
+        gradient: Rc<Gradient<Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -84,14 +86,15 @@ where
     }
 }
 
-impl<D> Backward for KLDivLossBackward<D>
+impl<D> Backward for KLDivBackward<D>
 where
     D: Dimension,
 {
     fn backward(&self) {
-        let mut input_gradient = self.input_gradient.array_mut();
-        let gradient = self.gradient.array();
+        let mut input_gradient = self.input_gradient.borrow_mut();
+        let gradient = self.gradient.borrow();
         let target_data = self.target_data.borrow();
+
         let zip = Zip::from(&mut *input_gradient)
             .and_broadcast(&*gradient)
             .and(&*target_data);

@@ -1,18 +1,15 @@
-use super::{
-    reduce, Backward, Broadcasted, Forward, SharedTensor, SwitchableBufferedTensor,
-    SwitchableTensor,
-};
-use ndarray::{DimMax, Dimension, Zip};
+use super::{reduce, Backward, Broadcast, BufferedGradient, Forward, Gradient, Shared};
+use ndarray::{Array, DimMax, Dimension, Zip};
 use std::rc::Rc;
 
-pub struct Multiplication<D, E>
+pub(crate) struct Multiplication<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_data: SharedTensor<D>,
-    right_data: SharedTensor<E>,
-    data: SharedTensor<Broadcasted<D, E>>,
+    left_data: Shared<Array<f32, D>>,
+    right_data: Shared<Array<f32, E>>,
+    data: Shared<Array<f32, Broadcast<D, E>>>,
 }
 
 impl<D, E> Multiplication<D, E>
@@ -20,10 +17,10 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    pub fn new(
-        left_data: SharedTensor<D>,
-        right_data: SharedTensor<E>,
-        data: SharedTensor<Broadcasted<D, E>>,
+    pub(crate) fn new(
+        left_data: Shared<Array<f32, D>>,
+        right_data: Shared<Array<f32, E>>,
+        data: Shared<Array<f32, Broadcast<D, E>>>,
     ) -> Self {
         Self {
             left_data,
@@ -46,14 +43,14 @@ where
     }
 }
 
-pub struct MultiplicationBackwardLeft<D, E>
+pub(crate) struct MultiplicationBackwardLeft<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_gradient: Rc<SwitchableTensor<D>>,
-    right_data: SharedTensor<E>,
-    gradient: Rc<SwitchableBufferedTensor<Broadcasted<D, E>>>,
+    left_gradient: Rc<Gradient<D>>,
+    right_data: Shared<Array<f32, E>>,
+    gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
 }
 
 impl<D, E> MultiplicationBackwardLeft<D, E>
@@ -61,10 +58,10 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    pub fn new(
-        left_gradient: Rc<SwitchableTensor<D>>,
-        right_data: SharedTensor<E>,
-        gradient: Rc<SwitchableBufferedTensor<Broadcasted<D, E>>>,
+    pub(crate) fn new(
+        left_gradient: Rc<Gradient<D>>,
+        right_data: Shared<Array<f32, E>>,
+        gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
     ) -> Self {
         Self {
             left_gradient,
@@ -83,23 +80,23 @@ where
         let mut buffer = self.gradient.buffer_mut();
         let right_data = self.right_data.borrow();
         Zip::from(&mut *buffer)
-            .and(&*self.gradient.array())
+            .and(&*self.gradient.borrow())
             .and_broadcast(&*right_data)
             .for_each(|d, &g, &v| *d = g * v);
 
         let reduced = reduce(self.left_gradient.shape(), &buffer);
-        *self.left_gradient.array_mut() += &reduced;
+        *self.left_gradient.borrow_mut() += &reduced;
     }
 }
 
-pub struct MultiplicationBackwardRight<D, E>
+pub(crate) struct MultiplicationBackwardRight<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    right_gradient: Rc<SwitchableTensor<E>>,
-    left_data: SharedTensor<D>,
-    gradient: Rc<SwitchableBufferedTensor<Broadcasted<D, E>>>,
+    right_gradient: Rc<Gradient<E>>,
+    left_data: Shared<Array<f32, D>>,
+    gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
 }
 
 impl<D, E> MultiplicationBackwardRight<D, E>
@@ -108,9 +105,9 @@ where
     E: Dimension,
 {
     pub(crate) fn new(
-        right_gradient: Rc<SwitchableTensor<E>>,
-        left_data: SharedTensor<D>,
-        gradient: Rc<SwitchableBufferedTensor<Broadcasted<D, E>>>,
+        right_gradient: Rc<Gradient<E>>,
+        left_data: Shared<Array<f32, D>>,
+        gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
     ) -> Self {
         Self {
             right_gradient,
@@ -128,16 +125,16 @@ where
     fn backward(&self) {
         let mut buffer = self.gradient.buffer_mut();
         Zip::from(&mut *buffer)
-            .and(&*self.gradient.array())
+            .and(&*self.gradient.borrow())
             .and_broadcast(&*self.left_data.borrow())
             .for_each(|d, &g, &v| *d = g * v);
 
         let reduced = reduce(self.right_gradient.shape(), &buffer);
-        *self.right_gradient.array_mut() += &reduced;
+        *self.right_gradient.borrow_mut() += &reduced;
     }
 }
 
-pub struct MultiplicationBackward<D, E>
+pub(crate) struct MultiplicationBackward<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
@@ -151,7 +148,7 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    pub fn new(
+    pub(crate) fn new(
         left: MultiplicationBackwardLeft<D, E>,
         right: MultiplicationBackwardRight<D, E>,
     ) -> Self {

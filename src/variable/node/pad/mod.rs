@@ -11,13 +11,10 @@ pub use padding_mode::PaddingMode;
 pub use reflective::Reflective;
 pub use zero::Zero;
 
-use super::{expect_tensor, expect_tensor_mut, Backward, Forward, Tensor};
-use ndarray::{Dimension, RemoveAxis, Slice};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension, RemoveAxis, Slice};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-};
+use std::rc::Rc;
 
 pub(crate) struct Pad<D, T>
 where
@@ -26,9 +23,8 @@ where
     SampleDim<D>: Copy,
     T: PaddingMode<D>,
 {
-    operand_data: Rc<RefCell<Tensor<D>>>,
-    data: Rc<RefCell<Tensor<D>>>,
-    computed: Cell<bool>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
     mode: T,
     padding: SampleDim<D>,
     batch_collapsed_dim: D::Smaller,
@@ -43,9 +39,8 @@ where
     T: PaddingMode<D>,
 {
     pub(crate) fn new(
-        operand_data: Rc<RefCell<Tensor<D>>>,
-        data: Rc<RefCell<Tensor<D>>>,
-        computed: Cell<bool>,
+        operand_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D>>,
         mode: T,
         padding: SampleDim<D>,
     ) -> Self {
@@ -83,7 +78,6 @@ where
         Self {
             operand_data,
             data,
-            computed,
             mode,
             padding,
             batch_collapsed_dim,
@@ -130,9 +124,8 @@ pub(crate) struct PadBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    gradient: Rc<RefCell<Option<Tensor<D>>>>,
-    shape: D,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
     padding: SampleDim<D>,
 }
 
@@ -141,15 +134,13 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        gradient: Rc<RefCell<Option<Tensor<D>>>>,
-        shape: D,
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D>>,
         padding: SampleDim<D>,
     ) -> Self {
         Self {
             operand_gradient,
             gradient,
-            shape,
             padding,
         }
     }
@@ -160,8 +151,8 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let mut operand_gradient = expect_tensor_mut(&self.operand_gradient);
-        let gradient = expect_tensor(&self.gradient);
+        let mut operand_gradient = self.operand_gradient.borrow_mut();
+        let gradient = self.gradient.borrow();
 
         let padding = self.padding.slice();
 

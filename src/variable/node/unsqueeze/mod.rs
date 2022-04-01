@@ -1,20 +1,23 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::Dimension;
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension};
 use std::rc::Rc;
 
-pub struct Unsqueeze<D>
+pub(crate) struct Unsqueeze<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<D::Larger>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D::Larger>>,
 }
 
 impl<D> Unsqueeze<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<D::Larger>) -> Self {
+    pub(crate) fn new(
+        operand_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D::Larger>>,
+    ) -> Self {
         Self { operand_data, data }
     }
 }
@@ -31,21 +34,21 @@ where
     }
 }
 
-pub struct UnsqueezeBackward<D>
+pub(crate) struct UnsqueezeBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D::Larger>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D::Larger>>,
 }
 
 impl<D> UnsqueezeBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D::Larger>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D::Larger>>,
     ) -> Self {
         Self {
             operand_gradient,
@@ -59,13 +62,13 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let gradient = self.gradient.array();
+        let gradient = self.gradient.borrow();
         let view = gradient
             .view()
             .into_shape(self.operand_gradient.shape())
             .unwrap();
 
-        *self.operand_gradient.array_mut() += &view;
+        *self.operand_gradient.borrow_mut() += &view;
     }
 }
 

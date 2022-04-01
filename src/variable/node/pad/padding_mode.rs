@@ -33,9 +33,8 @@ where
 }
 
 /// Padding mode.
-pub trait PaddingMode<D>
+pub trait PaddingMode<D>: Send + Sync + Copy
 where
-    Self: Send + Sync + Copy,
     D: Dimension,
     D::Smaller: RemoveAxis,
 {

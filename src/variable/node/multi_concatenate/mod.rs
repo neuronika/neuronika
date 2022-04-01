@@ -1,13 +1,13 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Axis, Dimension, Slice};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Axis, Dimension, Slice};
 use std::rc::Rc;
 
-pub struct MultiConcatenate<D>
+pub(crate) struct MultiConcatenate<D>
 where
     D: Dimension,
 {
-    operands_data: Vec<SharedTensor<D>>,
-    data: SharedTensor<D>,
+    operands_data: Vec<Shared<Array<f32, D>>>,
+    data: Shared<Array<f32, D>>,
     axis: Axis,
 }
 
@@ -16,8 +16,8 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operands_data: Vec<SharedTensor<D>>,
-        data: SharedTensor<D>,
+        operands_data: Vec<Shared<Array<f32, D>>>,
+        data: Shared<Array<f32, D>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -46,12 +46,12 @@ where
     }
 }
 
-pub struct MultiConcatenateBackward<D>
+pub(crate) struct MultiConcatenateBackward<D>
 where
     D: Dimension,
 {
-    operands_gradients: Vec<Rc<SwitchableTensor<D>>>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operands_gradients: Vec<Rc<Gradient<D>>>,
+    gradient: Rc<Gradient<D>>,
     axis: Axis,
 }
 
@@ -60,8 +60,8 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operands_gradients: Vec<Rc<SwitchableTensor<D>>>,
-        gradient: Rc<SwitchableTensor<D>>,
+        operands_gradients: Vec<Rc<Gradient<D>>>,
+        gradient: Rc<Gradient<D>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -77,11 +77,11 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        let gradient = self.gradient.array();
+        let gradient = self.gradient.borrow();
         let mut offset = 0;
         self.operands_gradients
             .iter()
-            .map(|operand| operand.array_mut())
+            .map(|operand| operand.borrow_mut())
             .for_each(|mut operand_gradient| {
                 let axis_len = operand_gradient.len_of(self.axis);
 

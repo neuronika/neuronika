@@ -1,13 +1,13 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Dimension, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension, Zip};
 use std::rc::Rc;
 
-pub struct Power<D>
+pub(crate) struct Power<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<D>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
     exp: i32,
 }
 
@@ -15,7 +15,11 @@ impl<D> Power<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<D>, exp: i32) -> Self {
+    pub(crate) fn new(
+        operand_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D>>,
+        exp: i32,
+    ) -> Self {
         Self {
             operand_data,
             data,
@@ -35,13 +39,13 @@ where
     }
 }
 
-pub struct PowerBackward<D>
+pub(crate) struct PowerBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    operand_data: SharedTensor<D>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    operand_data: Shared<Array<f32, D>>,
+    gradient: Rc<Gradient<D>>,
     exp: i32,
 }
 
@@ -49,10 +53,10 @@ impl<D> PowerBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        operand_data: SharedTensor<D>,
-        gradient: Rc<SwitchableTensor<D>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        operand_data: Shared<Array<f32, D>>,
+        gradient: Rc<Gradient<D>>,
         exp: i32,
     ) -> Self {
         Self {
@@ -69,8 +73,8 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        Zip::from(&mut *self.operand_gradient.array_mut())
-            .and(&*self.gradient.array())
+        Zip::from(&mut *self.operand_gradient.borrow_mut())
+            .and(&*self.gradient.borrow())
             .and(&*self.operand_data.borrow())
             .for_each(|op_grad_el, &grad_el, &op_data_el| {
                 *op_grad_el += grad_el * op_data_el.powi(self.exp - 1) * self.exp as f32;

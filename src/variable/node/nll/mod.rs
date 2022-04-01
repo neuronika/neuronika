@@ -1,26 +1,28 @@
-use super::{Backward, Forward, Reduction, SharedTensor, SwitchableTensor};
-use ndarray::{arr0, Axis, Dimension, Ix0, RemoveAxis, Zip};
+use crate::Reduction;
+
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{arr0, Array, Axis, Dimension, Ix0, RemoveAxis, Zip};
 use std::rc::Rc;
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct NLLLoss<D>
+pub(crate) struct NegativeLogLikelihood<D>
 where
     D: Dimension + RemoveAxis,
 {
-    input_data: SharedTensor<D>,
-    target_data: SharedTensor<D::Smaller>,
-    data: SharedTensor<Ix0>,
+    input_data: Shared<Array<f32, D>>,
+    target_data: Shared<Array<f32, D::Smaller>>,
+    data: Shared<Array<f32, Ix0>>,
     reduction: Reduction,
 }
 
-impl<D> NLLLoss<D>
+impl<D> NegativeLogLikelihood<D>
 where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        input_data: SharedTensor<D>,
-        target_data: SharedTensor<D::Smaller>,
-        data: SharedTensor<Ix0>,
+        input_data: Shared<Array<f32, D>>,
+        target_data: Shared<Array<f32, D::Smaller>>,
+        data: Shared<Array<f32, Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -32,7 +34,7 @@ where
     }
 }
 
-impl<D> Forward for NLLLoss<D>
+impl<D> Forward for NegativeLogLikelihood<D>
 where
     D: Dimension + RemoveAxis,
 {
@@ -61,24 +63,24 @@ where
 }
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct NLLLossBackward<D>
+pub(crate) struct NegativeLogLikelihoodBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
-    target_data: SharedTensor<D::Smaller>,
-    input_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<Ix0>>,
+    target_data: Shared<Array<f32, D::Smaller>>,
+    input_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<Ix0>>,
     reduction: Reduction,
 }
 
-impl<D> NLLLossBackward<D>
+impl<D> NegativeLogLikelihoodBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        target_data: SharedTensor<D::Smaller>,
-        input_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<Ix0>>,
+        target_data: Shared<Array<f32, D::Smaller>>,
+        input_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -90,14 +92,15 @@ where
     }
 }
 
-impl<D> Backward for NLLLossBackward<D>
+impl<D> Backward for NegativeLogLikelihoodBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let mut input_gradient = self.input_gradient.array_mut();
-        let gradient = self.gradient.array()[()];
+        let mut input_gradient = self.input_gradient.borrow_mut();
+        let gradient = self.gradient.borrow()[()];
         let target_data = self.target_data.borrow();
+
         let iter = input_gradient.outer_iter_mut().enumerate();
 
         match self.reduction {

@@ -1,19 +1,19 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Dimension, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension, Zip};
 use std::rc::Rc;
-pub struct Transpose<D>
+pub(crate) struct Transpose<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<D>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
 }
 
 impl<D> Transpose<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<D>) -> Self {
+    pub(crate) fn new(operand_data: Shared<Array<f32, D>>, data: Shared<Array<f32, D>>) -> Self {
         Self { operand_data, data }
     }
 }
@@ -29,22 +29,19 @@ where
     }
 }
 
-pub struct TransposeBackward<D>
+pub(crate) struct TransposeBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
 }
 
 impl<D> TransposeBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D>>,
-    ) -> Self {
+    pub(crate) fn new(operand_gradient: Rc<Gradient<D>>, gradient: Rc<Gradient<D>>) -> Self {
         Self {
             operand_gradient,
             gradient,
@@ -57,7 +54,7 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        *self.operand_gradient.array_mut() += &self.gradient.array().t();
+        *self.operand_gradient.borrow_mut() += &self.gradient.borrow().t();
     }
 }
 

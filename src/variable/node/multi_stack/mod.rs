@@ -1,13 +1,13 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Axis, Dimension, RemoveAxis};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Axis, Dimension, RemoveAxis};
 use std::rc::Rc;
 
-pub struct MultiStack<D>
+pub(crate) struct MultiStack<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operands_data: Vec<SharedTensor<D>>,
-    data: SharedTensor<D::Larger>,
+    operands_data: Vec<Shared<Array<f32, D>>>,
+    data: Shared<Array<f32, D::Larger>>,
     axis: Axis,
 }
 
@@ -16,8 +16,8 @@ where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        operands_data: Vec<SharedTensor<D>>,
-        data: SharedTensor<D::Larger>,
+        operands_data: Vec<Shared<Array<f32, D>>>,
+        data: Shared<Array<f32, D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -44,12 +44,12 @@ where
     }
 }
 
-pub struct MultiStackBackward<D>
+pub(crate) struct MultiStackBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operands_gradients: Vec<Rc<SwitchableTensor<D>>>,
-    gradient: Rc<SwitchableTensor<D::Larger>>,
+    operands_gradients: Vec<Rc<Gradient<D>>>,
+    gradient: Rc<Gradient<D::Larger>>,
     axis: Axis,
 }
 
@@ -58,8 +58,8 @@ where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        operands_gradients: Vec<Rc<SwitchableTensor<D>>>,
-        gradient: Rc<SwitchableTensor<D::Larger>>,
+        operands_gradients: Vec<Rc<Gradient<D>>>,
+        gradient: Rc<Gradient<D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -77,8 +77,8 @@ where
     fn backward(&self) {
         self.operands_gradients
             .iter()
-            .map(|operand| operand.array_mut())
-            .zip(self.gradient.array().axis_iter(self.axis))
+            .map(|operand| operand.borrow_mut())
+            .zip(self.gradient.borrow().axis_iter(self.axis))
             .for_each(|(mut operand_gradient, grad_view)| {
                 *operand_gradient += &grad_view;
             });

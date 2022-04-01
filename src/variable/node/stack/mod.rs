@@ -1,14 +1,14 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Axis, Dimension, RemoveAxis, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Axis, Dimension, RemoveAxis, Zip};
 use std::rc::Rc;
 
-pub struct Stack<D>
+pub(crate) struct Stack<D>
 where
     D: Dimension + RemoveAxis,
 {
-    left: SharedTensor<D>,
-    right: SharedTensor<D>,
-    data: SharedTensor<D::Larger>,
+    left: Shared<Array<f32, D>>,
+    right: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D::Larger>>,
     axis: Axis,
 }
 
@@ -16,10 +16,10 @@ impl<D> Stack<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(
-        left: SharedTensor<D>,
-        right: SharedTensor<D>,
-        data: SharedTensor<D::Larger>,
+    pub(crate) fn new(
+        left: Shared<Array<f32, D>>,
+        right: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -39,7 +39,9 @@ where
         let lhs_data = self.left.borrow();
         let rhs_data = self.right.borrow();
         let mut data = self.data.borrow_mut();
+
         let mut subview_iter = data.axis_iter_mut(self.axis);
+
         let mut subview_left = subview_iter
             .next()
             .unwrap()
@@ -62,12 +64,12 @@ where
     }
 }
 
-pub struct StackBackwardLeft<D>
+pub(crate) struct StackBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D::Larger>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D::Larger>>,
     axis: Axis,
 }
 
@@ -75,9 +77,9 @@ impl<D> StackBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D::Larger>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -93,7 +95,7 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let gradient = self.gradient.array();
+        let gradient = self.gradient.borrow();
         let operand_gradient_slice = gradient
             .axis_iter(self.axis)
             .next()
@@ -101,16 +103,16 @@ where
             .into_dimensionality::<D>()
             .unwrap();
 
-        *self.operand_gradient.array_mut() += &operand_gradient_slice;
+        *self.operand_gradient.borrow_mut() += &operand_gradient_slice;
     }
 }
 
-pub struct StackBackwardRight<D>
+pub(crate) struct StackBackwardRight<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D::Larger>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D::Larger>>,
     axis: Axis,
 }
 
@@ -118,9 +120,9 @@ impl<D> StackBackwardRight<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D::Larger>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -136,7 +138,7 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let gradient = self.gradient.array();
+        let gradient = self.gradient.borrow();
         let operand_gradient_slice = gradient
             .axis_iter(self.axis)
             .nth(1)
@@ -144,11 +146,11 @@ where
             .into_dimensionality::<D>()
             .unwrap();
 
-        *self.operand_gradient.array_mut() += &operand_gradient_slice;
+        *self.operand_gradient.borrow_mut() += &operand_gradient_slice;
     }
 }
 
-pub struct StackBackward<D>
+pub(crate) struct StackBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
@@ -160,7 +162,7 @@ impl<D> StackBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(left: StackBackwardLeft<D>, right: StackBackwardRight<D>) -> Self {
+    pub(crate) fn new(left: StackBackwardLeft<D>, right: StackBackwardRight<D>) -> Self {
         Self { left, right }
     }
 }

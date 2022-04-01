@@ -1,20 +1,20 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Dimension, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension, Zip};
 use std::rc::Rc;
 
-pub struct TanH<D>
+pub(crate) struct TanH<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<D>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
 }
 
 impl<D> TanH<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<D>) -> Self {
+    pub(crate) fn new(operand_data: Shared<Array<f32, D>>, data: Shared<Array<f32, D>>) -> Self {
         Self { operand_data, data }
     }
 }
@@ -30,23 +30,23 @@ where
     }
 }
 
-pub struct TanHBackward<D>
+pub(crate) struct TanHBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    data: SharedTensor<D>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    data: Shared<Array<f32, D>>,
+    gradient: Rc<Gradient<D>>,
 }
 
 impl<D> TanHBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        data: SharedTensor<D>,
-        gradient: Rc<SwitchableTensor<D>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        data: Shared<Array<f32, D>>,
+        gradient: Rc<Gradient<D>>,
     ) -> Self {
         Self {
             operand_gradient,
@@ -61,8 +61,8 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        Zip::from(&mut *self.operand_gradient.array_mut())
-            .and(&*self.gradient.array())
+        Zip::from(&mut *self.operand_gradient.borrow_mut())
+            .and(&*self.gradient.borrow())
             .and(&*self.data.borrow())
             .for_each(|op_grad_el, &grad_el, &data_el| {
                 *op_grad_el += grad_el * (1. - data_el.powi(2))

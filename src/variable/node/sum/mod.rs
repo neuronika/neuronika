@@ -1,20 +1,20 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{arr0, Dimension, Ix0, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{arr0, Array, Array0, Dimension, Ix0, Zip};
 use std::rc::Rc;
 
-pub struct Sum<D>
+pub(crate) struct Sum<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<Ix0>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array0<f32>>,
 }
 
 impl<D> Sum<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<Ix0>) -> Self {
+    pub(crate) fn new(operand_data: Shared<Array<f32, D>>, data: Shared<Array0<f32>>) -> Self {
         Self { operand_data, data }
     }
 }
@@ -28,22 +28,19 @@ where
     }
 }
 
-pub struct SumBackward<D>
+pub(crate) struct SumBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<Ix0>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<Ix0>>,
 }
 
 impl<D> SumBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<Ix0>>,
-    ) -> Self {
+    pub(crate) fn new(operand_gradient: Rc<Gradient<D>>, gradient: Rc<Gradient<Ix0>>) -> Self {
         Self {
             operand_gradient,
             gradient,
@@ -56,8 +53,8 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        Zip::from(&mut *self.operand_gradient.array_mut())
-            .and_broadcast(&*self.gradient.array())
+        Zip::from(&mut *self.operand_gradient.borrow_mut())
+            .and_broadcast(&*self.gradient.borrow())
             .for_each(|op_grad_el, &grad_el| *op_grad_el += grad_el);
     }
 }

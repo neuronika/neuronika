@@ -1,16 +1,16 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Dimension, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Dimension, Zip};
 use rand::thread_rng;
 use rand_distr::{Bernoulli, Distribution};
 use std::{cell::Cell, rc::Rc};
 
-pub struct Dropout<D>
+pub(crate) struct Dropout<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<D>,
-    noise: SharedTensor<D>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
+    noise: Shared<Array<f32, D>>,
     distr: Bernoulli,
     p: f64,
     status: Rc<Cell<bool>>,
@@ -20,11 +20,11 @@ impl<D> Dropout<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_data: SharedTensor<D>,
-        data: SharedTensor<D>,
+    pub(crate) fn new(
+        operand_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D>>,
         p: f64,
-        noise: SharedTensor<D>,
+        noise: Shared<Array<f32, D>>,
         status: Rc<Cell<bool>>,
     ) -> Self {
         if !(0. ..=1.).contains(&p) {
@@ -63,9 +63,7 @@ where
         let mut noise = self.noise.borrow_mut();
         Zip::from(&mut *noise)
             .for_each(|noise_el| *noise_el = self.distr.sample(&mut thread_rng()) as i32 as f32);
-        // This zip must be kept separated from the previous one, because
-        // in that way we won't be able to parallelize the execution (`thread_rng`
-        // does not implement `Sync` and `Send`).
+        // Remember: keep these zips separate
         Zip::from(&mut *self.data.borrow_mut())
             .and(&*self.operand_data.borrow())
             .and(&*noise)
@@ -75,13 +73,13 @@ where
     }
 }
 
-pub struct DropoutBackward<D>
+pub(crate) struct DropoutBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D>>,
-    noise: SharedTensor<D>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
+    noise: Shared<Array<f32, D>>,
     p: f64,
     status: Rc<Cell<bool>>,
 }
@@ -90,10 +88,10 @@ impl<D> DropoutBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D>>,
-        noise: SharedTensor<D>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D>>,
+        noise: Shared<Array<f32, D>>,
         p: f64,
         status: Rc<Cell<bool>>,
     ) -> Self {
@@ -113,12 +111,12 @@ where
 {
     fn backward(&self) {
         if !self.status.get() || self.p <= f64::EPSILON {
-            *self.operand_gradient.array_mut() += &*self.gradient.array();
+            *self.operand_gradient.borrow_mut() += &*self.gradient.borrow();
             return;
         }
 
-        Zip::from(&mut *self.operand_gradient.array_mut())
-            .and(&*self.gradient.array())
+        Zip::from(&mut *self.operand_gradient.borrow_mut())
+            .and(&*self.gradient.borrow())
             .and(&*self.noise.borrow())
             .for_each(|op_grad_el, &grad_el, &noise_el| *op_grad_el += grad_el * noise_el);
     }

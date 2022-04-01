@@ -1,15 +1,15 @@
-use super::{reduce, Backward, Broadcasted, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{DimMax, Dimension, Zip};
+use super::{reduce, Backward, Broadcast, Forward, Gradient, Shared};
+use ndarray::{Array, DimMax, Dimension, Zip};
 use std::rc::Rc;
 
-pub struct Subtraction<D, E>
+pub(crate) struct Subtraction<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_data: SharedTensor<D>,
-    right_data: SharedTensor<E>,
-    data: SharedTensor<Broadcasted<D, E>>,
+    left_data: Shared<Array<f32, D>>,
+    right_data: Shared<Array<f32, E>>,
+    data: Shared<Array<f32, Broadcast<D, E>>>,
 }
 
 impl<D, E> Subtraction<D, E>
@@ -17,10 +17,10 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    pub fn new(
-        left_data: SharedTensor<D>,
-        right_data: SharedTensor<E>,
-        data: SharedTensor<Broadcasted<D, E>>,
+    pub(crate) fn new(
+        left_data: Shared<Array<f32, D>>,
+        right_data: Shared<Array<f32, E>>,
+        data: Shared<Array<f32, Broadcast<D, E>>>,
     ) -> Self {
         Self {
             left_data,
@@ -43,13 +43,13 @@ where
     }
 }
 
-pub struct SubtractionBackwardLeft<D, E>
+pub(crate) struct SubtractionBackwardLeft<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<Broadcasted<D, E>>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<Broadcast<D, E>>>,
 }
 
 impl<D, E> SubtractionBackwardLeft<D, E>
@@ -57,9 +57,9 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<Broadcasted<D, E>>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<Broadcast<D, E>>>,
     ) -> Self {
         Self {
             operand_gradient,
@@ -74,18 +74,18 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let reduced = reduce(self.operand_gradient.shape(), &self.gradient.array());
-        *self.operand_gradient.array_mut() += &reduced
+        let reduced = reduce(self.operand_gradient.shape(), &self.gradient.borrow());
+        *self.operand_gradient.borrow_mut() += &reduced
     }
 }
 
-pub struct SubtractionBackwardRight<D, E>
+pub(crate) struct SubtractionBackwardRight<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<E>>,
-    gradient: Rc<SwitchableTensor<Broadcasted<D, E>>>,
+    operand_gradient: Rc<Gradient<E>>,
+    gradient: Rc<Gradient<Broadcast<D, E>>>,
 }
 
 impl<D, E> SubtractionBackwardRight<D, E>
@@ -93,9 +93,9 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<E>>,
-        gradient: Rc<SwitchableTensor<Broadcasted<D, E>>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<E>>,
+        gradient: Rc<Gradient<Broadcast<D, E>>>,
     ) -> Self {
         Self {
             operand_gradient,
@@ -110,12 +110,12 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let reduced = reduce(self.gradient.shape(), &self.gradient.array());
-        *self.operand_gradient.array_mut() -= &reduced;
+        let reduced = reduce(self.gradient.shape(), &self.gradient.borrow());
+        *self.operand_gradient.borrow_mut() -= &reduced;
     }
 }
 
-pub struct SubtractionBackward<D, E>
+pub(crate) struct SubtractionBackward<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
@@ -129,7 +129,10 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    pub fn new(left: SubtractionBackwardLeft<D, E>, right: SubtractionBackwardRight<D, E>) -> Self {
+    pub(crate) fn new(
+        left: SubtractionBackwardLeft<D, E>,
+        right: SubtractionBackwardRight<D, E>,
+    ) -> Self {
         Self { left, right }
     }
 }

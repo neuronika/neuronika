@@ -1,26 +1,28 @@
-use super::{Backward, Forward, Reduction, SharedTensor, SwitchableTensor};
-use ndarray::{arr0, Dimension, Ix0, Zip};
+use crate::Reduction;
+
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{arr0, Array, Dimension, Ix0, Zip};
 use std::rc::Rc;
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct BCELoss<D>
+pub(crate) struct BCEWithLogits<D>
 where
     D: Dimension,
 {
-    input_data: SharedTensor<D>,
-    target_data: SharedTensor<D>,
-    data: SharedTensor<Ix0>,
+    input_data: Shared<Array<f32, D>>,
+    target_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, Ix0>>,
     reduction: Reduction,
 }
 
-impl<D> BCELoss<D>
+impl<D> BCEWithLogits<D>
 where
     D: Dimension,
 {
     pub(crate) fn new(
-        input_data: SharedTensor<D>,
-        target_data: SharedTensor<D>,
-        data: SharedTensor<Ix0>,
+        input_data: Shared<Array<f32, D>>,
+        target_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -32,57 +34,54 @@ where
     }
 }
 
-impl<D> Forward for BCELoss<D>
+impl<D> Forward for BCEWithLogits<D>
 where
     D: Dimension,
 {
     fn forward(&self) {
-        let (mut data, input_data, target_data) = {
-            (
-                self.data.borrow_mut(),
-                self.input_data.borrow(),
-                self.target_data.borrow(),
-            )
-        };
+        let input_data = self.input_data.borrow();
+        let target_data = self.target_data.borrow();
 
-        const MIN_LOG: f32 = -100.;
-        *data = {
+        *self.data.borrow_mut() = {
             let total_loss =
                 Zip::from(&*input_data)
                     .and(&*target_data)
                     .fold(0., |loss, &input, &target| {
-                        loss + (target * input.ln().clamp(MIN_LOG, f32::MAX)
-                            + (1. - target) * (1. - input).ln().clamp(MIN_LOG, f32::MAX))
+                        let max = (-input).max(0.);
+                        loss + (1. - target) * input
+                            + max
+                            + ((-max).exp() + (-input - max).exp()).ln()
                     });
+
             match self.reduction {
-                Reduction::Mean => arr0(-total_loss / input_data.len() as f32),
-                Reduction::Sum => arr0(-total_loss),
+                Reduction::Mean => arr0(total_loss / input_data.len() as f32),
+                Reduction::Sum => arr0(total_loss),
             }
         };
     }
 }
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct BCELossBackward<D>
+pub(crate) struct BCEWithLogitsBackward<D>
 where
     D: Dimension,
 {
-    input_data: SharedTensor<D>,
-    input_gradient: Rc<SwitchableTensor<D>>,
-    target_data: SharedTensor<D>,
-    gradient: Rc<SwitchableTensor<Ix0>>,
+    input_data: Shared<Array<f32, D>>,
+    input_gradient: Rc<Gradient<D>>,
+    target_data: Shared<Array<f32, D>>,
+    gradient: Rc<Gradient<Ix0>>,
     reduction: Reduction,
 }
 
-impl<D> BCELossBackward<D>
+impl<D> BCEWithLogitsBackward<D>
 where
     D: Dimension,
 {
     pub(crate) fn new(
-        input_data: SharedTensor<D>,
-        input_gradient: Rc<SwitchableTensor<D>>,
-        target_data: SharedTensor<D>,
-        gradient: Rc<SwitchableTensor<Ix0>>,
+        input_data: Shared<Array<f32, D>>,
+        input_gradient: Rc<Gradient<D>>,
+        target_data: Shared<Array<f32, D>>,
+        gradient: Rc<Gradient<Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {
@@ -95,13 +94,13 @@ where
     }
 }
 
-impl<D> Backward for BCELossBackward<D>
+impl<D> Backward for BCEWithLogitsBackward<D>
 where
     D: Dimension,
 {
     fn backward(&self) {
-        let mut input_gradient = self.input_gradient.array_mut();
-        let gradient = self.gradient.array();
+        let mut input_gradient = self.input_gradient.borrow_mut();
+        let gradient = self.gradient.borrow();
         let target_data = self.target_data.borrow();
         let input_data = self.input_data.borrow();
         let zip = Zip::from(&mut *input_gradient)
@@ -113,13 +112,14 @@ where
             Reduction::Mean => {
                 let n = input_data.len() as f32;
                 zip.for_each(|op_grad, &grad, &input, &target| {
-                    *op_grad +=
-                        (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad / n
+                    let input_sigmoid = 1. / (1. + (-input).exp());
+                    *op_grad += (input_sigmoid - target) * grad / n
                 });
             }
             Reduction::Sum => {
                 zip.for_each(|op_grad, &grad, &input, &target| {
-                    *op_grad += (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad
+                    let input_sigmoid = 1. / (1. + (-input).exp());
+                    *op_grad += (input_sigmoid - target) * grad
                 });
             }
         }

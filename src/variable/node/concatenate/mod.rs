@@ -1,14 +1,14 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Axis, Dimension, RemoveAxis, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Axis, Dimension, RemoveAxis, Zip};
 use std::rc::Rc;
 
-pub struct Concatenate<D>
+pub(crate) struct Concatenate<D>
 where
     D: Dimension + RemoveAxis,
 {
-    left: SharedTensor<D>,
-    right: SharedTensor<D>,
-    data: SharedTensor<D>,
+    left: Shared<Array<f32, D>>,
+    right: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
     axis: Axis,
 }
 
@@ -16,10 +16,10 @@ impl<D> Concatenate<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(
-        left: SharedTensor<D>,
-        right: SharedTensor<D>,
-        data: SharedTensor<D>,
+    pub(crate) fn new(
+        left: Shared<Array<f32, D>>,
+        right: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -52,12 +52,12 @@ where
     }
 }
 
-pub struct ConcatenateBackwardLeft<D>
+pub(crate) struct ConcatenateBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
     axis: Axis,
 }
 
@@ -65,9 +65,9 @@ impl<D> ConcatenateBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -83,8 +83,8 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let mut operand_gradient = self.operand_gradient.array_mut();
-        let gradient = self.gradient.array();
+        let mut operand_gradient = self.operand_gradient.borrow_mut();
+        let gradient = self.gradient.borrow();
         let (operand_gradient_slice, _) = gradient
             .view()
             .split_at(self.axis, operand_gradient.len_of(self.axis));
@@ -93,12 +93,12 @@ where
     }
 }
 
-pub struct ConcatenateBackwardRight<D>
+pub(crate) struct ConcatenateBackwardRight<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
     axis: Axis,
     offset: usize,
 }
@@ -107,9 +107,9 @@ impl<D> ConcatenateBackwardRight<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        gradient: Rc<SwitchableTensor<D>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D>>,
         axis: usize,
         offset: usize,
     ) -> Self {
@@ -127,14 +127,14 @@ where
     D: Dimension + RemoveAxis,
 {
     fn backward(&self) {
-        let gradient = self.gradient.array();
+        let gradient = self.gradient.borrow();
         let (_, operand_gradient_slice) = gradient.view().split_at(self.axis, self.offset);
 
-        *self.operand_gradient.array_mut() += &operand_gradient_slice;
+        *self.operand_gradient.borrow_mut() += &operand_gradient_slice;
     }
 }
 
-pub struct ConcatenateBackward<D>
+pub(crate) struct ConcatenateBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
@@ -146,7 +146,10 @@ impl<D> ConcatenateBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
-    pub fn new(left: ConcatenateBackwardLeft<D>, right: ConcatenateBackwardRight<D>) -> Self {
+    pub(crate) fn new(
+        left: ConcatenateBackwardLeft<D>,
+        right: ConcatenateBackwardRight<D>,
+    ) -> Self {
         Self { left, right }
     }
 }

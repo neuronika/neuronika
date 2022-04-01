@@ -1,13 +1,13 @@
-use super::{Backward, Forward, SharedTensor, SwitchableTensor};
-use ndarray::{Axis, Dimension, Zip};
+use super::{Backward, Forward, Gradient, Shared};
+use ndarray::{Array, Axis, Dimension, Zip};
 use std::rc::Rc;
 
-pub struct Softmax<D>
+pub(crate) struct Softmax<D>
 where
     D: Dimension,
 {
-    operand_data: SharedTensor<D>,
-    data: SharedTensor<D>,
+    operand_data: Shared<Array<f32, D>>,
+    data: Shared<Array<f32, D>>,
     axis: Axis,
 }
 
@@ -15,7 +15,11 @@ impl<D> Softmax<D>
 where
     D: Dimension,
 {
-    pub fn new(operand_data: SharedTensor<D>, data: SharedTensor<D>, axis: usize) -> Self {
+    pub(crate) fn new(
+        operand_data: Shared<Array<f32, D>>,
+        data: Shared<Array<f32, D>>,
+        axis: usize,
+    ) -> Self {
         Self {
             operand_data,
             data,
@@ -42,13 +46,13 @@ where
     }
 }
 
-pub struct SoftmaxBackward<D>
+pub(crate) struct SoftmaxBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<SwitchableTensor<D>>,
-    data: SharedTensor<D>,
-    gradient: Rc<SwitchableTensor<D>>,
+    operand_gradient: Rc<Gradient<D>>,
+    data: Shared<Array<f32, D>>,
+    gradient: Rc<Gradient<D>>,
     axis: Axis,
 }
 
@@ -56,10 +60,10 @@ impl<D> SoftmaxBackward<D>
 where
     D: Dimension,
 {
-    pub fn new(
-        operand_gradient: Rc<SwitchableTensor<D>>,
-        data: SharedTensor<D>,
-        gradient: Rc<SwitchableTensor<D>>,
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<D>>,
+        data: Shared<Array<f32, D>>,
+        gradient: Rc<Gradient<D>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -76,8 +80,8 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        Zip::from(self.operand_gradient.array_mut().lanes_mut(self.axis))
-            .and(self.gradient.array().lanes(self.axis))
+        Zip::from(self.operand_gradient.borrow_mut().lanes_mut(self.axis))
+            .and(self.gradient.borrow().lanes(self.axis))
             .and(self.data.borrow().lanes(self.axis))
             .for_each(|mut op_grad_lane, grad_lane, data_lane| {
                 let sum = Zip::from(grad_lane)
