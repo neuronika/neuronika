@@ -116,13 +116,16 @@ where
         if buffer.is_empty() {
             *buffer = self.history.to_vec()
         } else {
-            buffer.iter().for_each(|(_, done)| done.set(false));
+            buffer.iter().for_each(|(_, computed)| computed.set(false));
         }
 
         buffer
             .iter()
-            .filter(|(_, done)| !done.get())
-            .for_each(|(op, _)| op.forward());
+            .filter(|(_, computed)| !computed.get())
+            .for_each(|(op, computed)| {
+                op.forward();
+                computed.set(true)
+            });
     }
 }
 

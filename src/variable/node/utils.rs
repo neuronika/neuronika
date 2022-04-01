@@ -1,4 +1,7 @@
-use ndarray::{Array, ArrayD, Axis, DimMax, Dimension, Ix0, Ix1, Ix2, Zip};
+use ndarray::{
+    Array, ArrayBase, ArrayD, ArrayViewD, ArrayViewMutD, Axis, Data, DataMut, DimMax, Dimension,
+    Ix1, Ix2, Ix3, ShapeBuilder, Slice, Zip,
+};
 use std::{cell::RefCell, rc::Rc};
 
 /// Shorthand for `Rc<RefCell<T>>`.
@@ -19,14 +22,6 @@ where
 
     /// Does the actual computation of the shape.
     fn shape(lhs: Self, rhs: Rhs) -> <Self as DotDim<Rhs>>::Output;
-}
-
-impl DotDim<Ix1> for Ix1 {
-    type Output = Ix0;
-
-    fn shape(_: Self, _: Ix1) -> <Self as DotDim<Ix1>>::Output {
-        Ix0::zeros(0)
-    }
 }
 
 impl DotDim<Ix2> for Ix1 {
@@ -188,4 +183,233 @@ where
     } else {
         src.clone().into_dimensionality::<D>().unwrap()
     }
+}
+
+/// Computes the shape of the array resulting from the **n**-dimensional convolution
+/// performed with the given parameters. `input_shape` is assumed to be the shape of an **already**
+/// padded input.
+///
+/// # Arguments
+///
+/// * `input_shape` - the shape of the input.
+///
+/// * `kernel_shape` - the shape of the kernel.
+///
+/// * `stride` - the stride.
+///
+/// * `dilation` - the dilation.
+fn conv_out_shape_padded<D>(
+    input_shape: &[usize],
+    kernel_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> D
+where
+    D: Dimension,
+{
+    // Initialize the dimension to be all 0s.
+    let mut output_map_shape = D::zeros(input_shape.len());
+    // Sets the batch size. The batch size doesn't change.
+    output_map_shape[0] = input_shape[0];
+    // Sets the output channels.
+    output_map_shape[1] = kernel_shape[0];
+    // First two components of the shape are always
+    // the batch size and channels.
+    itertools::izip!(
+        output_map_shape.slice_mut().iter_mut().skip(2), // Skips batch size and out channels.
+        input_shape.iter().skip(2),                      // Skips batch size and out channels.
+        kernel_shape.iter().skip(2),                     // Skips out channels and in channels.
+        stride,
+        dilation
+    )
+    .for_each(
+        |(output_map_dim, input_dim, kernel_dim, stride, dilation)| {
+            *output_map_dim = (input_dim - dilation * (kernel_dim - 1) - 1) / stride + 1
+        },
+    );
+    output_map_shape
+}
+/// Computes the shape of a rolling window view.
+///
+/// # Arguments
+///
+/// * `input` - input array.
+///
+/// * `window_shape` - shape of each of the windows.
+///
+/// * `stride` - stride.
+///
+/// * `dilation` - spacing between each element of the windows.
+fn compute_rolling_window_shape<D, S>(
+    input: &ArrayBase<S, D>,
+    window_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> Vec<usize>
+where
+    D: Dimension,
+    S: Data<Elem = f32>,
+{
+    let mut indices: D = conv_out_shape_padded(input.shape(), window_shape, stride, dilation);
+    indices[1] = 1;
+    indices
+        .slice()
+        .iter()
+        .chain(window_shape.iter().skip(1))
+        .cloned()
+        .collect()
+}
+
+/// Computes the strides of a rolling window view.
+///
+/// # Arguments
+///
+/// * `input` - input array.
+///
+/// * `stride` - stride.
+///
+/// * `dilation` - spacing between each element of the windows.
+fn compute_rolling_window_strides<D, S>(
+    input: &ArrayBase<S, D>,
+    stride: &[usize],
+    dilation: &[usize],
+) -> Vec<usize>
+where
+    D: Dimension,
+    S: Data<Elem = f32>,
+{
+    let indexing_strides: Vec<isize> = {
+        let view = input.slice_each_axis(|ax| {
+            let axis_index = ax.axis.index();
+            if axis_index == 0 || axis_index == 1 {
+                Slice::new(0, None, 1) // Batch stride and channel stride
+            } else {
+                Slice::new(0, None, stride[ax.axis.index() - 2] as isize)
+            }
+        });
+        let view_strides: &[isize] = ArrayBase::strides(&view);
+        view_strides.to_vec()
+    };
+    // Number of in channels doesn't count for the window's strides,
+    // it must be left unchanged.
+    let window_strides: Vec<isize> = input
+        .strides()
+        .iter()
+        .skip(1) // Skip out channels
+        .enumerate()
+        .map(|(i, input_stride)| {
+            if i < 1 {
+                *input_stride
+            } else {
+                *input_stride * (dilation[i - 1] as isize)
+            }
+        })
+        .collect();
+    indexing_strides
+        .iter()
+        .chain(window_strides.iter())
+        .map(|s| *s as usize)
+        .collect()
+}
+
+/// Returns an immutable **rolling window view** of the input array.
+///
+/// # Arguments
+///
+/// * `input` - input array.
+///
+/// * `window_shape` - shape of each of the windows.
+///
+/// * `stride` - stride.
+///
+/// * `dilation` - spacing between each element of the windows.
+fn as_windows<'a, D, S>(
+    input: &ArrayBase<S, D>,
+    window_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> ArrayViewD<'a, f32>
+where
+    D: Dimension,
+    S: Data<Elem = f32>,
+{
+    let rolling_window_shape: Vec<usize> =
+        compute_rolling_window_shape(input, window_shape, stride, dilation);
+    let rolling_window_strides: Vec<usize> =
+        compute_rolling_window_strides(input, stride, dilation);
+
+    unsafe {
+        ArrayViewD::from_shape_ptr(
+            rolling_window_shape.strides(rolling_window_strides),
+            input.as_ptr(),
+        )
+    }
+}
+
+/// Returns a **mutable rolling window view** of the input array.
+///
+/// # Arguments
+///
+/// * `input` - input array.
+///
+/// * `window_shape` - shape of each of the windows.
+///
+/// * `stride` - stride.
+///
+/// * `dilation` - spacing between each element of the windows.
+fn as_windows_mut<'a, D, S>(
+    input: &mut ArrayBase<S, D>,
+    window_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> ArrayViewMutD<'a, f32>
+where
+    D: Dimension,
+    S: DataMut<Elem = f32>,
+{
+    let rolling_window_shape: Vec<usize> =
+        compute_rolling_window_shape(input, window_shape, stride, dilation);
+    let rolling_window_strides: Vec<usize> =
+        compute_rolling_window_strides(input, stride, dilation);
+
+    // Care must be taken as there's aliasing.
+    unsafe {
+        ArrayViewMutD::from_shape_ptr(
+            rolling_window_shape.strides(rolling_window_strides),
+            input.as_mut_ptr(),
+        )
+    }
+}
+
+/// Computes the shapes of **sig2col**, **im2col** and **vol2col**.
+///
+/// # Arguments
+///
+/// * `input` - input array.
+///
+/// * `kernel_shape` - shape of the kernel.
+///
+/// * `padding` - padding to be applied to `input`.
+///
+/// * `stride` - stride.
+///
+/// * `dilation` - dilation.
+fn columns_shape<D, S>(
+    input: &ArrayBase<S, D>,
+    kernel_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) -> Ix3
+where
+    D: Dimension,
+    S: Data<Elem = f32>,
+{
+    let output_map_shape =
+        conv_out_shape_padded::<D>(input.shape(), kernel_shape, stride, dilation);
+    let mut columns_shape = Ix3::zeros(3);
+    columns_shape[0] = output_map_shape[0];
+    columns_shape[1] = output_map_shape.slice().iter().skip(2).product();
+    columns_shape[2] = kernel_shape.iter().skip(1).product();
+
+    columns_shape
 }
