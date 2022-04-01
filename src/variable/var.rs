@@ -13,11 +13,7 @@ use ndarray::{
     arr0, concatenate, stack, Array, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2,
     RemoveAxis,
 };
-#[cfg(feature = "serialize")]
-use serde::{
-    de::{Deserialize, Deserializer},
-    ser::{Serialize, Serializer},
-};
+
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
@@ -49,7 +45,7 @@ impl<D: Dimension> Var<D> {
         }
     }
 
-    pub(crate) fn new(
+    pub(crate) fn node(
         data: Rc<RefCell<Array<f32, D>>>,
         op: Rc<dyn Forward>,
         mut history: History<(Rc<dyn Forward>, Cell<bool>)>,
@@ -193,7 +189,7 @@ where
         let data = Rc::new(RefCell::new(arr0(0.)));
         let op = Sum::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Returns the mean of all elements in `self`.
@@ -201,7 +197,7 @@ where
         let data = Rc::new(RefCell::new(arr0(0.)));
         let op = Mean::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Takes the power of each element in `self` with exponent `exp` and returns a variable with the
@@ -215,7 +211,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Power::new(self.data, data.clone(), exp);
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Takes the square root element-wise and returns a variable with the result.
@@ -224,7 +220,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Sqrt::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *rectified linear unit* element-wise and returns a variable with the
@@ -236,7 +232,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = ReLU::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *leaky rectified linear unit* element-wise and returns a variable with
@@ -248,7 +244,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = LeakyReLU::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *softplus* element-wise and returns a variable with the result.
@@ -259,7 +255,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = SoftPlus::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *sigmoid* element-wise and returns a variable with the result.
@@ -268,7 +264,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Sigmoid::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *tanh* element-wise and returns a variable with the result.
@@ -277,7 +273,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = TanH::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *natural logarithm* element-wise and returns a variable with the result.
@@ -286,7 +282,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Logn::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *exponential* element-wise and returns a variable with the result.
@@ -295,7 +291,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Exp::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *softmax* to `self` and returns a variable with the result.
@@ -311,7 +307,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Softmax::new(self.data, data.clone(), axis);
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies the *log-softmax* to `self` and returns a variable with the result.
@@ -333,7 +329,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = LogSoftmax::new(self.data, data.clone(), axis);
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Returns a variable equivalent to `self` with its dimensions reversed.
@@ -342,7 +338,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Transpose::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Applies *dropout* to `self` and returns a variable with the result.
@@ -382,7 +378,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Dropout::new(self.data, data.clone(), p, noise, status);
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
@@ -400,7 +396,7 @@ where
                 let data = Rc::new(RefCell::new(chunk.to_owned()));
                 let op = Chunk::new(self.data.clone(), data.clone(), i);
 
-                Var::new(data, Rc::new(op), self.history.clone())
+                Var::node(data, Rc::new(op), self.history.clone())
             })
             .collect()
     }
@@ -412,7 +408,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape.insert_axis(Axis(axis)))));
         let op = Unsqueeze::new(self.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -471,7 +467,7 @@ where
         };
         let op = MultiConcatenate::new(operands_data, data.clone(), axis);
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 
     /// Stacks the given sequence of non-differentiable variables `variables`, including
@@ -530,7 +526,7 @@ where
         };
         let op = Rc::new(MultiStack::new(operands_data, data.clone(), axis));
 
-        Var::new(data, op, self.history)
+        Var::node(data, op, self.history)
     }
 }
 
@@ -647,7 +643,7 @@ where
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = Rc::new(Negation::new(self.data, data.clone()));
 
-        Var::new(data, op, self.history)
+        Var::node(data, op, self.history)
     }
 }
 
@@ -669,7 +665,7 @@ where
         )));
         let op = Rc::new(Addition::new(self.data, rhs.data, data.clone()));
 
-        Var::new(data, op, self.history)
+        Var::node(data, op, self.history)
     }
 }
 
@@ -688,7 +684,7 @@ where
         let op = AdditionBackwardRight::<D, E>::new(rhs.grad, grad.clone());
         let var = self.add(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -710,7 +706,7 @@ where
         )));
         let op = Subtraction::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -729,7 +725,7 @@ where
         let op = SubtractionBackwardRight::<D, E>::new(rhs.grad, grad.clone());
         let var = self.sub(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -751,7 +747,7 @@ where
         )));
         let op = Multiplication::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -771,7 +767,7 @@ where
         let op = MultiplicationBackwardRight::new(rhs.grad, self.data.clone(), buff.clone());
         let var = self.mul(rhs.var);
 
-        VarDiff::new(var, grad, (Rc::new(op), buff), rhs.history)
+        VarDiff::node(var, grad, (Rc::new(op), buff), rhs.history)
     }
 }
 
@@ -793,7 +789,7 @@ where
         )));
         let op = Division::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -818,7 +814,7 @@ where
         );
         let var = self.div(rhs.var);
 
-        VarDiff::new(var, grad, (Rc::new(op), buff), rhs.history)
+        VarDiff::node(var, grad, (Rc::new(op), buff), rhs.history)
     }
 }
 
@@ -838,7 +834,7 @@ impl MatMatMul<Var<Ix2>> for Var<Ix2> {
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
         let op = MatrixMatrixMul::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -853,7 +849,7 @@ impl MatMatMul<VarDiff<Ix2>> for Var<Ix2> {
         let op = MatrixMatrixMulBackwardRight::new(self.data.clone(), rhs.grad, grad.clone());
         let var = self.mm(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -871,7 +867,7 @@ impl MatMatMulT<Var<Ix2>> for Var<Ix2> {
         ))));
         let op = MatrixMatrixMulT::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -886,7 +882,7 @@ impl MatMatMulT<VarDiff<Ix2>> for Var<Ix2> {
         let op = MatrixMatrixMulTBackwardRight::new(self.data.clone(), rhs.grad, grad.clone());
         let var = self.mm_t(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -904,7 +900,7 @@ impl MatVecMul<Var<Ix1>> for Var<Ix2> {
         ))));
         let op = MatrixVectorMul::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -919,7 +915,7 @@ impl MatVecMul<VarDiff<Ix1>> for Var<Ix2> {
         let op = MatrixVectorMulBackwardRight::new(self.data.clone(), rhs.grad, grad.clone());
         let var = self.mv(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -937,7 +933,7 @@ impl VecMatMul<Var<Ix2>> for Var<Ix1> {
         ))));
         let op = VectorMatrixMul::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -952,7 +948,7 @@ impl VecMatMul<VarDiff<Ix2>> for Var<Ix1> {
         let op = VectorMatrixMulBackwardRight::new(self.data.clone(), rhs.grad, grad.clone());
         let var = self.vm(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -967,7 +963,7 @@ impl VecVecMul<Var<Ix1>> for Var<Ix1> {
         let data = Rc::new(RefCell::new(arr0(0.)));
         let op = VectorVectorMul::new(self.data, rhs.data, data.clone());
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -979,7 +975,7 @@ impl VecVecMul<VarDiff<Ix1>> for Var<Ix1> {
         let op = VectorVectorMulBackwardUnary::new(self.data.clone(), rhs.grad, grad.clone());
         let var = self.vv(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -1010,7 +1006,7 @@ where
         ));
         let op = Concatenate::new(self.data, rhs.data, data.clone(), axis);
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -1034,7 +1030,7 @@ where
         let op = ConcatenateBackwardRight::new(rhs.grad, grad.clone(), axis, offset);
         let var = Cat::cat(self, rhs.var, axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -1061,7 +1057,7 @@ where
         ));
         let op = node::Stack::new(self.data, rhs.data, data.clone(), axis);
 
-        Var::new(data, Rc::new(op), self.history)
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
@@ -1084,7 +1080,7 @@ where
         let op = StackBackwardRight::new(rhs.grad, grad.clone(), axis);
         let var = Stack::stack(self, rhs.var, axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), rhs.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
 
@@ -1107,36 +1103,5 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.data.borrow())
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Serialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-#[cfg(feature = "serialize")]
-impl<D> Serialize for Var<D>
-where
-    D: 'static + Dimension + Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.data.borrow().serialize(serializer)
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Deserialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-#[cfg(feature = "serialize")]
-impl<'d, D> Deserialize<'d> for Var<D>
-where
-    D: 'static + Dimension + Deserialize<'d>,
-{
-    fn deserialize<De>(deserializer: De) -> Result<Self, De::Error>
-    where
-        De: Deserializer<'d>,
-    {
-        let data = ndarray::Array::<f32, D>::deserialize(deserializer).unwrap();
-        Ok(Self::leaf(data))
     }
 }

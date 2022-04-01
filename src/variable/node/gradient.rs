@@ -64,7 +64,7 @@ where
     fn with_grad(&self) {
         let mut option = self.array.borrow_mut();
 
-        if let None = *option {
+        if option.is_none() {
             let shape = self.shape.clone();
 
             *option = Some(Array::zeros(shape))
@@ -128,7 +128,7 @@ where
         self.gradient.with_grad();
 
         let mut option = self.buffer.borrow_mut();
-        if let None = *option {
+        if option.is_none() {
             let shape = self.shape();
             *option = Some(Array::zeros(shape));
         }

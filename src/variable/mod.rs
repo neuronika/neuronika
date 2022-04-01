@@ -3,6 +3,9 @@ mod node;
 mod var;
 mod vardiff;
 
+#[cfg(feature = "serialize")]
+mod serde;
+
 pub use var::Var;
 pub use vardiff::VarDiff;
 

@@ -68,7 +68,7 @@ where
         }
     }
 
-    pub(crate) fn new(
+    pub(crate) fn node(
         var: Var<D>,
         grad: Rc<Gradient<D>>,
         op: (Rc<dyn Backward>, Rc<dyn NoGrad>),
@@ -248,7 +248,7 @@ where
         let op = SumBackward::new(self.grad.clone(), grad.clone());
         let var = self.var.sum();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Returns the mean of all elements in `self`.
@@ -257,7 +257,7 @@ where
         let op = MeanBackward::new(self.grad, grad.clone());
         let var = self.var.mean();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Takes the power of each element in `self` with exponent `exp` and returns a differentiable
@@ -271,7 +271,7 @@ where
         let op = PowerBackward::new(self.grad, self.var.data.clone(), grad.clone(), exp);
         let var = self.var.pow(exp);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Takes the square root element-wise and returns a differentiable variable with the result.
@@ -280,7 +280,7 @@ where
         let var = self.var.sqrt();
         let op = SqrtBackward::new(self.grad, var.data.clone(), grad.clone());
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *rectified linear unit* element-wise and and returns a differentiable
@@ -292,7 +292,7 @@ where
         let op = ReLUBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.relu();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *leaky rectified linear unit* element-wise and returns a differentiable
@@ -304,7 +304,7 @@ where
         let op = LeakyReLUBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.leaky_relu();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *softplus* element-wise and returns a differentiable variable with the result.
@@ -315,7 +315,7 @@ where
         let op = SoftPlusBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.softplus();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *sigmoid* element-wise and returns a differentiable variable with the result.
@@ -324,7 +324,7 @@ where
         let var = self.var.sigmoid();
         let op = SigmoidBackward::new(self.grad, var.data.clone(), grad.clone());
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *tanh* element-wise and returns a differentiable variable with the result.
@@ -333,7 +333,7 @@ where
         let var = self.var.tanh();
         let op = TanHBackward::new(self.grad, var.data.clone(), grad.clone());
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *natural logarithm* element-wise and returns a differentiable variable with the
@@ -343,7 +343,7 @@ where
         let op = LognBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.ln();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *exponential* element-wise and returns a differentiable variable with the
@@ -353,7 +353,7 @@ where
         let var = self.var.exp();
         let op = ExpBackward::new(self.grad, var.data.clone(), grad.clone());
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *softmax* to `self` and returns a differentiable variable with the result.
@@ -369,7 +369,7 @@ where
         let var = self.var.softmax(axis);
         let op = SoftmaxBackward::new(self.grad, var.data.clone(), grad.clone(), axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies the *log-softmax* to `self` and returns a differentiable variable with the result.
@@ -391,7 +391,7 @@ where
         let var = self.var.log_softmax(axis);
         let op = LogSoftmaxBackward::new(self.grad, var.data.clone(), grad.clone(), axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Returns a differentiable variable equivalent to `self` with its dimensions reversed.
@@ -400,7 +400,7 @@ where
         let op = TransposeBackward::new(self.grad, grad.clone());
         let var = self.var.t();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Applies *dropout* to `self` and returns a differentiable variable with the result.
@@ -431,7 +431,7 @@ where
             .dropout_with_noise(self.grad.shape(), p, noise.clone(), status.clone());
         let op = DropoutBackward::new(self.grad, grad.clone(), noise, p, status);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
@@ -451,7 +451,7 @@ where
                 let grad = Rc::new(Gradient::zeros(var.data.borrow().raw_dim()));
                 let op = ChunkBackward::new(self.grad.clone(), grad.clone(), i);
 
-                VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history.clone())
+                VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history.clone())
             })
             .collect()
     }
@@ -463,7 +463,7 @@ where
         let op = UnsqueezeBackward::new(self.grad, grad.clone());
         let var = self.var.unsqueeze(axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -518,7 +518,7 @@ where
         let grad = Rc::new(Gradient::zeros(var.data.borrow().raw_dim()));
         let op = MultiConcatenateBackward::new(op_grads, grad.clone(), axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 
     /// Stacks the given sequence of differentiable variables `variables`, including
@@ -573,7 +573,7 @@ where
         let grad = Rc::new(Gradient::zeros(var.data.borrow().raw_dim()));
         let op = MultiStackBackward::new(op_grands, grad.clone(), axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -694,7 +694,7 @@ where
         let op = NegationBackward::new(self.grad, grad.clone());
         let var = self.var.neg();
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -715,7 +715,7 @@ where
         let op = AdditionBackwardLeft::<D, E>::new(self.grad, grad.clone());
         let var = self.var.add(rhs);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -739,7 +739,7 @@ where
         );
         let var = self.var.add(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -760,7 +760,7 @@ where
         let op = SubtractionBackwardLeft::<D, E>::new(self.grad, grad.clone());
         let var = self.var.sub(rhs);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -783,7 +783,7 @@ where
         let op = SubtractionBackward::new(left, right);
         let var = self.var.sub(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -805,7 +805,7 @@ where
         let op = MultiplicationBackwardLeft::new(self.grad, rhs.data.clone(), buff.clone());
         let var = self.var.mul(rhs);
 
-        VarDiff::new(var, grad, (Rc::new(op), buff), self.history)
+        VarDiff::node(var, grad, (Rc::new(op), buff), self.history)
     }
 }
 
@@ -829,7 +829,7 @@ where
         let op = MultiplicationBackward::new(left, right);
         let var = self.var.mul(rhs.var);
 
-        VarDiff::new(var, grad, (Rc::new(op), buff), self.history)
+        VarDiff::node(var, grad, (Rc::new(op), buff), self.history)
     }
 }
 
@@ -851,7 +851,7 @@ where
         let op = DivisionBackwardLeft::new(self.grad, rhs.data.clone(), buff.clone());
         let var = self.var.div(rhs);
 
-        VarDiff::new(var, grad, (Rc::new(op), buff), self.history)
+        VarDiff::node(var, grad, (Rc::new(op), buff), self.history)
     }
 }
 
@@ -880,7 +880,7 @@ where
         let op = DivisionBackward::new(left, right);
         let var = self.var.div(rhs.var);
 
-        VarDiff::new(var, grad, (Rc::new(op), buff), self.history)
+        VarDiff::node(var, grad, (Rc::new(op), buff), self.history)
     }
 }
 
@@ -901,7 +901,7 @@ impl MatMatMul<Var<Ix2>> for VarDiff<Ix2> {
         let op = MatrixMatrixMulBackwardLeft::new(self.grad, rhs.data.clone(), grad.clone());
         let var = self.var.mm(rhs);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -921,7 +921,7 @@ impl MatMatMul<VarDiff<Ix2>> for VarDiff<Ix2> {
         let op = MatrixMatrixMulBackward::new(left, right);
         let var = self.var.mm(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -938,7 +938,7 @@ impl MatMatMulT<Var<Ix2>> for VarDiff<Ix2> {
         let op = MatrixMatrixMulTBackwardLeft::new(self.grad, rhs.data.clone(), grad.clone());
         let var = self.var.mm_t(rhs);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -958,7 +958,7 @@ impl MatMatMulT<VarDiff<Ix2>> for VarDiff<Ix2> {
         let op = MatrixMatrixMulTBackward::new(left, right);
         let var = self.var.mm_t(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -975,7 +975,7 @@ impl MatVecMul<Var<Ix1>> for VarDiff<Ix2> {
         let op = MatrixVectorMulBackwardLeft::new(self.grad, rhs.data.clone(), grad.clone());
         let var = self.var.mv(rhs);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -995,7 +995,7 @@ impl MatVecMul<VarDiff<Ix1>> for VarDiff<Ix2> {
         let op = MatrixVectorMulBackward::new(left, right);
         let var = self.var.mv(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1012,7 +1012,7 @@ impl VecMatMul<Var<Ix2>> for VarDiff<Ix1> {
         let op = VectorMatrixMulBackwardLeft::new(self.grad, rhs.data.clone(), grad.clone());
         let var = self.var.vm(rhs);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1032,7 +1032,7 @@ impl VecMatMul<VarDiff<Ix2>> for VarDiff<Ix1> {
         let op = VectorMatrixMulBackward::new(left, right);
         let var = self.var.vm(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1046,7 +1046,7 @@ impl VecVecMul<Var<Ix1>> for VarDiff<Ix1> {
         let op = VectorVectorMulBackwardUnary::new(rhs.data.clone(), self.grad, grad.clone());
         let var = self.var.vv(rhs);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1067,7 +1067,7 @@ impl VecVecMul<VarDiff<Ix1>> for VarDiff<Ix1> {
         let op = VectorVectorMulBackward::new(left, right);
         let var = self.var.vv(rhs.var);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1093,7 +1093,7 @@ where
         let op = ConcatenateBackwardLeft::new(self.grad, grad.clone(), axis);
         let var = Cat::cat(self.var, rhs, axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1122,7 +1122,7 @@ where
         let op = ConcatenateBackward::new(left, right);
         let var = Cat::cat(self.var, rhs.var, axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1144,7 +1144,7 @@ where
         let op = StackBackwardLeft::new(self.grad, grad.clone(), axis);
         let var = Stack::stack(self.var, rhs, axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1168,7 +1168,7 @@ where
         let op = StackBackward::new(left, right);
         let var = Stack::stack(self.var, rhs.var, axis);
 
-        VarDiff::new(var, grad.clone(), (Rc::new(op), grad), self.history)
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }
 }
 
@@ -1191,34 +1191,5 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.var)
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Serialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[cfg(feature = "serialize")]
-impl<D> Serialize for VarDiff<D>
-where
-    D: Dimension + Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.data().serialize(serializer)
-    }
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Deserialize ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#[cfg(feature = "serialize")]
-impl<'d, D> Deserialize<'d> for VarDiff<D>
-where
-    D: Dimension + Deserialize<'d>,
-{
-    fn deserialize<De>(deserializer: De) -> Result<Self, De::Error>
-    where
-        De: Deserializer<'d>,
-    {
-        let data = Array::deserialize(deserializer).unwrap();
-        Ok(Var::leaf(data).requires_grad())
     }
 }
