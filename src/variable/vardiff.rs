@@ -22,12 +22,6 @@ use ndarray::{
     RemoveAxis,
 };
 
-#[cfg(feature = "serialize")]
-use serde::{
-    de::{Deserialize, Deserializer},
-    ser::{Serialize, Serializer},
-};
-
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
@@ -49,7 +43,7 @@ use std::{
 #[derive(Clone)]
 pub struct VarDiff<D>
 where
-    D: 'static + Dimension,
+    D: Dimension,
 {
     pub(crate) var: Var<D>,
     pub(crate) grad: Rc<Gradient<D>>,
@@ -58,7 +52,7 @@ where
 
 impl<D> VarDiff<D>
 where
-    D: 'static + Dimension,
+    D: Dimension,
 {
     pub(crate) fn leaf(var: Var<D>, array: Array<f32, D>) -> Self {
         Self {
@@ -78,12 +72,7 @@ where
 
         Self { var, grad, history }
     }
-}
 
-impl<D> VarDiff<D>
-where
-    D: 'static + Dimension,
-{
     /// Returns an immutable reference to the data inside `self`.
     ///
     /// At the differentiable variable's creation the data is filled with zeros. You can populate it
@@ -1079,7 +1068,7 @@ impl VecVecMul<VarDiff<Ix1>> for VarDiff<Ix1> {
 
 impl<D> Cat<Var<D>> for VarDiff<D>
 where
-    D: Dimension + RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
     type Output = VarDiff<D>;
 
@@ -1099,7 +1088,7 @@ where
 
 impl<D> Cat<VarDiff<D>> for VarDiff<D>
 where
-    D: Dimension + RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
     type Output = VarDiff<D>;
 
@@ -1130,7 +1119,7 @@ where
 
 impl<D> Stack<Var<D>> for VarDiff<D>
 where
-    D: Dimension + RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
     type Output = VarDiff<D::Larger>;
 
@@ -1150,7 +1139,7 @@ where
 
 impl<D> Stack<VarDiff<D>> for VarDiff<D>
 where
-    D: Dimension + RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
     type Output = VarDiff<D::Larger>;
 
@@ -1176,7 +1165,7 @@ where
 
 impl<D> Debug for VarDiff<D>
 where
-    D: Dimension,
+    D: 'static + Dimension,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&self.var, f)
@@ -1187,7 +1176,7 @@ where
 
 impl<D> Display for VarDiff<D>
 where
-    D: Dimension,
+    D: 'static + Dimension,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.var)

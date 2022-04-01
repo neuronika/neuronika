@@ -37,7 +37,10 @@ where
     pub(crate) history: History<(Rc<dyn Forward>, Cell<bool>)>,
 }
 
-impl<D: Dimension> Var<D> {
+impl<D> Var<D>
+where
+    D: Dimension,
+{
     pub(crate) fn leaf(array: Array<f32, D>) -> Self {
         Self {
             data: Rc::new(RefCell::new(array)),
@@ -53,6 +56,22 @@ impl<D: Dimension> Var<D> {
         history.insert(Rc::as_ptr(&op) as *const () as usize, (op, Cell::default()));
 
         Self { data, history }
+    }
+
+    /// Returns an immutable reference to the data inside `self`.
+    ///
+    /// At the variable's creation the data is filled with zeros. You can populate it with a
+    /// call to [`.forward()`](Var::forward()).
+    pub fn data(&self) -> Ref<Array<f32, D>> {
+        self.data.borrow()
+    }
+
+    /// Returns a mutable reference to the data inside `self`.
+    ///
+    /// At the variable's creation the data is filled with zeros. You can populate it with a
+    /// call to [`.forward()`](Var::forward()).
+    pub fn data_mut(&self) -> RefMut<Array<f32, D>> {
+        self.data.borrow_mut()
     }
 
     /// Promotes `self` to a differentiable variable. A subsequent call to [`.backward()`]
@@ -168,22 +187,6 @@ impl<D> Var<D>
 where
     D: 'static + Dimension,
 {
-    /// Returns an immutable reference to the data inside `self`.
-    ///
-    /// At the variable's creation the data is filled with zeros. You can populate it with a
-    /// call to [`.forward()`](Var::forward()).
-    pub fn data(&self) -> Ref<Array<f32, D>> {
-        self.data.borrow()
-    }
-
-    /// Returns a mutable reference to the data inside `self`.
-    ///
-    /// At the variable's creation the data is filled with zeros. You can populate it with a
-    /// call to [`.forward()`](Var::forward()).
-    pub fn data_mut(&self) -> RefMut<Array<f32, D>> {
-        self.data.borrow_mut()
-    }
-
     /// Returns the sum of all elements in `self`.
     pub fn sum(self) -> Var<Ix0> {
         let data = Rc::new(RefCell::new(arr0(0.)));
@@ -1012,7 +1015,7 @@ where
 
 impl<D> Cat<VarDiff<D>> for Var<D>
 where
-    D: Dimension + RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
     type Output = VarDiff<D>;
 
@@ -1063,7 +1066,7 @@ where
 
 impl<D> Stack<VarDiff<D>> for Var<D>
 where
-    D: Dimension + RemoveAxis,
+    D: 'static + Dimension + RemoveAxis,
 {
     type Output = VarDiff<D::Larger>;
 
