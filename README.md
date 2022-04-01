@@ -14,7 +14,7 @@
   </a>
 
   <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT %2F Apache%202.0-informational?logo=opensourceinitiative&style=for-the-badge"/>
+    <img src="https://img.shields.io/badge/License-MIT%2FApache%202.0-informational?logo=opensourceinitiative&style=for-the-badge">
   </a>
 
   <a href="https://docs.rs/neuronika">
