@@ -5,21 +5,21 @@
 <hr/>
 
 <p align="center">
-<a href="https://app.circleci.com/pipelines/github/neuronika">
-  <img src="https://circleci.com/gh/neuronika/neuronika.svg?style=svg&circle-token=a4dc29e597fde3872a02c582dc42c058f41f7869"/>
-</a>
+  <a href="https://app.circleci.com/pipelines/github/neuronika">
+    <img alt="CircleCI" src="https://img.shields.io/circleci/build/github/neuronika/neuronika/main?logo=circleci&style=for-the-badge&token=a4dc29e597fde3872a02c582dc42c058f41f7869">
+  </a>
 
-<a href="https://codecov.io/gh/neuronika/neuronika">
-  <img src="https://codecov.io/gh/neuronika/neuronika/branch/main/graph/badge.svg?token=H7J7TF511B"/>
-</a>
+  <a href="https://codecov.io/gh/neuronika/neuronika">
+    <img alt="Codecov branch" src="https://img.shields.io/codecov/c/github/neuronika/neuronika/main?logo=codecov&style=for-the-badge&token=H7J7TF511B">
+  </a>
 
-<a href="https://opensource.org/licenses/MPL-2.0">
-  <img src="https://img.shields.io/badge/License-MPL%202.0-ff69b4.svg"/>
-</a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT %2F Apache%202.0-informational?logo=opensourceinitiative&style=for-the-badge"/>
+  </a>
 
-<a href="https://docs.rs/neuronika">
-  <img src="https://img.shields.io/badge/API-reference-brightgreen"/>
-</a>
+  <a href="https://docs.rs/neuronika">
+    <img src="https://img.shields.io/badge/API-Reference-brightgreen?style=for-the-badge&logo=Docs.rs"/>
+  </a>
 </p>
 
 Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
