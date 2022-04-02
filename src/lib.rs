@@ -243,6 +243,7 @@ where
 ///
 /// ```
 /// use neuronika;
+///
 /// let t1 = neuronika::zeros(1);
 /// let t2 = neuronika::zeros((1, 5));
 /// let t3 = neuronika::zeros([1, 2, 3]);
@@ -265,6 +266,7 @@ where
 ///
 /// ```
 /// use neuronika;
+///
 /// let t1 = neuronika::ones(1);
 /// let t2 = neuronika::ones((1, 5));
 /// let t3 = neuronika::ones([1, 2, 3]);
@@ -287,6 +289,7 @@ where
 ///
 /// ```
 /// use neuronika;
+///
 /// let t1 = neuronika::full(1, 5.); // Filled with 5.0
 /// let t2 = neuronika::full((1, 5), 6.); // Filled with 6.0
 /// let t3 = neuronika::full([1, 2, 3], 8.); // Filled with 8.0
@@ -309,8 +312,8 @@ where
 ///
 /// ```
 /// use neuronika;
-/// let t = neuronika::rand([4, 5, 6]);
 ///
+/// let x = neuronika::rand([4, 5, 6]);
 /// assert_eq!(t.data().shape(), &[4, 5, 6]);
 /// ```
 pub fn rand<D, Sh>(shape: Sh) -> Var<D>

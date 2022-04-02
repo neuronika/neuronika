@@ -15,7 +15,7 @@ use crate::{
         gradient::{BufferedGradient, Gradient},
         history::History,
         node::{self, *},
-        utils::{cobroadcasted_zeros, padded_shape, DotDim},
+        utils::{cobroadcasted_zeros, padded_shape, DotDim, Shared},
         vardiff::VarDiff,
         Cat, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
     },
@@ -34,7 +34,7 @@ pub struct Var<D>
 where
     D: Dimension,
 {
-    pub(crate) data: Rc<RefCell<Array<f32, D>>>,
+    pub(crate) data: Shared<Array<f32, D>>,
     pub(crate) history: History<(Rc<dyn Forward>, Cell<bool>)>,
 }
 
@@ -50,7 +50,7 @@ where
     }
 
     pub(crate) fn node(
-        data: Rc<RefCell<Array<f32, D>>>,
+        data: Shared<Array<f32, D>>,
         op: Rc<dyn Forward>,
         mut history: History<(Rc<dyn Forward>, Cell<bool>)>,
     ) -> Self {
@@ -324,9 +324,7 @@ where
     /// unstable. This function uses an alternative formulation to compute the output and
     /// grad correctly.
     ///
-    /// See also [`.softmax()`].
-    ///
-    /// [`.softmax()`]: Var::softmax()
+    /// See also [`.softmax()`](Var::softmax()).
     ///
     /// # Arguments
     ///
@@ -379,7 +377,7 @@ where
         self,
         shape: D,
         p: f64,
-        noise: Rc<RefCell<Array<f32, D>>>,
+        noise: Shared<Array<f32, D>>,
         status: Rc<Cell<bool>>,
     ) -> Var<D> {
         let data = Rc::new(RefCell::new(Array::zeros(shape)));
@@ -1247,6 +1245,8 @@ where
         VarDiff::node(var, grad.clone(), (Rc::new(op), grad), rhs.history)
     }
 }
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

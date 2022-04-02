@@ -104,7 +104,7 @@ pub trait Stack<Rhs> {
 }
 
 /// Convolution.
-pub trait Convolve<Inp, Ker> {
+pub trait Convolve<Rhs> {
     /// The type of the convolution's result. See the [*differentiability arithmetic*] for more
     /// details.
     ///
@@ -114,8 +114,8 @@ pub trait Convolve<Inp, Ker> {
     /// Applies a *n*-dimensional convolution with the given parameters. *n* can be either 1, 2 or
     /// 3.
     fn convolve<T>(
-        input: Inp,
-        kernel: Ker,
+        self,
+        kernel: Rhs,
         stride: T,
         dilation: T,
         padding: T,
