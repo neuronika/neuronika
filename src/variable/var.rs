@@ -10,13 +10,16 @@ use ndarray::{
     RemoveAxis,
 };
 
-use crate::variable::{
-    gradient::{BufferedGradient, Gradient},
-    history::History,
-    node::{self, *},
-    utils::{cobroadcasted_zeros, padded_shape, DotDim},
-    vardiff::VarDiff,
-    Cat, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
+use crate::{
+    variable::{
+        gradient::{BufferedGradient, Gradient},
+        history::History,
+        node::{self, *},
+        utils::{cobroadcasted_zeros, padded_shape, DotDim},
+        vardiff::VarDiff,
+        Cat, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
+    },
+    Reduction,
 };
 
 /// A non-differentiable variable.
@@ -387,6 +390,10 @@ where
 
     /// Splits `self` into a certain number of chunks of size `chunk_size` **skipping** the
     /// remainder along each dimension that doesn’t fit evenly.
+    ///
+    /// # Arguments
+    ///
+    /// `chunk_size` - shape for each chunk.
     pub fn chunks<E>(self, chunk_size: E) -> Vec<Var<D>>
     where
         E: IntoDimension<Dim = D>,
@@ -407,10 +414,109 @@ where
 
     /// Returns a new variable with a dimension of size one inserted at the position specified by
     /// `axis`.
+    ///
+    /// # Arguments
+    ///
+    /// `axis` - dimension to insert the new axis at.
     pub fn unsqueeze(self, axis: usize) -> Var<D::Larger> {
         let shape = self.data.borrow().raw_dim();
         let data = Rc::new(RefCell::new(Array::zeros(shape.insert_axis(Axis(axis)))));
         let op = Unsqueeze::new(self.data, data.clone());
+
+        Var::node(data, Rc::new(op), self.history)
+    }
+
+    /// Computes the mean absolute error between the two variables.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - target variable.
+    ///
+    /// * `reduction` - reduction to apply to the criterion's output.
+    pub fn mae(self, target: Var<D>, reduction: Reduction) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.0)));
+        let op = AbsoluteError::new(self.data, target.data, data.clone(), reduction);
+
+        Var::node(data, Rc::new(op), self.history)
+    }
+
+    /// Computes the mean squared error *(squared L2 norm)* between the two variables.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - target variable.
+    ///
+    /// * `reduction` - reduction to apply to the criterion's output.
+    pub fn mse(self, target: Var<D>, reduction: Reduction) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.0)));
+        let op = SquaredError::new(self.data, target.data, data.clone(), reduction);
+
+        Var::node(data, Rc::new(op), self.history)
+    }
+
+    /// Computes the binary cross entropy between the two variables. The elements should be numbers
+    /// between 0 and 1.
+    ///
+    /// Notice that if a component of the input x is either 0 or 1, one of the log terms would be
+    /// mathematically undefined.
+    ///
+    /// Rust sets *ln(0) = -inf*, however, an infinite term in the equation is not desirable.
+    ///
+    /// Our solution is that the binary cross entropy clamps its log function outputs to be greater
+    /// than or equal to -100. This way, we can always have a finite value.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - target variable.
+    ///
+    /// * `reduction` - reduction to apply to the criterion's output.
+    pub fn bce(self, target: Var<D>, reduction: Reduction) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.0)));
+        let op = BinaryCrossEntropy::new(self.data, target.data, data.clone(), reduction);
+
+        Var::node(data, Rc::new(op), self.history)
+    }
+
+    /// Computes the binary cross entropy with logits between the two variables. The elements
+    /// should be numbers between 0 and 1.
+    ///
+    /// This function combines a sigmoid and a binary cross entropy and is more numerically stable
+    /// than using the two operations separately as, by fusing them, we take advantage of the
+    /// log-sum-exp trick for numerical stability.
+    ///
+    /// Note that the target should be numbers between 0 and 1 and `self` should contain raw
+    /// un-normalized scores.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - target variable.
+    ///
+    /// * `reduction` - reduction to apply to the criterion's output.
+    pub fn bce_with_logits(self, target: Var<D>, reduction: Reduction) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.0)));
+        let op = BCEWithLogits::new(self.data, target.data, data.clone(), reduction);
+
+        Var::node(data, Rc::new(op), self.history)
+    }
+
+    /// Computes the Kullback-Leibler divergence between the two variables.
+    ///
+    /// The [Kullback-Leibler divergence](https://en.wikipedia.org/wiki/Kullback–Leibler_divergence) is
+    /// a useful distance measure for continuous distributions and is often useful when performing
+    /// direct regression over the space of (discretely sampled) continuous output distributions.
+    ///
+    /// The `self` is expected to contain log-probabilities while the target is interpreted
+    /// as probabilities. When the given reduction is equal to [`Reduction::Mean`] the total
+    /// divergence is divided by the batch size, i.e. the size of outermost dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - target variable.
+    ///
+    /// * `reduction` - reduction to apply to the criterion's output.
+    pub fn kldiv(self, target: Var<D>, reduction: Reduction) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.0)));
+        let op = KLDiv::new(self.data, target.data, data.clone(), reduction);
 
         Var::node(data, Rc::new(op), self.history)
     }
@@ -531,6 +637,39 @@ where
         let op = Rc::new(MultiStack::new(operands_data, data.clone(), axis));
 
         Var::node(data, op, self.history)
+    }
+
+    /// Computes the negative log likelihood between the variables.
+    ///
+    /// `self` is expected to contain log-probabilities for each class, this is typically achieved
+    /// by using [`.log_softmax()`](Var::log_softmax) and has to be a of shape either (minibatch, C)
+    /// or (minibatch, C, d1, d2, ..., dk) with k >= 1 for the K-dimensional
+    /// case.
+    ///
+    /// The target variable should be a class index in the range [0, C) where C = number of classes.
+    ///
+    /// When the given reduction is equal to [`Reduction::Mean`] the total negative likelihood is
+    /// divided by the batch size.
+    ///
+    /// As mentioned before, this criterion can also be used for higher dimensional inputs, such as 2D
+    /// images, by providing an input of size (minibatch, C, d1, d2, ..., dk) with k >= 1 where
+    /// k is the number of dimensions. In the case of images, it computes the negative
+    /// log-likelihood *per-pixel*.
+    ///
+    /// In the K-dimensional case this function expects a target of shape (minibatch, d1, d2, ..., dk).
+    ///
+    /// [`.log_softmax()`]: VarDiff::log_softmax()
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - target variable.
+    ///
+    /// * `reduction` - reduction to apply to the criterion's output.
+    pub fn nll(self, target: Var<D::Smaller>, reduction: Reduction) -> Var<Ix0> {
+        let data = Rc::new(RefCell::new(arr0(0.0)));
+        let op = NegativeLogLikelihood::new(self.data, target.data, data.clone(), reduction);
+
+        Var::node(data, Rc::new(op), self.history)
     }
 }
 
