@@ -1,8 +1,9 @@
-use ndarray::{Array, Dimension};
 use std::{
     cell::{Ref, RefCell, RefMut},
     rc::Rc,
 };
+
+use ndarray::{Array, Dimension};
 
 pub(crate) trait NoGrad {
     fn no_grad(&self);
