@@ -1,6 +1,6 @@
-use super::SampleDim;
 use ndarray::{ArrayView, ArrayViewMut, Dimension, RemoveAxis};
 
+use super::SampleDim;
 /// Padding mode.
 pub trait PaddingMode<D>: Send + Sync + Copy
 where

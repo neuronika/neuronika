@@ -1,20 +1,8 @@
-use super::{
-    cobroadcasted_zeros, history::History, AdditionBackward, AdditionBackwardLeft,
-    AdditionBackwardRight, Backward, BufferedGradient, Cat, ChunkBackward, ConcatenateBackward,
-    ConcatenateBackwardLeft, ConcatenateBackwardRight, DivisionBackward, DivisionBackwardLeft,
-    DivisionBackwardRight, DotDim, DropoutBackward, ExpBackward, Gradient, LeakyReLUBackward,
-    LogSoftmaxBackward, LognBackward, MatMatMul, MatMatMulT, MatVecMul, MatrixMatrixMulBackward,
-    MatrixMatrixMulBackwardLeft, MatrixMatrixMulBackwardRight, MatrixMatrixMulTBackward,
-    MatrixMatrixMulTBackwardLeft, MatrixMatrixMulTBackwardRight, MatrixVectorMulBackward,
-    MatrixVectorMulBackwardLeft, MatrixVectorMulBackwardRight, MeanBackward,
-    MultiConcatenateBackward, MultiStackBackward, MultiplicationBackward,
-    MultiplicationBackwardLeft, MultiplicationBackwardRight, NegationBackward, NoGrad, PadBackward,
-    PaddingMode, PowerBackward, ReLUBackward, SigmoidBackward, SoftPlusBackward, SoftmaxBackward,
-    SqrtBackward, Stack, StackBackward, StackBackwardLeft, StackBackwardRight, SubtractionBackward,
-    SubtractionBackwardLeft, SubtractionBackwardRight, SumBackward, TanHBackward,
-    TransposeBackward, UnsqueezeBackward, Var, VecMatMul, VecVecMul, VectorMatrixMulBackward,
-    VectorMatrixMulBackwardLeft, VectorMatrixMulBackwardRight, VectorVectorMulBackward,
-    VectorVectorMulBackwardUnary,
+use std::{
+    cell::{Cell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
+    ops::{Add, Div, Mul, Neg, Sub},
+    rc::Rc,
 };
 
 use ndarray::{
@@ -22,11 +10,13 @@ use ndarray::{
     RemoveAxis,
 };
 
-use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
-    fmt::{Debug, Display},
-    ops::{Add, Div, Mul, Neg, Sub},
-    rc::Rc,
+use crate::variable::{
+    gradient::{BufferedGradient, Gradient, NoGrad},
+    history::History,
+    node::*,
+    utils::{cobroadcasted_zeros, DotDim},
+    var::Var,
+    Cat, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
 };
 
 /// A differentiable variable.
@@ -488,7 +478,7 @@ where
     /// let mut d = a.cat(&[b, c], 1);
     /// d.forward();
     ///
-    /// assert_eq!(*d.data(), ndarray::borrow![[1., 1., 4., 4., 3., 3.],
+    /// assert_eq!(*d.data(), ndarray::array![[1., 1., 4., 4., 3., 3.],
     ///                                       [1., 1., 4., 4., 3., 3.],
     ///                                       [1., 1., 4., 4., 3., 3.]]);
     /// ```
@@ -540,7 +530,7 @@ where
     /// let d = a.stack(&[b, c], 0);
     /// d.forward();
     ///
-    /// assert_eq!(*d.data(), ndarray::borrow![[[1., 1.],
+    /// assert_eq!(*d.data(), ndarray::array![[[1., 1.],
     ///                                        [1., 1.]],
     ///                                       [[1., 1.],
     ///                                        [1., 1.]],

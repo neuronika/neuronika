@@ -1,6 +1,13 @@
-use super::{reduce, Backward, Broadcast, BufferedGradient, Forward, Gradient, Shared};
-use ndarray::{Array, DimMax, Dimension, Zip};
 use std::rc::Rc;
+
+use ndarray::{Array, DimMax, Dimension, Zip};
+
+use crate::variable::{
+    gradient::{BufferedGradient, Gradient},
+    utils::{reduce, Broadcast, Shared},
+};
+
+use super::{Backward, Forward};
 
 pub(crate) struct Division<D, E>
 where

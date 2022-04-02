@@ -1,17 +1,16 @@
+use std::{cell::RefCell, rc::Rc};
+
 use ndarray::{
     Array, ArrayBase, ArrayD, ArrayViewD, ArrayViewMutD, Axis, Data, DataMut, DimMax, Dimension,
     Ix1, Ix2, Ix3, ShapeBuilder, Slice, Zip,
 };
-use std::{cell::RefCell, rc::Rc};
 
 /// Shorthand for `Rc<RefCell<T>>`.
 pub(crate) type Shared<T> = Rc<RefCell<T>>;
 /// A broadcasted ndarray's dimension.
 pub(crate) type Broadcast<D, E> = <D as DimMax<E>>::Output;
-/// Shorthand for `Dimension::Smaller::Smaller`.
-pub(crate) type SampleDim<D> = <<D as Dimension>::Smaller as Dimension>::Smaller;
 
-/// Utility trait useful to compute the dimensionality of algebraic operations' results.
+/// Utility trait to compute the dimensionality of algebraic operations' results.
 pub(crate) trait DotDim<Rhs>
 where
     Self: Dimension,
@@ -198,7 +197,7 @@ where
 /// * `stride` - the stride.
 ///
 /// * `dilation` - the dilation.
-fn conv_out_shape_padded<D>(
+pub(crate) fn conv_out_shape<D>(
     input_shape: &[usize],
     kernel_shape: &[usize],
     stride: &[usize],
@@ -250,7 +249,7 @@ where
     D: Dimension,
     S: Data<Elem = f32>,
 {
-    let mut indices: D = conv_out_shape_padded(input.shape(), window_shape, stride, dilation);
+    let mut indices: D = conv_out_shape(input.shape(), window_shape, stride, dilation);
     indices[1] = 1;
     indices
         .slice()
@@ -323,7 +322,7 @@ where
 /// * `stride` - stride.
 ///
 /// * `dilation` - spacing between each element of the windows.
-fn as_windows<'a, D, S>(
+pub(crate) fn as_windows<'a, D, S>(
     input: &ArrayBase<S, D>,
     window_shape: &[usize],
     stride: &[usize],
@@ -357,7 +356,7 @@ where
 /// * `stride` - stride.
 ///
 /// * `dilation` - spacing between each element of the windows.
-fn as_windows_mut<'a, D, S>(
+pub(crate) fn as_windows_mut<'a, D, S>(
     input: &mut ArrayBase<S, D>,
     window_shape: &[usize],
     stride: &[usize],
@@ -372,7 +371,7 @@ where
     let rolling_window_strides: Vec<usize> =
         compute_rolling_window_strides(input, stride, dilation);
 
-    // Care must be taken as there's aliasing.
+    // Must ensure that the array is contiguous and that parallel code access the data per-batch.
     unsafe {
         ArrayViewMutD::from_shape_ptr(
             rolling_window_shape.strides(rolling_window_strides),
@@ -394,7 +393,7 @@ where
 /// * `stride` - stride.
 ///
 /// * `dilation` - dilation.
-fn columns_shape<D, S>(
+pub(crate) fn columns_shape<D, S>(
     input: &ArrayBase<S, D>,
     kernel_shape: &[usize],
     stride: &[usize],
@@ -404,12 +403,108 @@ where
     D: Dimension,
     S: Data<Elem = f32>,
 {
-    let output_map_shape =
-        conv_out_shape_padded::<D>(input.shape(), kernel_shape, stride, dilation);
+    let output_map_shape = conv_out_shape::<D>(input.shape(), kernel_shape, stride, dilation);
     let mut columns_shape = Ix3::zeros(3);
     columns_shape[0] = output_map_shape[0];
     columns_shape[1] = output_map_shape.slice().iter().skip(2).product();
     columns_shape[2] = kernel_shape.iter().skip(1).product();
 
     columns_shape
+}
+
+/// Checks that the arguments are correct for the given **convolution**. It verifies that the
+/// `padding`, `stride` and `dilation` slices are of the right length; their length must match the
+/// dimensionality of the convolution. It also check that `kernel` and `input` are of the same
+/// dimension and that the kernel size, after dilation is applied, **is not bigger** that the actual
+/// input size.
+pub(crate) fn check_conv_args(
+    input_shape: &[usize],
+    kernel_shape: &[usize],
+    padding: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) {
+    // The type of convolution can be derived by considering the number of input's dimension
+    // skipping the first two, that are the batch size and input channels. The first two axes of
+    // the input are always for the batch size and the number of input channels.
+    let convolution_dimension = input_shape.len() - 2;
+    assert_eq!(
+        convolution_dimension,
+        padding.len(),
+        "Invalid padding {:?} for {}d conv.",
+        padding,
+        convolution_dimension
+    );
+
+    assert_eq!(
+        convolution_dimension,
+        stride.len(),
+        "Invalid stride {:?} for {}d conv.",
+        stride,
+        convolution_dimension
+    );
+
+    assert_eq!(
+        convolution_dimension,
+        dilation.len(),
+        "Invalid dilation {:?} for {}d conv.",
+        dilation,
+        convolution_dimension
+    );
+
+    assert_eq!(
+        kernel_shape.len(),
+        input_shape.len(),
+        "Invalid kernel shape {:?} for {}d conv",
+        &kernel_shape,
+        convolution_dimension
+    );
+
+    // Checks that the kernel size, taking into account dilation, is suitable for the padded input.
+    let dilated_kernel_size: Vec<usize> = kernel_shape
+        .iter()
+        .skip(2)
+        .zip(dilation.iter())
+        .map(|(kernel_size, dilation_component)| (kernel_size - 1) * dilation_component + 1)
+        .collect();
+    let padded_input_size: Vec<usize> = input_shape
+        .iter()
+        .skip(2)
+        .zip(padding.iter())
+        .map(|(input_size, padding_component)| input_size + padding_component * 2)
+        .collect();
+
+    padded_input_size
+        .iter()
+        .zip(dilated_kernel_size.iter())
+        .for_each(|(padded_input_dim, dilated_kernel_dim)| {
+            assert!(
+                padded_input_dim >= dilated_kernel_dim,
+                "Computed padded input size per channel: {:?}. Kernel size: {:?}. The kernel size can't be greater than actual input size.",
+                padded_input_size,
+                dilated_kernel_size
+            )
+        });
+}
+
+/// Checks that the arguments are correct for the given **grouped convolution**. This function
+/// should most of the time be used together with `check_conv_args`.
+///
+/// It enforces that both the number of **input channels** and **output channels** are divisible
+/// by `groups`.
+pub(crate) fn check_groups_args(input_shape: &[usize], kernel_shape: &[usize], groups: usize) {
+    assert_eq!(
+        input_shape[1] % groups,
+        0,
+        "In channels {} is not divisible by groups {}",
+        input_shape[1],
+        groups
+    );
+    assert_eq!(
+        kernel_shape[0] % groups,
+        0,
+        "Out channels {} is not divisible by groups {}",
+        kernel_shape[0],
+        groups
+    );
 }

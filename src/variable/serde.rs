@@ -3,9 +3,9 @@ use serde::{
     ser::{Serialize, Serializer},
 };
 
-use super::{Var, VarDiff};
-
 use ndarray::{Array, Dimension};
+
+use super::{Var, VarDiff};
 
 impl<D> Serialize for Var<D>
 where

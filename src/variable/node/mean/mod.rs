@@ -1,6 +1,10 @@
-use super::{Backward, Forward, Gradient, Shared};
-use ndarray::{arr0, Array, Dimension, Ix0, Zip};
 use std::rc::Rc;
+
+use ndarray::{arr0, Array, Dimension, Ix0, Zip};
+
+use crate::variable::{gradient::Gradient, utils::Shared};
+
+use super::{Backward, Forward};
 
 pub(crate) struct Mean<D>
 where

@@ -1,6 +1,10 @@
-use super::{Backward, Forward, Gradient, Shared};
-use ndarray::{Array, Dimension};
 use std::rc::Rc;
+
+use ndarray::{Array, Dimension};
+
+use crate::variable::{gradient::Gradient, utils::Shared};
+
+use super::{Backward, Forward};
 
 pub(crate) struct Unsqueeze<D>
 where

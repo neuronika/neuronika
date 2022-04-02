@@ -1,8 +1,13 @@
-use super::{Backward, Forward, Gradient, Shared};
-use ndarray::{Array, Dimension, Zip};
+use std::{cell::Cell, rc::Rc};
+
 use rand::thread_rng;
 use rand_distr::{Bernoulli, Distribution};
-use std::{cell::Cell, rc::Rc};
+
+use ndarray::{Array, Dimension, Zip};
+
+use crate::variable::{gradient::Gradient, utils::Shared};
+
+use super::{Backward, Forward};
 
 pub(crate) struct Dropout<D>
 where

@@ -1,6 +1,10 @@
-use super::{Backward, Forward, Gradient, Shared};
-use ndarray::{Array, Axis, Dimension, RemoveAxis, Zip};
 use std::rc::Rc;
+
+use ndarray::{Array, Axis, Dimension, RemoveAxis, Zip};
+
+use crate::variable::{gradient::Gradient, utils::Shared};
+
+use super::{Backward, Forward};
 
 pub(crate) struct Stack<D>
 where

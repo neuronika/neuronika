@@ -1,1536 +1,514 @@
-// #[cfg(test)]
-// use super::{new_backward_input, new_input};
-// use crate::variable::{
-//     expect_tensor, expect_tensor_mut, Backward, Cache, Data as NData, Forward, Gradient, Overwrite,
-//     Tensor, Var, /*VarDiff,*/
-// };
-// use ndarray::{Dimension, RemoveAxis};
-// use std::{
-//     cell::{Cell, Ref, RefCell, RefMut},
-//     fmt::{Debug, Display},
-//     rc::Rc,
-// };
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Padding Modes ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// mod padding;
-// pub use padding::{Constant, PaddingMode, Reflective, Replicative, Zero};
-// use padding::{ReflPad, ReplPad};
-
-// mod numeric;
-// use numeric::{
-//     check_conv_args, check_groups_args, conv_out_shape, convolution, convolution_backward_input,
-//     convolution_backward_kernel, convolution_with_groups, convolution_with_groups_backward,
-//     convolution_with_groups_unary_backward, pad,
-// };
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// /// Convolution.
-// pub trait Convolve<Inp, Ker, Pad: PaddingMode> {
-//     /// The type of the convolution's result. See the [*differentiability arithmetic*] for more
-//     /// details.
-//     ///
-//     /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
-//     type Output;
-
-//     /// Applies a *n*-dimensional convolution with the given parameters. *n* can be either 1, 2 or
-//     /// 3.
-//     fn convolve(
-//         input: Inp,
-//         kernel: Ker,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//     ) -> Self::Output;
-// }
-
-// impl<F1: ?Sized, F2: ?Sized, Pad> Convolve<Self, Var<F2>, Pad> for Var<F1>
-// where
-//     F1: NData + 'static,
-//     F1::Dim: RemoveAxis,
-//     <F1::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
-//     F2: NData<Dim = F1::Dim> + 'static,
-//     Pad: PaddingMode + 'static,
-// {
-//     type Output = Var<Convolution<F1, F2, Pad>>;
-//     fn convolve(
-//         mut input: Self,
-//         kernel: Var<F2>,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//     ) -> Self::Output {
-//         input.past.merge(kernel.past);
-//         Var::from(
-//             Convolution::new(
-//                 input.node,
-//                 kernel.node,
-//                 stride,
-//                 dilation,
-//                 padding,
-//                 padding_mode,
-//             ),
-//             input.past,
-//         )
-//     }
-// }
-
-// // impl<F1: ?Sized, F2: ?Sized, B2: ?Sized, Pad> Convolve<Self, VarDiff<F2, B2>, Pad> for Var<F1>
-// // where
-// //     F1: NData + 'static,
-// //     F1::Dim: RemoveAxis,
-// //     <F1::Dim as Dimension>::Smaller: RemoveAxis,
-// //     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
-// //     F2: NData<Dim = F1::Dim> + 'static,
-// //     B2: Gradient<Dim = F2::Dim>,
-// //     Pad: PaddingMode + 'static,
-// // {
-// //     type Output = VarDiff<Convolution<F1, F2, Pad>, ConvolutionBackwardUnary<F1, B2, Pad>>;
-
-// //     fn convolve(
-// //         input: Self,
-// //         kernel: VarDiff<F2, B2>,
-// //         stride: &[usize],
-// //         dilation: &[usize],
-// //         padding: &[usize],
-// //         padding_mode: Pad,
-// //     ) -> Self::Output {
-// //         let node = ConvolutionBackwardUnary::new(
-// //             kernel.node,
-// //             input.node.clone(),
-// //             kernel.var.node.clone(),
-// //             stride,
-// //             dilation,
-// //             padding,
-// //             padding_mode,
-// //         );
-// //         VarDiff::from(
-// //             node,
-// //             kernel.past,
-// //             Var::convolve(input, kernel.var, stride, dilation, padding, padding_mode),
-// //         )
-// //     }
-// // }
-
-// // impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized, Pad> Convolve<Self, VarDiff<F2, B2>, Pad>
-// //     for VarDiff<F1, B1>
-// // where
-// //     F1: NData + 'static,
-// //     F1::Dim: RemoveAxis,
-// //     <F1::Dim as Dimension>::Smaller: RemoveAxis,
-// //     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
-// //     B1: Gradient<Dim = F1::Dim> + Overwrite,
-// //     F2: NData<Dim = F1::Dim> + 'static,
-// //     B2: Gradient<Dim = F2::Dim>,
-// //     Pad: PaddingMode + 'static,
-// // {
-// //     type Output = VarDiff<Convolution<F1, F2, Pad>, ConvolutionBackward<F1, B1, F2, B2, Pad>>;
-
-// //     fn convolve(
-// //         mut input: Self,
-// //         kernel: VarDiff<F2, B2>,
-// //         stride: &[usize],
-// //         dilation: &[usize],
-// //         padding: &[usize],
-// //         padding_mode: Pad,
-// //     ) -> Self::Output {
-// //         input.past.merge(kernel.past);
-// //         let node = ConvolutionBackward::new(
-// //             input.node,
-// //             kernel.node,
-// //             input.var.node.clone(),
-// //             kernel.var.node.clone(),
-// //             stride,
-// //             dilation,
-// //             padding,
-// //             padding_mode,
-// //         );
-// //         VarDiff::from(
-// //             node,
-// //             input.past,
-// //             Var::convolve(
-// //                 input.var,
-// //                 kernel.var,
-// //                 stride,
-// //                 dilation,
-// //                 padding,
-// //                 padding_mode,
-// //             ),
-// //         )
-// //     }
-// // }
-
-// // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolve with Groups Trait ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// // /// Grouped convolution.
-// // pub trait ConvolveWithGroups<Inp, Ker, Pad: PaddingMode> {
-// //     /// The type of the grouped convolution's result. See the [*differentiability arithmetic*] for
-// //     /// more details.
-// //     ///
-// //     /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
-// //     type Output;
-
-// //     /// Applies a *n*-dimensional grouped convolution with the given parameters. *n* can be either
-// //     /// 1, 2 or 3.
-// //     fn convolve_with_groups(
-// //         input: Inp,
-// //         kernel: Ker,
-// //         stride: &[usize],
-// //         dilation: &[usize],
-// //         padding: &[usize],
-// //         padding_mode: Pad,
-// //         groups: usize,
-// //     ) -> Self::Output;
-// // }
-
-// // impl<F1: ?Sized, F2: ?Sized, Pad> ConvolveWithGroups<Self, Var<F2>, Pad> for Var<F1>
-// // where
-// //     F1: NData + 'static,
-// //     F1::Dim: RemoveAxis,
-// //     <F1::Dim as Dimension>::Smaller: RemoveAxis,
-// //     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
-// //     F2: NData<Dim = F1::Dim> + 'static,
-// //     Pad: PaddingMode + 'static,
-// // {
-// //     type Output = Var<GroupedConvolution<F1, F2, Pad>>;
-// //     fn convolve_with_groups(
-// //         mut input: Self,
-// //         kernel: Var<F2>,
-// //         stride: &[usize],
-// //         dilation: &[usize],
-// //         padding: &[usize],
-// //         padding_mode: Pad,
-// //         groups: usize,
-// //     ) -> Self::Output {
-// //         input.past.merge(kernel.past);
-// //         Var::from(
-// //             GroupedConvolution::new(
-// //                 input.node,
-// //                 kernel.node,
-// //                 stride,
-// //                 dilation,
-// //                 padding,
-// //                 padding_mode,
-// //                 groups,
-// //             ),
-// //             input.past,
-// //         )
-// //     }
-// // }
-
-// // impl<F1: ?Sized, F2: ?Sized, B2: ?Sized, Pad> ConvolveWithGroups<Self, VarDiff<F2, B2>, Pad>
-// //     for Var<F1>
-// // where
-// //     F1: NData + 'static,
-// //     F1::Dim: RemoveAxis,
-// //     <F1::Dim as Dimension>::Smaller: RemoveAxis,
-// //     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
-// //     F2: NData<Dim = F1::Dim> + 'static,
-// //     B2: Gradient<Dim = F2::Dim>,
-// //     Pad: PaddingMode + 'static,
-// // {
-// //     type Output =
-// //         VarDiff<GroupedConvolution<F1, F2, Pad>, GroupedConvolutionBackwardUnary<F1, B2, Pad>>;
-
-// //     fn convolve_with_groups(
-// //         input: Self,
-// //         kernel: VarDiff<F2, B2>,
-// //         stride: &[usize],
-// //         dilation: &[usize],
-// //         padding: &[usize],
-// //         padding_mode: Pad,
-// //         groups: usize,
-// //     ) -> Self::Output {
-// //         let node = GroupedConvolutionBackwardUnary::new(
-// //             kernel.node,
-// //             input.node.clone(),
-// //             kernel.var.node.clone(),
-// //             stride,
-// //             dilation,
-// //             padding,
-// //             padding_mode,
-// //             groups,
-// //         );
-// //         VarDiff::from(
-// //             node,
-// //             kernel.past,
-// //             Var::convolve_with_groups(
-// //                 input,
-// //                 kernel.var,
-// //                 stride,
-// //                 dilation,
-// //                 padding,
-// //                 padding_mode,
-// //                 groups,
-// //             ),
-// //         )
-// //     }
-// // }
-
-// // impl<F1: ?Sized, B1: ?Sized, F2: ?Sized, B2: ?Sized, Pad>
-// //     ConvolveWithGroups<Self, VarDiff<F2, B2>, Pad> for VarDiff<F1, B1>
-// // where
-// //     F1: NData + 'static,
-// //     F1::Dim: RemoveAxis,
-// //     <F1::Dim as Dimension>::Smaller: RemoveAxis,
-// //     <<F1::Dim as Dimension>::Smaller as Dimension>::Smaller: ReflPad + ReplPad,
-// //     B1: Gradient<Dim = F1::Dim> + Overwrite,
-// //     F2: NData<Dim = F1::Dim> + 'static,
-// //     B2: Gradient<Dim = F2::Dim>,
-// //     Pad: PaddingMode + 'static,
-// // {
-// //     type Output =
-// //         VarDiff<GroupedConvolution<F1, F2, Pad>, GroupedConvolutionBackward<F1, B1, F2, B2, Pad>>;
-
-// //     fn convolve_with_groups(
-// //         mut input: Self,
-// //         kernel: VarDiff<F2, B2>,
-// //         stride: &[usize],
-// //         dilation: &[usize],
-// //         padding: &[usize],
-// //         padding_mode: Pad,
-// //         groups: usize,
-// //     ) -> Self::Output {
-// //         input.past.merge(kernel.past);
-// //         let node = GroupedConvolutionBackward::new(
-// //             input.node,
-// //             kernel.node,
-// //             input.var.node.clone(),
-// //             kernel.var.node.clone(),
-// //             stride,
-// //             dilation,
-// //             padding,
-// //             padding_mode,
-// //             groups,
-// //         );
-// //         VarDiff::from(
-// //             node,
-// //             input.past,
-// //             Var::convolve_with_groups(
-// //                 input.var,
-// //                 kernel.var,
-// //                 stride,
-// //                 dilation,
-// //                 padding,
-// //                 padding_mode,
-// //                 groups,
-// //             ),
-// //         )
-// //     }
-// // }
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution Forward Structs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// pub struct Convolution<Inp: ?Sized, Ker: ?Sized, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     input: Rc<Inp>,
-//     kernel: Rc<Ker>,
-//     stride: Vec<usize>,
-//     dilation: Vec<usize>,
-//     padding: Vec<usize>,
-//     padding_mode: Pad,
-//     data: RefCell<Tensor<Inp::Dim>>,
-//     computed: Cell<bool>,
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Convolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     pub fn new(
-//         input: Rc<Inp>,
-//         kernel: Rc<Ker>,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//     ) -> Self {
-//         // Computes the shape of the output feature map.
-//         let shape: Inp::Dim = {
-//             let (input_data, kernel_data) = (input.data(), kernel.data());
-//             conv_out_shape(
-//                 input_data.shape(),
-//                 kernel_data.shape(),
-//                 padding,
-//                 stride,
-//                 dilation,
-//             )
-//         };
-
-//         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
-//         let data = RefCell::new(Tensor::zeros(shape));
-
-//         Self {
-//             input,
-//             kernel,
-//             data,
-//             stride,
-//             dilation,
-//             padding,
-//             padding_mode,
-//             computed: Cell::new(false),
-//         }
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> NData for Convolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     type Dim = Inp::Dim;
-
-//     fn data(&self) -> Ref<Tensor<Self::Dim>> {
-//         self.data.borrow()
-//     }
-
-//     fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-//         self.data.borrow_mut()
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Cache for Convolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn was_computed(&self) -> bool {
-//         self.computed.get()
-//     }
-
-//     fn reset_computation(&self) {
-//         self.computed.set(false);
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Forward for Convolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Inp::Dim: RemoveAxis,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-//     <<Inp as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<Inp as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-// {
-//     fn forward(&self) {
-//         if self.was_computed() {
-//             return;
-//         }
-
-//         self.computed.set(true);
-//         let (input, kernel, mut output_map, stride, dilation, padding, padding_mode) = (
-//             self.input.data(),
-//             self.kernel.data(),
-//             self.data.borrow_mut(),
-//             &self.stride,
-//             &self.dilation,
-//             &self.padding,
-//             &self.padding_mode,
-//         );
-//         check_conv_args(input.shape(), kernel.shape(), padding, stride, dilation);
-
-//         // If there's no padding just performs the convolution.
-//         if padding.iter().all(|pad| *pad == 0) {
-//             convolution(&input, &kernel, &mut *output_map, stride, dilation);
-//         } else {
-//             // If there's padding to be applied, pads the input and then it performs the
-//             // convolution. Do note that here memory is allocated and then freed.
-//             let padded_input = pad(&*input, padding, padding_mode);
-//             convolution(&padded_input, &*kernel, &mut *output_map, stride, dilation);
-//         }
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Debug for Convolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("Convolution")
-//             .field("data", &self.data.borrow())
-//             .field("stride", &self.stride)
-//             .field("dilation", &self.dilation)
-//             .field("padding", &self.padding)
-//             .field("padding_mode", &self.padding_mode)
-//             .field("computed", &self.computed.get())
-//             .finish()
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Display for Convolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-//         write!(f, "{}", &self.data.borrow())
-//     }
-// }
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ GroupedConvolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// pub struct GroupedConvolution<Inp: ?Sized, Ker: ?Sized, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     input: Rc<Inp>,
-//     kernel: Rc<Ker>,
-//     stride: Vec<usize>,
-//     dilation: Vec<usize>,
-//     padding: Vec<usize>,
-//     padding_mode: Pad,
-//     groups: usize,
-//     data: RefCell<Tensor<Inp::Dim>>,
-//     computed: Cell<bool>,
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> GroupedConvolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     pub fn new(
-//         input: Rc<Inp>,
-//         kernel: Rc<Ker>,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//         groups: usize,
-//     ) -> Self {
-//         let shape: Inp::Dim = {
-//             let (input_data, kernel_data) = (input.data(), kernel.data());
-//             conv_out_shape(
-//                 input_data.shape(),
-//                 kernel_data.shape(),
-//                 padding,
-//                 stride,
-//                 dilation,
-//             )
-//         };
-//         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
-//         let data = RefCell::new(Tensor::zeros(shape));
-
-//         Self {
-//             input,
-//             kernel,
-//             data,
-//             stride,
-//             dilation,
-//             padding,
-//             padding_mode,
-//             groups,
-//             computed: Cell::new(false),
-//         }
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Cache for GroupedConvolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn was_computed(&self) -> bool {
-//         self.computed.get()
-//     }
-
-//     fn reset_computation(&self) {
-//         self.computed.set(false);
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> NData for GroupedConvolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     type Dim = Inp::Dim;
-
-//     fn data(&self) -> Ref<Tensor<Self::Dim>> {
-//         self.data.borrow()
-//     }
-
-//     fn data_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-//         self.data.borrow_mut()
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Forward for GroupedConvolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Inp::Dim: RemoveAxis,
-//     Ker: NData<Dim = Inp::Dim>,
-//     <<Inp as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<Inp as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-//     Pad: PaddingMode,
-// {
-//     fn forward(&self) {
-//         if self.was_computed() {
-//             return;
-//         }
-
-//         self.computed.set(true);
-//         let (input, kernel, mut output_map, stride, dilation, padding, padding_mode, groups) = (
-//             self.input.data(),
-//             self.kernel.data(),
-//             self.data.borrow_mut(),
-//             &self.stride,
-//             &self.dilation,
-//             &self.padding,
-//             &self.padding_mode,
-//             &self.groups,
-//         );
-//         check_conv_args(input.shape(), kernel.shape(), padding, stride, dilation);
-//         check_groups_args(input.shape(), kernel.shape(), *groups);
-
-//         // If there's no padding just performs the convolution.
-//         if padding.iter().all(|pad| *pad == 0) {
-//             convolution_with_groups(
-//                 &*input,
-//                 &*kernel,
-//                 &mut *output_map,
-//                 stride,
-//                 dilation,
-//                 *groups,
-//             );
-//         } else {
-//             // If there's padding, pads the input and then it performs the convolution.
-//             // Do note that here memory is allocated and then freed.
-//             let padded_input = pad(&*input, padding, padding_mode);
-//             convolution_with_groups(
-//                 &padded_input,
-//                 &*kernel,
-//                 &mut *output_map,
-//                 stride,
-//                 dilation,
-//                 *groups,
-//             );
-//         }
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Debug for GroupedConvolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("GroupedConvolution")
-//             .field("data", &self.data.borrow())
-//             .field("stride", &self.stride)
-//             .field("dilation", &self.dilation)
-//             .field("padding", &self.padding)
-//             .field("padding_mode", &self.padding_mode)
-//             .field("groups", &self.groups)
-//             .field("computed", &self.computed.get())
-//             .finish()
-//     }
-// }
-
-// impl<Inp: ?Sized, Ker: ?Sized, Pad> Display for GroupedConvolution<Inp, Ker, Pad>
-// where
-//     Inp: NData,
-//     Ker: NData<Dim = Inp::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-//         write!(f, "{}", &self.data.borrow())
-//     }
-// }
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution Backward Structs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConvolutionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// pub struct ConvolutionBackward<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad: ?Sized>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     input_grad: Rc<InpG>,
-//     kernel_grad: Rc<KerG>,
-//     gradient: RefCell<Option<Tensor<InpG::Dim>>>,
-//     input: Rc<InpD>,
-//     kernel: Rc<KerD>,
-//     stride: Vec<usize>,
-//     dilation: Vec<usize>,
-//     padding: Vec<usize>,
-//     padding_mode: Pad,
-//     shape: InpD::Dim,
-//     overwrite: Cell<bool>,
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad>
-//     ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     #[allow(clippy::too_many_arguments)]
-//     pub fn new(
-//         input_grad: Rc<InpG>,
-//         kernel_grad: Rc<KerG>,
-//         input: Rc<InpD>,
-//         kernel: Rc<KerD>,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//     ) -> Self {
-//         let shape: InpD::Dim = conv_out_shape(
-//             input.data().shape(),
-//             kernel.data().shape(),
-//             padding,
-//             stride,
-//             dilation,
-//         );
-//         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
-//         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
-
-//         Self {
-//             input_grad,
-//             kernel_grad,
-//             gradient,
-//             shape,
-//             input,
-//             kernel,
-//             stride,
-//             dilation,
-//             padding,
-//             padding_mode,
-//             overwrite: Cell::new(true),
-//         }
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Gradient
-//     for ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     type Dim = InpG::Dim;
-
-//     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-//         expect_tensor(&self.gradient)
-//     }
-
-//     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-//         expect_tensor_mut(&self.gradient)
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Overwrite
-//     for ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn can_overwrite(&self) -> bool {
-//         self.overwrite.get()
-//     }
-
-//     fn set_overwrite(&self, state: bool) {
-//         self.overwrite.set(state);
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Backward
-//     for ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpD::Dim: RemoveAxis,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-//     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-// {
-//     fn backward(&self) {
-//         let gradient = self.gradient();
-
-//         let (
-//             mut input_grad,
-//             mut kernel_grad,
-//             input,
-//             kernel,
-//             padding,
-//             padding_mode,
-//             stride,
-//             dilation,
-//         ) = (
-//             self.input_grad.gradient_mut(),
-//             self.kernel_grad.gradient_mut(),
-//             self.input.data(),
-//             self.kernel.data(),
-//             &self.padding,
-//             &self.padding_mode,
-//             &self.stride,
-//             &self.dilation,
-//         );
-//         let (overwrite_input_grad, overwrite_kernel_grad) = (
-//             self.input_grad.can_overwrite(),
-//             self.kernel_grad.can_overwrite(),
-//         );
-//         convolution_backward_input(
-//             &mut *input_grad,
-//             &*gradient,
-//             &*kernel,
-//             padding,
-//             stride,
-//             dilation,
-//             overwrite_input_grad,
-//         );
-//         if padding.iter().all(|pad| *pad == 0) {
-//             convolution_backward_kernel(
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &input,
-//                 stride,
-//                 dilation,
-//                 overwrite_kernel_grad,
-//             );
-//         } else {
-//             let padded_input = pad(&input, padding, padding_mode);
-//             convolution_backward_kernel(
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &padded_input,
-//                 stride,
-//                 dilation,
-//                 overwrite_kernel_grad,
-//             );
-//         }
-
-//         if overwrite_input_grad {
-//             self.input_grad.set_overwrite(false);
-//         }
-//         if overwrite_kernel_grad {
-//             self.kernel_grad.set_overwrite(false);
-//         }
-//     }
-
-//     fn no_grad(&self) {
-//         *self.gradient.borrow_mut() = None;
-//     }
-
-//     fn with_grad(&self) {
-//         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Debug
-//     for ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("ConvolutionBackward")
-//             .field("gradient", &self.gradient.borrow())
-//             .field("stride", &self.stride)
-//             .field("dilation", &self.dilation)
-//             .field("padding", &self.padding)
-//             .field("padding_mode", &self.padding_mode)
-//             .field("overwrite", &self.overwrite.get())
-//             .finish()
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Display
-//     for ConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-//         match &*self.gradient.borrow() {
-//             Some(gradient) => write!(f, "{}", &gradient),
-//             None => write!(f, "None"),
-//         }
-//     }
-// }
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ConvolutionBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// pub struct ConvolutionBackwardUnary<InpD: ?Sized, KerG: ?Sized, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     kernel_grad: Rc<KerG>,
-//     gradient: RefCell<Option<Tensor<KerG::Dim>>>,
-//     input: Rc<InpD>,
-//     stride: Vec<usize>,
-//     dilation: Vec<usize>,
-//     padding: Vec<usize>,
-//     padding_mode: Pad,
-//     shape: InpD::Dim,
-//     overwrite: Cell<bool>,
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> ConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     pub fn new<KerD: ?Sized>(
-//         kernel_grad: Rc<KerG>,
-//         input: Rc<InpD>,
-//         kernel: Rc<KerD>,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//     ) -> Self
-//     where
-//         KerD: NData<Dim = KerG::Dim>,
-//     {
-//         let shape: InpD::Dim = conv_out_shape(
-//             input.data().shape(),
-//             kernel.data().shape(),
-//             padding,
-//             stride,
-//             dilation,
-//         );
-//         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
-//         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
-
-//         Self {
-//             kernel_grad,
-//             gradient,
-//             shape,
-//             input,
-//             stride,
-//             dilation,
-//             padding,
-//             padding_mode,
-//             overwrite: Cell::new(true),
-//         }
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Gradient for ConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     type Dim = KerG::Dim;
-
-//     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-//         expect_tensor(&self.gradient)
-//     }
-
-//     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-//         expect_tensor_mut(&self.gradient)
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Overwrite for ConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn can_overwrite(&self) -> bool {
-//         self.overwrite.get()
-//     }
-
-//     fn set_overwrite(&self, state: bool) {
-//         self.overwrite.set(state);
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Backward for ConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpD::Dim: RemoveAxis,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-//     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-// {
-//     fn backward(&self) {
-//         let gradient = self.gradient();
-
-//         let (mut kernel_grad, input, padding, padding_mode, stride, dilation) = (
-//             self.kernel_grad.gradient_mut(),
-//             self.input.data(),
-//             &self.padding,
-//             &self.padding_mode,
-//             &self.stride,
-//             &self.dilation,
-//         );
-//         let overwrite_kernel_grad = self.kernel_grad.can_overwrite();
-
-//         if padding.iter().all(|pad| *pad == 0) {
-//             convolution_backward_kernel(
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &*input,
-//                 stride,
-//                 dilation,
-//                 overwrite_kernel_grad,
-//             );
-//         } else {
-//             let padded_input = pad(&input, padding, padding_mode);
-//             convolution_backward_kernel(
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &padded_input,
-//                 stride,
-//                 dilation,
-//                 overwrite_kernel_grad,
-//             );
-//         }
-
-//         if overwrite_kernel_grad {
-//             self.kernel_grad.set_overwrite(false);
-//         }
-//     }
-
-//     fn no_grad(&self) {
-//         *self.gradient.borrow_mut() = None;
-//     }
-
-//     fn with_grad(&self) {
-//         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Debug for ConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("ConvolutionBackwardUnary")
-//             .field("gradient", &self.gradient.borrow())
-//             .field("stride", &self.stride)
-//             .field("dilation", &self.dilation)
-//             .field("padding", &self.padding)
-//             .field("padding_mode", &self.padding_mode)
-//             .field("overwrite", &self.overwrite.get())
-//             .finish()
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Display for ConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-//         match &*self.gradient.borrow() {
-//             Some(gradient) => write!(f, "{}", &gradient),
-//             None => write!(f, "None"),
-//         }
-//     }
-// }
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ GroupedConvolutionBackward ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// pub struct GroupedConvolutionBackward<
-//     InpD: ?Sized,
-//     InpG: ?Sized,
-//     KerD: ?Sized,
-//     KerG: ?Sized,
-//     Pad: ?Sized,
-// > where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     input_grad: Rc<InpG>,
-//     kernel_grad: Rc<KerG>,
-//     gradient: RefCell<Option<Tensor<InpG::Dim>>>,
-//     input: Rc<InpD>,
-//     kernel: Rc<KerD>,
-//     stride: Vec<usize>,
-//     dilation: Vec<usize>,
-//     padding: Vec<usize>,
-//     padding_mode: Pad,
-//     groups: usize,
-//     shape: InpD::Dim,
-//     overwrite: Cell<bool>,
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad>
-//     GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     #[allow(clippy::too_many_arguments)]
-//     pub fn new(
-//         input_grad: Rc<InpG>,
-//         kernel_grad: Rc<KerG>,
-//         input: Rc<InpD>,
-//         kernel: Rc<KerD>,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//         groups: usize,
-//     ) -> Self {
-//         let shape: InpD::Dim = conv_out_shape(
-//             input.data().shape(),
-//             kernel.data().shape(),
-//             padding,
-//             stride,
-//             dilation,
-//         );
-//         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
-//         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
-
-//         Self {
-//             input_grad,
-//             kernel_grad,
-//             gradient,
-//             shape,
-//             input,
-//             kernel,
-//             stride,
-//             dilation,
-//             padding,
-//             padding_mode,
-//             groups,
-//             overwrite: Cell::new(true),
-//         }
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Gradient
-//     for GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     type Dim = InpG::Dim;
-
-//     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-//         expect_tensor(&self.gradient)
-//     }
-
-//     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-//         expect_tensor_mut(&self.gradient)
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Overwrite
-//     for GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn can_overwrite(&self) -> bool {
-//         self.overwrite.get()
-//     }
-
-//     fn set_overwrite(&self, state: bool) {
-//         self.overwrite.set(state);
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Backward
-//     for GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpD::Dim: RemoveAxis,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-//     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-// {
-//     fn backward(&self) {
-//         let gradient = self.gradient();
-
-//         let (
-//             mut input_grad,
-//             mut kernel_grad,
-//             input,
-//             kernel,
-//             padding,
-//             padding_mode,
-//             stride,
-//             dilation,
-//             groups,
-//         ) = (
-//             self.input_grad.gradient_mut(),
-//             self.kernel_grad.gradient_mut(),
-//             self.input.data(),
-//             self.kernel.data(),
-//             &self.padding,
-//             &self.padding_mode,
-//             &self.stride,
-//             &self.dilation,
-//             &self.groups,
-//         );
-//         let (overwrite_input_grad, overwrite_kernel_grad) = (
-//             self.input_grad.can_overwrite(),
-//             self.kernel_grad.can_overwrite(),
-//         );
-
-//         if padding.iter().all(|pad| *pad == 0) {
-//             convolution_with_groups_backward(
-//                 &mut *input_grad,
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &*input,
-//                 &*kernel,
-//                 padding,
-//                 stride,
-//                 dilation,
-//                 *groups,
-//                 overwrite_input_grad,
-//                 overwrite_kernel_grad,
-//             );
-//         } else {
-//             let padded_input = pad(&input, padding, padding_mode);
-//             convolution_with_groups_backward(
-//                 &mut *input_grad,
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &padded_input,
-//                 &*kernel,
-//                 padding,
-//                 stride,
-//                 dilation,
-//                 *groups,
-//                 overwrite_input_grad,
-//                 overwrite_kernel_grad,
-//             );
-//         }
-
-//         if overwrite_input_grad {
-//             self.input_grad.set_overwrite(false);
-//         }
-//         if overwrite_kernel_grad {
-//             self.kernel_grad.set_overwrite(false);
-//         }
-//     }
-
-//     fn no_grad(&self) {
-//         *self.gradient.borrow_mut() = None;
-//     }
-
-//     fn with_grad(&self) {
-//         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Debug
-//     for GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("GroupedConvolutionBackward")
-//             .field("gradient", &self.gradient.borrow())
-//             .field("stride", &self.stride)
-//             .field("dilation", &self.dilation)
-//             .field("padding", &self.padding)
-//             .field("padding_mode", &self.padding_mode)
-//             .field("groups", &self.groups)
-//             .field("overwrite", &self.overwrite.get())
-//             .finish()
-//     }
-// }
-
-// impl<InpD: ?Sized, InpG: ?Sized, KerD: ?Sized, KerG: ?Sized, Pad> Display
-//     for GroupedConvolutionBackward<InpD, InpG, KerD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpG: Gradient<Dim = InpD::Dim>,
-//     KerD: NData<Dim = InpD::Dim>,
-//     KerG: Gradient<Dim = KerD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-//         match &*self.gradient.borrow() {
-//             Some(gradient) => write!(f, "{}", &gradient),
-//             None => write!(f, "None"),
-//         }
-//     }
-// }
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ GroupedConvolutionBackwardUnary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// pub struct GroupedConvolutionBackwardUnary<InpD: ?Sized, KerG: ?Sized, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     kernel_grad: Rc<KerG>,
-//     gradient: RefCell<Option<Tensor<KerG::Dim>>>,
-//     input: Rc<InpD>,
-//     stride: Vec<usize>,
-//     dilation: Vec<usize>,
-//     padding: Vec<usize>,
-//     padding_mode: Pad,
-//     groups: usize,
-//     shape: InpD::Dim,
-//     overwrite: Cell<bool>,
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> GroupedConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     #[allow(clippy::too_many_arguments)]
-//     pub fn new<KerD: ?Sized>(
-//         kernel_grad: Rc<KerG>,
-//         input: Rc<InpD>,
-//         kernel: Rc<KerD>,
-//         stride: &[usize],
-//         dilation: &[usize],
-//         padding: &[usize],
-//         padding_mode: Pad,
-//         groups: usize,
-//     ) -> Self
-//     where
-//         KerD: NData,
-//     {
-//         let shape: InpD::Dim = conv_out_shape(
-//             input.data().shape(),
-//             kernel.data().shape(),
-//             padding,
-//             stride,
-//             dilation,
-//         );
-//         let gradient = RefCell::new(Some(Tensor::zeros(shape.clone())));
-//         let (stride, dilation, padding) = (stride.to_vec(), dilation.to_vec(), padding.to_vec());
-
-//         Self {
-//             kernel_grad,
-//             gradient,
-//             shape,
-//             input,
-//             stride,
-//             dilation,
-//             padding,
-//             padding_mode,
-//             groups,
-//             overwrite: Cell::new(true),
-//         }
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Gradient for GroupedConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     type Dim = KerG::Dim;
-
-//     fn gradient(&self) -> Ref<Tensor<Self::Dim>> {
-//         expect_tensor(&self.gradient)
-//     }
-
-//     fn gradient_mut(&self) -> RefMut<Tensor<Self::Dim>> {
-//         expect_tensor_mut(&self.gradient)
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Overwrite for GroupedConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-// {
-//     fn can_overwrite(&self) -> bool {
-//         self.overwrite.get()
-//     }
-
-//     fn set_overwrite(&self, state: bool) {
-//         self.overwrite.set(state);
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Backward for GroupedConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpD::Dim: RemoveAxis,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-//     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-// {
-//     fn backward(&self) {
-//         let gradient = self.gradient();
-
-//         let (mut kernel_grad, input, padding, padding_mode, stride, dilation, groups) = (
-//             self.kernel_grad.gradient_mut(),
-//             self.input.data(),
-//             &self.padding,
-//             &self.padding_mode,
-//             &self.stride,
-//             &self.dilation,
-//             &self.groups,
-//         );
-//         let overwrite_kernel_grad = self.kernel_grad.can_overwrite();
-
-//         if padding.iter().all(|pad| *pad == 0) {
-//             convolution_with_groups_unary_backward(
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &*input,
-//                 stride,
-//                 dilation,
-//                 *groups,
-//                 overwrite_kernel_grad,
-//             );
-//         } else {
-//             let padded_input = pad(&input, padding, padding_mode);
-//             convolution_with_groups_unary_backward(
-//                 &mut *kernel_grad,
-//                 &*gradient,
-//                 &padded_input,
-//                 stride,
-//                 dilation,
-//                 *groups,
-//                 overwrite_kernel_grad,
-//             );
-//         }
-
-//         if overwrite_kernel_grad {
-//             self.kernel_grad.set_overwrite(false);
-//         }
-//     }
-
-//     fn no_grad(&self) {
-//         *self.gradient.borrow_mut() = None;
-//     }
-
-//     fn with_grad(&self) {
-//         *self.gradient.borrow_mut() = Some(Tensor::zeros(self.shape.clone()));
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Debug for GroupedConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpD::Dim: RemoveAxis,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-//     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("GroupedConvolutionBackwardUnary")
-//             .field("gradient", &self.gradient.borrow())
-//             .field("stride", &self.stride)
-//             .field("dilation", &self.dilation)
-//             .field("padding", &self.padding)
-//             .field("padding_mode", &self.padding_mode)
-//             .field("groups", &self.groups)
-//             .field("overwrite", &self.overwrite.get())
-//             .finish()
-//     }
-// }
-
-// impl<InpD: ?Sized, KerG: ?Sized, Pad> Display for GroupedConvolutionBackwardUnary<InpD, KerG, Pad>
-// where
-//     InpD: NData,
-//     InpD::Dim: RemoveAxis,
-//     KerG: Gradient<Dim = InpD::Dim>,
-//     Pad: PaddingMode,
-//     <<InpD as NData>::Dim as Dimension>::Smaller: RemoveAxis,
-//     <<<InpD as NData>::Dim as Dimension>::Smaller as Dimension>::Smaller: ReplPad + ReflPad,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-//         match &*self.gradient.borrow() {
-//             Some(gradient) => write!(f, "{}", &gradient),
-//             None => write!(f, "None"),
-//         }
-//     }
-// }
-
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// #[cfg(test)]
-// mod test;
+use std::rc::Rc;
+
+use ndarray::{
+    iter::{AxisChunksIter, AxisChunksIterMut},
+    linalg::general_mat_mul,
+    Array, ArrayBase, Axis, Data, DataMut, Dimension, Ix2, Ix3, RemoveAxis, Zip,
+};
+
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+
+use crate::variable::{
+    gradient::Gradient,
+    utils::{as_windows, as_windows_mut, columns_shape, Shared},
+};
+
+use super::{Backward, Forward};
+
+/// Iterators needed for the **backward pass** of a grouped convolution.
+type GroupedBackwardArgs<'a, D> = (
+    AxisChunksIterMut<'a, f32, D>,
+    AxisChunksIter<'a, f32, D>,
+    AxisChunksIter<'a, f32, D>,
+);
+
+/// Partitions the **flattened input**, the **flattened kernel** and the **output map**
+/// so that they can be used in a grouped convolution.
+fn group_inputs<'a, D>(
+    input: &'a Array<f32, D>,
+    kernel: &'a Array<f32, D>,
+    output: &'a mut Array<f32, D>,
+    groups: usize,
+) -> (
+    AxisChunksIter<'a, f32, D>,
+    AxisChunksIter<'a, f32, D>,
+    AxisChunksIterMut<'a, f32, D>,
+)
+where
+    D: Dimension,
+{
+    // Splits the input map along the channels.
+    let input_groups = input.axis_chunks_iter(Axis(1), input.len_of(Axis(1)) / groups);
+    // Splits the kernel along the output channels.
+    let kernel_groups = kernel.axis_chunks_iter(Axis(0), kernel.len_of(Axis(0)) / groups);
+    // Splits the output map along the channels.
+    let output_map_groups = output.axis_chunks_iter_mut(Axis(1), output.len_of(Axis(1)) / groups);
+
+    (input_groups, kernel_groups, output_map_groups)
+}
+
+/// Computes a shape from the array in input so that only the dimension of axis 0 is preserved.
+fn flat_shape<D>(shape: D) -> Ix2
+where
+    D: Dimension,
+{
+    let mut flat_shape = Ix2::zeros(2);
+    flat_shape[0] = shape[0];
+    flat_shape[1] = shape.slice().iter().skip(1).product();
+    flat_shape
+}
+
+/// Assigns to the **n**-dimensional feature map's gradient `dest` the **2**-dimensional
+/// array `columns`. This method encapsulates the functionalities of **col2sig**, **col2im** and
+/// **col2vol**.
+fn assign_from_cols<D: Dimension, S: DataMut<Elem = f32>, T: Data<Elem = f32>>(
+    dest: &mut ArrayBase<S, D>,
+    columns: ArrayBase<T, Ix3>,
+    kernel_shape: &[usize],
+    stride: &[usize],
+    dilation: &[usize],
+) {
+    let mut dest_windows_mut = as_windows_mut(dest, kernel_shape, stride, dilation);
+    let from_cols = columns.into_shape(dest_windows_mut.raw_dim()).unwrap();
+
+    // Safe because each sample is independent from one another.
+    dest_windows_mut
+        .axis_iter_mut(Axis(0))
+        .into_par_iter()
+        .zip(from_cols.axis_iter(Axis(0)))
+        .for_each(|(mut dest_view, src_view)| {
+            Zip::from(&mut dest_view)
+                .and(&src_view)
+                .for_each(|dest_view_el, src_view_el| *dest_view_el += *src_view_el)
+        });
+}
+
+fn convolution<
+    D: Dimension + RemoveAxis,
+    S: Data<Elem = f32>,
+    U: Data<Elem = f32>,
+    T: DataMut<Elem = f32>,
+>(
+    input: &ArrayBase<S, D>,
+    kernel: &ArrayBase<U, D>,
+    output: &mut ArrayBase<T, D>,
+    stride: &[usize],
+    dilation: &[usize],
+) {
+    let (kernel_shape, flattened_kernel) = (
+        kernel.shape(),
+        kernel
+            .view()
+            .into_shape(flat_shape(kernel.raw_dim()))
+            .unwrap(),
+    );
+
+    let input_windows = as_windows(input, kernel_shape, stride, dilation);
+    let input_columns = input_windows
+        .to_shape(columns_shape(input, kernel_shape, stride, dilation))
+        .unwrap();
+
+    Zip::from(input_columns.axis_iter(Axis(0)))
+        .and(output.axis_iter_mut(Axis(0)))
+        .par_for_each(|input_sample_columns, output_sample| {
+            let flat_shape = flat_shape(output_sample.raw_dim());
+            let mut flattened_sample_out_view_mut = output_sample.into_shape(flat_shape).unwrap();
+            general_mat_mul(
+                1.,
+                &flattened_kernel,
+                &input_sample_columns.t(),
+                0.,
+                &mut flattened_sample_out_view_mut,
+            );
+        });
+}
+
+fn grouped_convolution<D>(
+    input: &Array<f32, D>,
+    kernel: &Array<f32, D>,
+    output: &mut Array<f32, D>,
+    stride: &[usize],
+    dilation: &[usize],
+    groups: usize,
+) where
+    D: Dimension + RemoveAxis,
+{
+    let (input_groups, kernel_groups, output_buffer_groups) =
+        group_inputs(input, kernel, output, groups);
+    kernel_groups
+        .into_iter()
+        .zip(input_groups.into_iter())
+        .zip(output_buffer_groups.into_iter())
+        .for_each(|((kernel, input), mut output)| {
+            convolution(&input, &kernel, &mut output, stride, dilation);
+        });
+}
+
+fn convolution_backward_input<
+    D: Dimension + RemoveAxis,
+    S: DataMut<Elem = f32>,
+    T: Data<Elem = f32>,
+>(
+    input_grad: &mut ArrayBase<S, D>,
+    grad: &ArrayBase<T, D>,
+    kernel: &ArrayBase<T, D>,
+    stride: &[usize],
+    dilation: &[usize],
+) {
+    let (kernel_shape, flattened_kernel, grad_shape) = (
+        kernel.shape(),
+        kernel
+            .view()
+            .into_shape(flat_shape(kernel.raw_dim()))
+            .unwrap(),
+        grad.shape(),
+    );
+
+    let mut buffer_shape = Ix3::zeros(3);
+    buffer_shape[0] = grad_shape[0];
+    buffer_shape[1] = flattened_kernel.shape()[1];
+    buffer_shape[2] = grad_shape.iter().skip(2).product();
+    let mut buffer = Array::<f32, Ix3>::zeros(buffer_shape);
+
+    Zip::from(grad.axis_iter(Axis(0)))
+        .and(buffer.axis_iter_mut(Axis(0)))
+        .par_for_each(|gradient_sample, mut buffer_sample| {
+            let gradient_sample_flat_shape = flat_shape(gradient_sample.raw_dim());
+            let flattened_sample_in = gradient_sample
+                .into_shape(gradient_sample_flat_shape)
+                .unwrap();
+            general_mat_mul(
+                1.,
+                &flattened_kernel.t(),
+                &flattened_sample_in,
+                0.,
+                &mut buffer_sample,
+            );
+        });
+
+    assign_from_cols(input_grad, buffer, kernel_shape, stride, dilation);
+}
+
+fn convolution_backward_kernel<
+    D: Dimension + RemoveAxis,
+    S: DataMut<Elem = f32>,
+    T: Data<Elem = f32>,
+>(
+    kernel_grad: &mut ArrayBase<S, D>,
+    grad: &ArrayBase<T, D>,
+    input: &ArrayBase<T, D>,
+    stride: &[usize],
+    dilation: &[usize],
+) {
+    let kernel_shape = kernel_grad.shape();
+    let input_windows = as_windows(input, kernel_shape, stride, dilation);
+    let columns_shape = columns_shape(input, kernel_shape, stride, dilation);
+    let mut matrix_shape = Ix2::zeros(2);
+    matrix_shape[0] = columns_shape[0] * columns_shape[1];
+    matrix_shape[1] = columns_shape[2];
+    let input_matrix = input_windows.to_shape(matrix_shape).unwrap();
+
+    Zip::from(kernel_grad.axis_iter_mut(Axis(0)))
+        .and(grad.axis_iter(Axis(1)))
+        .par_for_each(|kernel_grad_view_mut, grad_view| {
+            let kernel_grad_numel = kernel_grad_view_mut.shape().iter().product::<usize>();
+            let grad_view_numel = grad_view.shape().iter().product::<usize>();
+
+            general_mat_mul(
+                1.0,
+                &grad_view.to_shape((1, grad_view_numel)).unwrap(),
+                &input_matrix,
+                1.0,
+                &mut kernel_grad_view_mut
+                    .into_shape((1, kernel_grad_numel))
+                    .unwrap(),
+            );
+        });
+}
+
+fn group_gradients_input<'a, D: Dimension, S: DataMut<Elem = f32>, U: Data<Elem = f32>>(
+    input_grad: &'a mut ArrayBase<S, D>,
+    grad: &'a ArrayBase<U, D>,
+    kernel: &'a ArrayBase<U, D>,
+    groups: usize,
+) -> GroupedBackwardArgs<'a, D> {
+    let input_grad_groups =
+        input_grad.axis_chunks_iter_mut(Axis(1), input_grad.len_of(Axis(1)) / groups);
+    let grad_groups = grad.axis_chunks_iter(Axis(1), grad.len_of(Axis(1)) / groups);
+    let kernel_groups = kernel.axis_chunks_iter(Axis(0), kernel.len_of(Axis(0)) / groups);
+
+    (input_grad_groups, grad_groups, kernel_groups)
+}
+
+fn group_gradients_kernel<'a, D: Dimension, S: DataMut<Elem = f32>, U: Data<Elem = f32>>(
+    kernel_grad: &'a mut ArrayBase<S, D>,
+    grad: &'a ArrayBase<U, D>,
+    input: &'a ArrayBase<U, D>,
+    groups: usize,
+) -> GroupedBackwardArgs<'a, D> {
+    let kernel_grad_groups =
+        kernel_grad.axis_chunks_iter_mut(Axis(0), kernel_grad.len_of(Axis(0)) / groups);
+    let grad_groups = grad.axis_chunks_iter(Axis(1), grad.len_of(Axis(1)) / groups);
+    let input_groups = input.axis_chunks_iter(Axis(1), input.len_of(Axis(1)) / groups);
+
+    (kernel_grad_groups, grad_groups, input_groups)
+}
+
+pub(super) fn grouped_convolution_backward_input<D: Dimension + RemoveAxis>(
+    input_grad: &mut Array<f32, D>,
+    grad: &Array<f32, D>,
+    kernel: &Array<f32, D>,
+    stride: &[usize],
+    dilation: &[usize],
+    groups: usize,
+) {
+    let (input_grad_groups, grad_groups, kernel_groups) =
+        group_gradients_input(input_grad, grad, kernel, groups);
+
+    grad_groups
+        .into_iter()
+        .zip(input_grad_groups.into_iter())
+        .zip(kernel_groups.into_iter())
+        .for_each(|((gradient, mut input_gradient), kernel)| {
+            convolution_backward_input(&mut input_gradient, &gradient, &kernel, stride, dilation)
+        });
+}
+
+fn grouped_convolution_backward_kernel<D: Dimension + RemoveAxis>(
+    kernel_grad: &mut Array<f32, D>,
+    grad: &Array<f32, D>,
+    input: &Array<f32, D>,
+    stride: &[usize],
+    dilation: &[usize],
+    groups: usize,
+) {
+    let (kernel_grad_groups, grad_groups, input_groups) =
+        group_gradients_kernel(kernel_grad, grad, input, groups);
+
+    grad_groups
+        .into_iter()
+        .zip(kernel_grad_groups.into_iter())
+        .zip(input_groups.into_iter())
+        .for_each(|((gradient, mut kernel_gradient), input)| {
+            convolution_backward_kernel(&mut kernel_gradient, &gradient, &input, stride, dilation)
+        });
+}
+
+pub(crate) struct Convolution<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    input_data: Shared<Array<f32, D>>,
+    kernel_data: Shared<Array<f32, D>>,
+    stride: Rc<Vec<usize>>,
+    dilation: Rc<Vec<usize>>,
+    groups: usize,
+    data: Shared<Array<f32, D>>,
+}
+
+impl<D> Convolution<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) fn new(
+        input_data: Shared<Array<f32, D>>,
+        kernel_data: Shared<Array<f32, D>>,
+        stride: Rc<Vec<usize>>,
+        dilation: Rc<Vec<usize>>,
+        groups: usize,
+        data: Shared<Array<f32, D>>,
+    ) -> Self {
+        Self {
+            input_data,
+            kernel_data,
+            stride,
+            dilation,
+            groups,
+            data,
+        }
+    }
+}
+
+impl<D> Forward for Convolution<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn forward(&self) {
+        if self.groups < 2 {
+            convolution(
+                &*self.input_data.borrow(),
+                &*self.kernel_data.borrow(),
+                &mut *self.data.borrow_mut(),
+                &self.stride,
+                &self.dilation,
+            );
+        } else {
+            grouped_convolution(
+                &*self.input_data.borrow(),
+                &*self.kernel_data.borrow(),
+                &mut *self.data.borrow_mut(),
+                &self.stride,
+                &self.dilation,
+                self.groups,
+            )
+        }
+    }
+}
+
+pub(crate) struct ConvolutionBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    backward_input: ConvolutionBackwardInput<D>,
+    backward_kernel: ConvolutionBackwardKernel<D>,
+}
+
+impl<D> ConvolutionBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) fn new(
+        backward_input: ConvolutionBackwardInput<D>,
+        backward_kernel: ConvolutionBackwardKernel<D>,
+    ) -> Self {
+        Self {
+            backward_input,
+            backward_kernel,
+        }
+    }
+}
+
+impl<D> Backward for ConvolutionBackward<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&self) {
+        self.backward_input.backward();
+        self.backward_kernel.backward();
+    }
+}
+
+pub(crate) struct ConvolutionBackwardInput<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    kernel_data: Shared<Array<f32, D>>,
+    input_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
+    stride: Rc<Vec<usize>>,
+    dilation: Rc<Vec<usize>>,
+    groups: usize,
+}
+
+impl<D> ConvolutionBackwardInput<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) fn new(
+        kernel_data: Shared<Array<f32, D>>,
+        input_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D>>,
+        stride: Rc<Vec<usize>>,
+        dilation: Rc<Vec<usize>>,
+        groups: usize,
+    ) -> Self {
+        Self {
+            kernel_data,
+            input_gradient,
+            gradient,
+            stride,
+            dilation,
+            groups,
+        }
+    }
+}
+
+impl<D> Backward for ConvolutionBackwardInput<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&self) {
+        if self.groups < 2 {
+            convolution_backward_input(
+                &mut *self.input_gradient.borrow_mut(),
+                &*self.gradient.borrow(),
+                &*self.kernel_data.borrow(),
+                &self.stride,
+                &self.dilation,
+            );
+        } else {
+            grouped_convolution_backward_input(
+                &mut *self.input_gradient.borrow_mut(),
+                &*self.gradient.borrow(),
+                &*self.kernel_data.borrow(),
+                &self.stride,
+                &self.dilation,
+                self.groups,
+            )
+        }
+    }
+}
+
+pub(crate) struct ConvolutionBackwardKernel<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    input_data: Shared<Array<f32, D>>,
+    kernel_gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<D>>,
+    stride: Rc<Vec<usize>>,
+    dilation: Rc<Vec<usize>>,
+    groups: usize,
+}
+
+impl<D> ConvolutionBackwardKernel<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    pub(crate) fn new(
+        input_data: Shared<Array<f32, D>>,
+        kernel_gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<D>>,
+        stride: Rc<Vec<usize>>,
+        dilation: Rc<Vec<usize>>,
+        groups: usize,
+    ) -> Self {
+        Self {
+            input_data,
+            kernel_gradient,
+            gradient,
+            stride,
+            dilation,
+            groups,
+        }
+    }
+}
+
+impl<D> Backward for ConvolutionBackwardKernel<D>
+where
+    D: Dimension + RemoveAxis,
+{
+    fn backward(&self) {
+        if self.groups < 2 {
+            convolution_backward_kernel(
+                &mut *self.kernel_gradient.borrow_mut(),
+                &*self.gradient.borrow(),
+                &*self.input_data.borrow(),
+                &self.stride,
+                &self.dilation,
+            );
+        } else {
+            grouped_convolution_backward_kernel(
+                &mut *self.kernel_gradient.borrow_mut(),
+                &*self.gradient.borrow(),
+                &*self.input_data.borrow(),
+                &self.stride,
+                &self.dilation,
+                self.groups,
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod test;

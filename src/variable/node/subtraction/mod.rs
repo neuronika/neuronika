@@ -1,6 +1,13 @@
-use super::{reduce, Backward, Broadcast, Forward, Gradient, Shared};
-use ndarray::{Array, DimMax, Dimension, Zip};
 use std::rc::Rc;
+
+use ndarray::{Array, DimMax, Dimension, Zip};
+
+use crate::variable::{
+    gradient::Gradient,
+    utils::{reduce, Broadcast, Shared},
+};
+
+use super::{Backward, Forward};
 
 pub(crate) struct Subtraction<D, E>
 where

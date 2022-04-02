@@ -1,6 +1,10 @@
-use super::{Backward, Forward, Gradient, Shared};
-use ndarray::{linalg::general_mat_mul, Array2, Ix2};
 use std::rc::Rc;
+
+use ndarray::{linalg::general_mat_mul, Array2, Ix2};
+
+use crate::variable::{gradient::Gradient, utils::Shared};
+
+use super::{Backward, Forward};
 
 pub(crate) struct MatrixMatrixMul {
     left_data: Shared<Array2<f32>>,

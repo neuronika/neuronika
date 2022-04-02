@@ -1,5 +1,7 @@
+mod gradient;
 mod history;
 mod node;
+mod utils;
 mod var;
 mod vardiff;
 
@@ -9,19 +11,10 @@ mod serde;
 pub use var::Var;
 pub use vardiff::VarDiff;
 
-pub(crate) use history::History;
-pub(crate) use node::*;
-
 // pub use node::{
 /*Constant, Convolve, ConvolveWithGroups,*/
 /*PaddingMode, Reflective, Replicative, Zero,*/
 //};
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Algebraic Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Matrix-matrix multiplication.
 pub trait MatMatMul<Rhs> {
@@ -34,8 +27,6 @@ pub trait MatMatMul<Rhs> {
     /// Computes the matrix-matrix multiplication between `self` and `other`.
     fn mm(self, other: Rhs) -> Self::Output;
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Multiplication with Transposition ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Matrix-matrix multiplication with transposed right hand side operand.
 ///
@@ -52,8 +43,6 @@ pub trait MatMatMulT<Rhs> {
     fn mm_t(self, other: Rhs) -> Self::Output;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Matrix Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 /// Matrix-vector multiplication.
 pub trait MatVecMul<Rhs> {
     /// The type of the matrix-vector multiplication's result. See the
@@ -65,8 +54,6 @@ pub trait MatVecMul<Rhs> {
     /// Computes the matrix-vector multiplication between `self` and `other`.
     fn mv(self, other: Rhs) -> Self::Output;
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Matrix Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Vector-matrix multiplication.
 pub trait VecMatMul<Rhs> {
@@ -80,8 +67,6 @@ pub trait VecMatMul<Rhs> {
     fn vm(self, other: Rhs) -> Self::Output;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Vector Vector Multiplication ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 /// Vector-vector multiplication, *a.k.a. dot product or inner product*.
 pub trait VecVecMul<Rhs> {
     /// The type of the dot product's result. See the [*differentiability arithmetic*] for
@@ -93,10 +78,6 @@ pub trait VecVecMul<Rhs> {
     /// Computes the dot product between `self` and `other`.
     fn vv(self, other: Rhs) -> Self::Output;
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Cat and Stack traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Concatenation.
 pub trait Cat<Rhs> {
@@ -120,6 +101,26 @@ pub trait Stack<Rhs> {
 
     /// Stacks variables along the given axis.
     fn stack(self, other: Rhs, axis: usize) -> Self::Output;
+}
+
+/// Convolution.
+pub trait Convolve<Inp, Ker> {
+    /// The type of the convolution's result. See the [*differentiability arithmetic*] for more
+    /// details.
+    ///
+    /// [*differentiability arithmetic*]: index.html#differentiability-arithmetic
+    type Output;
+
+    /// Applies a *n*-dimensional convolution with the given parameters. *n* can be either 1, 2 or
+    /// 3.
+    fn convolve<T>(
+        input: Inp,
+        kernel: Ker,
+        stride: T,
+        dilation: T,
+        padding: T,
+        groups: usize,
+    ) -> Self::Output;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

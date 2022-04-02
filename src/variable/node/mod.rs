@@ -4,6 +4,7 @@ mod bce;
 mod bce_with_logits;
 mod chunk;
 mod concatenate;
+mod convolution;
 mod division;
 mod dropout;
 mod exp;
@@ -76,12 +77,6 @@ pub(crate) use unsqueeze::*;
 pub(crate) use vector_matrix_mul::*;
 pub(crate) use vector_vector_mul::*;
 
-mod gradient;
-pub(crate) use gradient::{BufferedGradient, Gradient, NoGrad};
-
-mod utils;
-pub(crate) use utils::*;
-
 /// Forward-propagation behavior.
 ///
 /// This trait is implemented by all the internal forward components of `Var` and `VarDiff`.
@@ -107,10 +102,6 @@ pub(crate) trait Backward {
     /// It also defines the logic for the back-propagation of the node.
     fn backward(&self);
 }
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Computational Nodes` Traits ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // #[cfg(test)]
 // const F16_EPSILON: f32 = 9.77e-04;

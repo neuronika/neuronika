@@ -4,15 +4,22 @@ mod reflective;
 mod replicative;
 mod zero;
 
+use std::rc::Rc;
+
+use ndarray::{Array, Dimension, RemoveAxis, Slice};
+
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+
+use crate::variable::{gradient::Gradient, utils::Shared};
+
+use super::{Backward, Forward};
+
 pub use constant::Constant;
 pub use padding_mode::PaddingMode;
 pub use reflective::Reflective;
 pub use zero::Zero;
 
-use super::{Backward, Forward, Gradient, SampleDim, Shared};
-use ndarray::{Array, Dimension, RemoveAxis, Slice};
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-use std::rc::Rc;
+type SampleDim<D> = <<D as Dimension>::Smaller as Dimension>::Smaller;
 
 pub(crate) struct Pad<D, T>
 where

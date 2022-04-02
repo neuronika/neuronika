@@ -1,6 +1,11 @@
-use super::{Backward, Forward, Gradient, Shared};
-use ndarray::{Array, Dimension, Zip};
 use std::rc::Rc;
+
+use crate::variable::{gradient::Gradient, utils::Shared};
+
+use ndarray::{Array, Dimension, Zip};
+
+use super::{Backward, Forward};
+
 pub(crate) struct Transpose<D>
 where
     D: Dimension,

@@ -1,8 +1,13 @@
-use crate::Reduction;
-
-use super::{Backward, Forward, Gradient, Shared};
-use ndarray::{arr0, Array, Dimension, Ix0, Zip};
 use std::rc::Rc;
+
+use ndarray::{arr0, Array, Dimension, Ix0, Zip};
+
+use crate::{
+    variable::{gradient::Gradient, utils::Shared},
+    Reduction,
+};
+
+use super::{Backward, Forward};
 
 #[allow(clippy::upper_case_acronyms)]
 pub(crate) struct SquaredError<D>
