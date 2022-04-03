@@ -385,7 +385,6 @@
 //!
 //! * [`nn::Dropout`](struct@Dropout) - During training, randomly zeroes some of the elements of
 //! the input variable with probability *p* using samples from a Bernoulli distribution.
-use super::{Input, InputBackward, Param};
 use crate::variable::{
     self, Convolve, ConvolveWithGroups, Data, Dropout as DropoutNode,
     DropoutBackward as DropoutBackwardNode, Eval, Gradient, MatMatMulT, Overwrite, RawParam,
@@ -396,13 +395,9 @@ use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 use std::{cell::Cell, rc::Rc};
 
 pub mod init;
-pub mod loss;
 
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
-
-/// A generic parameter of a neural component.
-pub type Learnable<D> = VarDiff<Input<D>, InputBackward<D>>;
 
 /// A model's components status.
 ///

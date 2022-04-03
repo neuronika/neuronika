@@ -195,7 +195,7 @@
 
 // pub mod data;
 // pub mod nn;
-// pub mod optim;
+pub mod optim;
 mod variable;
 
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
