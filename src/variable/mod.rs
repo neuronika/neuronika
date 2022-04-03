@@ -8,6 +8,8 @@ mod vardiff;
 #[cfg(feature = "serialize")]
 mod serde;
 
+use ndarray::{Dimension, IntoDimension};
+
 pub use var::Var;
 pub use vardiff::VarDiff;
 
@@ -104,7 +106,10 @@ pub trait Stack<Rhs> {
 }
 
 /// Convolution.
-pub trait Convolve<Rhs> {
+pub trait Convolution<Rhs, D>
+where
+    D: Dimension,
+{
     /// The type of the convolution's result. See the [*differentiability arithmetic*] for more
     /// details.
     ///
@@ -113,14 +118,9 @@ pub trait Convolve<Rhs> {
 
     /// Applies a *n*-dimensional convolution with the given parameters. *n* can be either 1, 2 or
     /// 3.
-    fn convolve<T>(
-        self,
-        kernel: Rhs,
-        stride: T,
-        dilation: T,
-        padding: T,
-        groups: usize,
-    ) -> Self::Output;
+    fn convolution<T>(self, input: Rhs, stride: T, dilation: T, groups: usize) -> Self::Output
+    where
+        T: Copy + IntoDimension<Dim = D>;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

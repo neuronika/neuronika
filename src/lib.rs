@@ -314,7 +314,7 @@ where
 /// use neuronika;
 ///
 /// let x = neuronika::rand([4, 5, 6]);
-/// assert_eq!(t.data().shape(), &[4, 5, 6]);
+/// assert_eq!(x.data().shape(), &[4, 5, 6]);
 /// ```
 pub fn rand<D, Sh>(shape: Sh) -> Var<D>
 where

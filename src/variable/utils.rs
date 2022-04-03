@@ -153,7 +153,7 @@ fn sum_axis_inplace(array: &mut ArrayD<f32>, axis: Axis) {
 /// * `dim` - desired dimension for the source tensor.
 ///
 /// * `src` - tensor to reduce.
-pub fn reduce<D, E>(dim: D, src: &Array<f32, E>) -> Array<f32, D>
+pub(crate) fn reduce<D, E>(dim: D, src: &Array<f32, E>) -> Array<f32, D>
 where
     D: Dimension,
     E: Dimension,
@@ -413,14 +413,13 @@ where
 }
 
 /// Checks that the arguments are correct for the given **convolution**. It verifies that the
-/// `padding`, `stride` and `dilation` slices are of the right length; their length must match the
+/// `stride` and `dilation` slices are of the right length; their length must match the
 /// dimensionality of the convolution. It also check that `kernel` and `input` are of the same
 /// dimension and that the kernel size, after dilation is applied, **is not bigger** that the actual
 /// input size.
 pub(crate) fn check_conv_args(
     input_shape: &[usize],
     kernel_shape: &[usize],
-    padding: &[usize],
     stride: &[usize],
     dilation: &[usize],
 ) {
@@ -428,13 +427,6 @@ pub(crate) fn check_conv_args(
     // skipping the first two, that are the batch size and input channels. The first two axes of
     // the input are always for the batch size and the number of input channels.
     let convolution_dimension = input_shape.len() - 2;
-    assert_eq!(
-        convolution_dimension,
-        padding.len(),
-        "Invalid padding {:?} for {}d conv.",
-        padding,
-        convolution_dimension
-    );
 
     assert_eq!(
         convolution_dimension,
@@ -461,28 +453,16 @@ pub(crate) fn check_conv_args(
     );
 
     // Checks that the kernel size, taking into account dilation, is suitable for the padded input.
-    let dilated_kernel_size: Vec<usize> = kernel_shape
+    input_shape
         .iter()
         .skip(2)
+        .zip(kernel_shape.iter().skip(2))
         .zip(dilation.iter())
-        .map(|(kernel_size, dilation_component)| (kernel_size - 1) * dilation_component + 1)
-        .collect();
-    let padded_input_size: Vec<usize> = input_shape
-        .iter()
-        .skip(2)
-        .zip(padding.iter())
-        .map(|(input_size, padding_component)| input_size + padding_component * 2)
-        .collect();
-
-    padded_input_size
-        .iter()
-        .zip(dilated_kernel_size.iter())
-        .for_each(|(padded_input_dim, dilated_kernel_dim)| {
+        .for_each(|((input_dim, kernel_dim), dilation_dim)| {
+            let dilated_kernel_dim = (*kernel_dim - 1) * *dilation_dim + 1;
             assert!(
-                padded_input_dim >= dilated_kernel_dim,
-                "Computed padded input size per channel: {:?}. Kernel size: {:?}. The kernel size can't be greater than actual input size.",
-                padded_input_size,
-                dilated_kernel_size
+                *input_dim >= dilated_kernel_dim,
+                "The kernel size can't be greater than actual input size.",
             )
         });
 }

@@ -118,16 +118,16 @@ fn flatten() {
 #[test]
 fn conv_args_ok() {
     // This is the input of a two dimensional convolution It is formed by 1 signal having 2 channels each of 4 x 4.
-    let conv_input = ndarray::Array::<f32, _>::zeros((1, 2, 4, 4));
-    check_conv_args(conv_input.shape(), &[1, 2, 2, 2], &[0, 0], &[1, 1], &[1, 1]);
+    let conv_input = Array::<f32, _>::zeros((1, 2, 4, 4));
+    check_conv_args(conv_input.shape(), &[1, 2, 2, 2], &[1, 1], &[1, 1]);
 }
 
 #[test]
 #[should_panic(expected = "Invalid kernel shape [1, 2, 2] for 2d conv")]
 fn conv_args_invalid_kernel() {
     // This is the input of a two dimensional convolution. It is formed by 1 signal having 2 channels each of 4 x 4.
-    let conv_input = ndarray::Array::<f32, _>::zeros((1, 2, 4, 4));
-    check_conv_args(conv_input.shape(), &[1, 2, 2], &[0, 0], &[1, 1], &[1, 1]);
+    let conv_input = Array::<f32, _>::zeros((1, 2, 4, 4));
+    check_conv_args(conv_input.shape(), &[1, 2, 2], &[1, 1], &[1, 1]);
 }
 
 #[test]
@@ -239,8 +239,6 @@ fn conv1d() {
 
 #[test]
 fn conv2d() {
-    use ndarray::Ix4;
-
     // This is an input with a batch size of 3, 2 input channels each of 5 by 5.
     let input_elems = (0..150).map(|el| el as f32).collect::<Array<f32, _>>();
     let input = input_elems.into_shape((3, 2, 5, 5)).unwrap();
@@ -536,8 +534,6 @@ fn conv1d_strided() {
 
 #[test]
 fn conv2d_strided() {
-    use ndarray::Ix4;
-
     // This is an input with a batch size of 3, 2 input channels each of 5 by 5.
     let input_elems = (0..150).map(|el| el as f32).collect::<Array<f32, _>>();
     let input = input_elems.into_shape((3, 2, 5, 5)).unwrap();
@@ -784,8 +780,6 @@ fn conv1d_dilated() {
 
 #[test]
 fn conv2d_dilated() {
-    use ndarray::Ix4;
-
     // This is an input with a batch size of 3, 2 input channels each of 5 by 5.
     let input_elems = (0..150).map(|el| el as f32).collect::<Array<f32, _>>();
     let input = input_elems.into_shape((3, 2, 5, 5)).unwrap();

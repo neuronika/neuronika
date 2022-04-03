@@ -44,6 +44,7 @@ pub(crate) use bce::*;
 pub(crate) use bce_with_logits::*;
 pub(crate) use chunk::*;
 pub(crate) use concatenate::*;
+pub(crate) use convolution::*;
 pub(crate) use division::*;
 pub(crate) use dropout::*;
 pub(crate) use exp::*;

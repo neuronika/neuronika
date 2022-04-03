@@ -300,8 +300,8 @@ where
 {
     input_data: Shared<Array<f32, D>>,
     kernel_data: Shared<Array<f32, D>>,
-    stride: Rc<Vec<usize>>,
-    dilation: Rc<Vec<usize>>,
+    stride: <D::Smaller as Dimension>::Smaller,
+    dilation: <D::Smaller as Dimension>::Smaller,
     groups: usize,
     data: Shared<Array<f32, D>>,
 }
@@ -313,8 +313,8 @@ where
     pub(crate) fn new(
         input_data: Shared<Array<f32, D>>,
         kernel_data: Shared<Array<f32, D>>,
-        stride: Rc<Vec<usize>>,
-        dilation: Rc<Vec<usize>>,
+        stride: <D::Smaller as Dimension>::Smaller,
+        dilation: <D::Smaller as Dimension>::Smaller,
         groups: usize,
         data: Shared<Array<f32, D>>,
     ) -> Self {
@@ -339,16 +339,16 @@ where
                 &*self.input_data.borrow(),
                 &*self.kernel_data.borrow(),
                 &mut *self.data.borrow_mut(),
-                &self.stride,
-                &self.dilation,
+                &self.stride.slice(),
+                &self.dilation.slice(),
             );
         } else {
             grouped_convolution(
                 &*self.input_data.borrow(),
                 &*self.kernel_data.borrow(),
                 &mut *self.data.borrow_mut(),
-                &self.stride,
-                &self.dilation,
+                &self.stride.slice(),
+                &self.dilation.slice(),
                 self.groups,
             )
         }
@@ -395,8 +395,8 @@ where
     kernel_data: Shared<Array<f32, D>>,
     input_gradient: Rc<Gradient<D>>,
     gradient: Rc<Gradient<D>>,
-    stride: Rc<Vec<usize>>,
-    dilation: Rc<Vec<usize>>,
+    stride: <D::Smaller as Dimension>::Smaller,
+    dilation: <D::Smaller as Dimension>::Smaller,
     groups: usize,
 }
 
@@ -408,8 +408,8 @@ where
         kernel_data: Shared<Array<f32, D>>,
         input_gradient: Rc<Gradient<D>>,
         gradient: Rc<Gradient<D>>,
-        stride: Rc<Vec<usize>>,
-        dilation: Rc<Vec<usize>>,
+        stride: <D::Smaller as Dimension>::Smaller,
+        dilation: <D::Smaller as Dimension>::Smaller,
         groups: usize,
     ) -> Self {
         Self {
@@ -433,16 +433,16 @@ where
                 &mut *self.input_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.kernel_data.borrow(),
-                &self.stride,
-                &self.dilation,
+                &self.stride.slice(),
+                &self.dilation.slice(),
             );
         } else {
             grouped_convolution_backward_input(
                 &mut *self.input_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.kernel_data.borrow(),
-                &self.stride,
-                &self.dilation,
+                &self.stride.slice(),
+                &self.dilation.slice(),
                 self.groups,
             )
         }
@@ -456,8 +456,8 @@ where
     input_data: Shared<Array<f32, D>>,
     kernel_gradient: Rc<Gradient<D>>,
     gradient: Rc<Gradient<D>>,
-    stride: Rc<Vec<usize>>,
-    dilation: Rc<Vec<usize>>,
+    stride: <D::Smaller as Dimension>::Smaller,
+    dilation: <D::Smaller as Dimension>::Smaller,
     groups: usize,
 }
 
@@ -469,8 +469,8 @@ where
         input_data: Shared<Array<f32, D>>,
         kernel_gradient: Rc<Gradient<D>>,
         gradient: Rc<Gradient<D>>,
-        stride: Rc<Vec<usize>>,
-        dilation: Rc<Vec<usize>>,
+        stride: <D::Smaller as Dimension>::Smaller,
+        dilation: <D::Smaller as Dimension>::Smaller,
         groups: usize,
     ) -> Self {
         Self {
@@ -494,16 +494,16 @@ where
                 &mut *self.kernel_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.input_data.borrow(),
-                &self.stride,
-                &self.dilation,
+                &self.stride.slice(),
+                &self.dilation.slice(),
             );
         } else {
             grouped_convolution_backward_kernel(
                 &mut *self.kernel_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.input_data.borrow(),
-                &self.stride,
-                &self.dilation,
+                &self.stride.slice(),
+                &self.dilation.slice(),
                 self.groups,
             )
         }

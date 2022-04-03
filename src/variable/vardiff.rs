@@ -17,7 +17,7 @@ use crate::{
         node::*,
         utils::{cobroadcasted_zeros, DotDim},
         var::Var,
-        Cat, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
+        Cat, Convolution, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
     },
     Reduction,
 };
@@ -1337,6 +1337,84 @@ where
         let right = StackBackwardRight::new(rhs.grad, grad.clone(), axis);
         let op = StackBackward::new(left, right);
         let var = Stack::stack(self.var, rhs.var, axis);
+
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
+    }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<D> Convolution<Var<D>, <D::Smaller as Dimension>::Smaller> for VarDiff<D>
+where
+    D: 'static + Dimension + RemoveAxis,
+{
+    type Output = VarDiff<D>;
+
+    fn convolution<T>(self, input: Var<D>, stride: T, dilation: T, groups: usize) -> Self::Output
+    where
+        T: IntoDimension<Dim = <D::Smaller as Dimension>::Smaller> + Copy,
+    {
+        let input_data = input.data.clone();
+        let var = self.var.convolution(input, stride, dilation, groups);
+        let shape = var.data().raw_dim();
+        let stride = stride.into_dimension();
+        let dilation = dilation.into_dimension();
+        let grad = Rc::new(Gradient::zeros(shape));
+        let op = ConvolutionBackwardKernel::new(
+            input_data,
+            self.grad,
+            grad.clone(),
+            stride,
+            dilation,
+            groups,
+        );
+
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
+    }
+}
+
+impl<D> Convolution<VarDiff<D>, <D::Smaller as Dimension>::Smaller> for VarDiff<D>
+where
+    D: 'static + Dimension + RemoveAxis,
+{
+    type Output = VarDiff<D>;
+
+    fn convolution<T>(
+        mut self,
+        input: VarDiff<D>,
+        stride: T,
+        dilation: T,
+        groups: usize,
+    ) -> Self::Output
+    where
+        T: IntoDimension<Dim = <D::Smaller as Dimension>::Smaller> + Copy,
+    {
+        self.history.merge(input.history);
+        let kernel_data = self.var.data.clone();
+        let kernel_grad = self.grad.clone();
+        let input_data = input.var.data.clone();
+        let input_grad = input.grad.clone();
+        let var = self.var.convolution(input.var, stride, dilation, groups);
+        let shape = var.data().raw_dim();
+        let grad = Rc::new(Gradient::zeros(shape));
+        let backward_input = ConvolutionBackwardInput::new(
+            kernel_data,
+            input_grad,
+            grad.clone(),
+            stride.into_dimension(),
+            dilation.into_dimension(),
+            groups,
+        );
+        let backward_kernel = ConvolutionBackwardKernel::new(
+            input_data,
+            kernel_grad,
+            grad.clone(),
+            stride.into_dimension(),
+            dilation.into_dimension(),
+            groups,
+        );
+
+        let op = ConvolutionBackward::new(backward_input, backward_kernel);
 
         VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }

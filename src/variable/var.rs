@@ -15,9 +15,12 @@ use crate::{
         gradient::{BufferedGradient, Gradient},
         history::History,
         node::{self, *},
-        utils::{cobroadcasted_zeros, padded_shape, DotDim, Shared},
+        utils::{
+            check_conv_args, check_groups_args, cobroadcasted_zeros, conv_out_shape, padded_shape,
+            DotDim, Shared,
+        },
         vardiff::VarDiff,
-        Cat, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
+        Cat, Convolution, MatMatMul, MatMatMulT, MatVecMul, Stack, VecMatMul, VecVecMul,
     },
     Reduction,
 };
@@ -669,6 +672,47 @@ where
 
         Var::node(data, Rc::new(op), self.history)
     }
+
+    /// Applies a cross-correlation over an input signal composed of several planes.
+    ///
+    /// ## 1-dimensional convolution
+    ///
+    /// The input must be of shape (N, Cin, L), `self` must be of shape (Cout, Cin, Lk) and the
+    /// resulting output shape will be (N, Cout, Lout).
+    ///
+    /// ## 2-dimensional convolution
+    ///
+    /// The input must be of shape (N, Cin, H, W), `self` must be of shape
+    /// (Cout, Cin, Hk, Wk) and the resulting output shape will be (N, Cout, Hout, Wout).
+    ///
+    /// ## 3-dimensional convolution
+    ///
+    /// The input must be of shape (N, Cin, D, H, W), `self` must be of shape
+    /// (Cout, Cin, Dk,  Hk, Wk) and the resulting output shape will be (N, Cout, Dout, Hout, Wout).
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - input variable.
+    ///
+    /// * `stride` - stride for the cross-correlation.
+    ///
+    /// * `dilation` - dilation for the cross-correlation.
+    ///
+    /// * `groups` - controls the connection between inputs and outputs. Both the channels in the
+    /// input and the number of kernels in `self` must be divisible by `groups`.
+    pub fn convolution<Rhs, T>(
+        self,
+        input: Rhs,
+        stride: T,
+        dilation: T,
+        groups: usize,
+    ) -> <Self as Convolution<Rhs, <D::Smaller as Dimension>::Smaller>>::Output
+    where
+        Self: Convolution<Rhs, <D::Smaller as Dimension>::Smaller>,
+        T: Copy + IntoDimension<Dim = <D::Smaller as Dimension>::Smaller>,
+    {
+        Convolution::convolution::<T>(self, input, stride, dilation, groups)
+    }
 }
 
 impl<D> Var<D>
@@ -1247,6 +1291,83 @@ where
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Convolution ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+impl<D> Convolution<Var<D>, <D::Smaller as Dimension>::Smaller> for Var<D>
+where
+    D: 'static + Dimension + RemoveAxis,
+{
+    type Output = Var<D>;
+
+    fn convolution<T>(self, input: Var<D>, stride: T, dilation: T, groups: usize) -> Self::Output
+    where
+        T: IntoDimension<Dim = <D::Smaller as Dimension>::Smaller>,
+    {
+        let stride = stride.into_dimension();
+        let dilation = dilation.into_dimension();
+
+        let stride_slice = stride.slice();
+        let dilation_slice = dilation.slice();
+
+        let shape: D = {
+            let input_data = input.data();
+            let kernel_data = self.data();
+
+            let input_shape = input_data.shape();
+            let kernel_shape = kernel_data.shape();
+
+            check_conv_args(input_shape, kernel_shape, stride_slice, dilation_slice);
+            check_groups_args(input_shape, kernel_shape, groups);
+
+            conv_out_shape(input_shape, kernel_shape, stride_slice, dilation_slice)
+        };
+        let data = Rc::new(RefCell::new(Array::zeros(shape)));
+        let op = node::Convolution::new(
+            input.data,
+            self.data,
+            stride,
+            dilation,
+            groups,
+            data.clone(),
+        );
+
+        Var::node(data, Rc::new(op), self.history)
+    }
+}
+
+impl<D> Convolution<VarDiff<D>, <D::Smaller as Dimension>::Smaller> for Var<D>
+where
+    D: 'static + Dimension + RemoveAxis,
+{
+    type Output = VarDiff<D>;
+
+    fn convolution<T>(
+        self,
+        input: VarDiff<D>,
+        stride: T,
+        dilation: T,
+        groups: usize,
+    ) -> Self::Output
+    where
+        T: IntoDimension<Dim = <D::Smaller as Dimension>::Smaller> + Copy,
+    {
+        let kernel_data = self.data.clone();
+        let var = self.convolution(input.var, stride, dilation, groups);
+        let shape = var.data().raw_dim();
+        let stride = stride.into_dimension();
+        let dilation = dilation.into_dimension();
+        let grad = Rc::new(Gradient::zeros(shape));
+        let op = ConvolutionBackwardInput::new(
+            kernel_data,
+            input.grad,
+            grad.clone(),
+            stride,
+            dilation,
+            groups,
+        );
+
+        VarDiff::node(var, grad.clone(), (Rc::new(op), grad), input.history)
+    }
+}
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Debug ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
