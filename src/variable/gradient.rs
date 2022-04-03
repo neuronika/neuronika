@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
 };
 
-use ndarray::{Array, Dimension};
+use ndarray::{Array, Dimension, ShapeBuilder};
 
 pub(crate) trait NoGrad {
     fn no_grad(&self);
@@ -15,18 +15,20 @@ pub(crate) struct Gradient<D>
 where
     D: Dimension,
 {
-    array: RefCell<Option<Array<f32, D>>>,
     shape: D,
+    array: RefCell<Option<Array<f32, D>>>,
 }
 
 impl<D> Gradient<D>
 where
     D: Dimension,
 {
-    pub(crate) fn zeros(shape: D) -> Self {
+    pub(crate) fn zeros<Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Self {
+        let array = Array::zeros(shape);
+
         Self {
-            array: RefCell::new(Some(Array::zeros(shape.clone()))),
-            shape,
+            shape: array.raw_dim(),
+            array: RefCell::new(Some(array)),
         }
     }
 

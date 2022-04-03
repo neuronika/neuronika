@@ -339,16 +339,16 @@ where
                 &*self.input_data.borrow(),
                 &*self.kernel_data.borrow(),
                 &mut *self.data.borrow_mut(),
-                &self.stride.slice(),
-                &self.dilation.slice(),
+                self.stride.slice(),
+                self.dilation.slice(),
             );
         } else {
             grouped_convolution(
                 &*self.input_data.borrow(),
                 &*self.kernel_data.borrow(),
                 &mut *self.data.borrow_mut(),
-                &self.stride.slice(),
-                &self.dilation.slice(),
+                self.stride.slice(),
+                self.dilation.slice(),
                 self.groups,
             )
         }
@@ -433,16 +433,16 @@ where
                 &mut *self.input_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.kernel_data.borrow(),
-                &self.stride.slice(),
-                &self.dilation.slice(),
+                self.stride.slice(),
+                self.dilation.slice(),
             );
         } else {
             grouped_convolution_backward_input(
                 &mut *self.input_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.kernel_data.borrow(),
-                &self.stride.slice(),
-                &self.dilation.slice(),
+                self.stride.slice(),
+                self.dilation.slice(),
                 self.groups,
             )
         }
@@ -494,16 +494,16 @@ where
                 &mut *self.kernel_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.input_data.borrow(),
-                &self.stride.slice(),
-                &self.dilation.slice(),
+                self.stride.slice(),
+                self.dilation.slice(),
             );
         } else {
             grouped_convolution_backward_kernel(
                 &mut *self.kernel_gradient.borrow_mut(),
                 &*self.gradient.borrow(),
                 &*self.input_data.borrow(),
-                &self.stride.slice(),
-                &self.dilation.slice(),
+                self.stride.slice(),
+                self.dilation.slice(),
                 self.groups,
             )
         }
