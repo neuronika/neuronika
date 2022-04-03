@@ -18,7 +18,7 @@
   </a>
 
   <a href="https://docs.rs/neuronika">
-    <img src="https://img.shields.io/badge/API-Reference-brightgreen?style=for-the-badge&logo=Docs.rs"/>
+    <img src="https://img.shields.io/badge/API-Reference-brightgreen?style=for-the-badge&logo=docsdotrs"/>
   </a>
 </p>
 
