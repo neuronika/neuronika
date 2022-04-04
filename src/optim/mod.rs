@@ -219,7 +219,7 @@ mod penalty;
 mod rmsprop;
 mod sgd;
 
-//pub mod lr_scheduler;
+pub mod lr_scheduler;
 
 pub use adagrad::*;
 pub use adam::*;

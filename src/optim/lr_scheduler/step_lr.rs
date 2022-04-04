@@ -1,54 +1,63 @@
+use std::cell::Cell;
+
 use crate::optim::{Optimizer, OptimizerStatus};
 
 use super::{prepare_step, LRScheduler};
 
-use std::cell::Cell;
-
-/// Sets the learning rate to the initial lr times a given function.
+/// Decays the learning rate by `gamma` every `step_size` epochs.
 ///
 ///```text
-/// lrₜ = lr₀ * lr_fn(t)
+/// lrₜ = lrₜ₋₁ * gamma if t mod step_size == 0 else lrₜ₋₁
 ///```
-pub struct LambdaLR<'a, T, F>
+pub struct StepLR<'a, T>
 where
     T: OptimizerStatus,
-    F: Fn(usize) -> f32,
 {
     optimizer: &'a Optimizer<T>,
-    lr_fn: F,
+    gamma: Cell<f32>,
+    step_size: Cell<usize>,
     current_epoch: Cell<usize>,
     current_lr: Cell<f32>,
     last_lr: Cell<f32>,
-    initial_lr: Cell<f32>,
 }
 
-impl<'a, T, F> LambdaLR<'a, T, F>
+impl<'a, T> StepLR<'a, T>
 where
     T: OptimizerStatus,
-    F: Fn(usize) -> f32,
 {
-    /// Creates a new LambdaLR scheduler.
+    /// Creates a new StepLR scheduler.
     ///
     /// # Arguments
     ///
     /// * `optimizer` - wrapped optimizer.
     ///
-    /// * `lr_fn` - function which computes a multiplicative factor given an `usize` parameter
-    /// epoch.
-    pub fn new(optimizer: &'a Optimizer<T>, lr_fn: F) -> Self {
+    /// * `step_size` - period of learning rate decay.
+    ///
+    /// * `gamma` - multiplicative factor for the learning rate decay.
+    pub fn new(optimizer: &'a Optimizer<T>, step_size: usize, gamma: f32) -> Self {
         let current_lr = optimizer.get_lr();
 
         Self {
             optimizer,
-            lr_fn,
+            gamma: Cell::new(gamma),
+            step_size: Cell::new(step_size),
             current_epoch: Cell::new(0),
             current_lr: Cell::new(current_lr),
             last_lr: Cell::new(0.0),
-            initial_lr: Cell::new(current_lr),
         }
     }
 
-    /// Sets the learning rate to the initial learning times a given function.
+    /// Sets a new gamma for the scheduler.
+    pub fn set_gamma(&self, gamma: f32) {
+        self.gamma.set(gamma)
+    }
+
+    /// Sets a new step size for the scheduler.
+    pub fn set_step_size(&self, step_size: usize) {
+        self.step_size.set(step_size)
+    }
+
+    /// Decays the learning rate by gamma every `step_size` epochs.
     pub fn step(&self) {
         LRScheduler::step(self);
     }
@@ -79,16 +88,16 @@ where
     }
 }
 
-impl<'a, T, F> LRScheduler for LambdaLR<'a, T, F>
+impl<'a, T> LRScheduler for StepLR<'a, T>
 where
     T: OptimizerStatus,
-    F: Fn(usize) -> f32,
 {
     fn step(&self) {
         prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
-        self.current_lr
-            .set(self.initial_lr.get() * (self.lr_fn)(self.current_epoch.get()));
-        self.optimizer.set_lr(self.current_lr.get());
+        if self.current_epoch.get().rem_euclid(self.step_size.get()) == 0 {
+            self.current_lr.set(self.last_lr.get() * self.gamma.get());
+            self.optimizer.set_lr(self.current_lr.get());
+        }
     }
 
     fn get_last_lr(&self) -> f32 {

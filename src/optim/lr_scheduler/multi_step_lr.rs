@@ -1,54 +1,59 @@
+use std::cell::{Cell, RefCell};
+
 use crate::optim::{Optimizer, OptimizerStatus};
 
 use super::{prepare_step, LRScheduler};
 
-use std::cell::Cell;
-
-/// Sets the learning rate to the initial lr times a given function.
+/// Decays the learning rate by gamma once the number of epoch reaches one of the specified
+/// milestones.
 ///
 ///```text
-/// lrₜ = lr₀ * lr_fn(t)
+/// lrₜ = lrₜ₋₁ * gamma if t is a milestone else lrₜ₋₁
 ///```
-pub struct LambdaLR<'a, T, F>
+pub struct MultiStepLR<'a, T>
 where
     T: OptimizerStatus,
-    F: Fn(usize) -> f32,
 {
     optimizer: &'a Optimizer<T>,
-    lr_fn: F,
+    gamma: f32,
+    milestones: RefCell<Vec<usize>>,
     current_epoch: Cell<usize>,
     current_lr: Cell<f32>,
     last_lr: Cell<f32>,
-    initial_lr: Cell<f32>,
 }
 
-impl<'a, T, F> LambdaLR<'a, T, F>
+impl<'a, T> MultiStepLR<'a, T>
 where
     T: OptimizerStatus,
-    F: Fn(usize) -> f32,
 {
-    /// Creates a new LambdaLR scheduler.
+    /// Creates a new MultiStepLR scheduler.
     ///
     /// # Arguments
     ///
     /// * `optimizer` - wrapped optimizer.
     ///
-    /// * `lr_fn` - function which computes a multiplicative factor given an `usize` parameter
-    /// epoch.
-    pub fn new(optimizer: &'a Optimizer<T>, lr_fn: F) -> Self {
+    /// * `milestones` - list of epoch indices. Must be increasing.
+    ///
+    /// * `gamma` - multiplicative factor for the learning rate decay.
+    pub fn new(optimizer: &'a Optimizer<T>, milestones: Vec<usize>, gamma: f32) -> Self {
         let current_lr = optimizer.get_lr();
 
         Self {
             optimizer,
-            lr_fn,
+            gamma,
+            milestones: RefCell::new(milestones),
             current_epoch: Cell::new(0),
             current_lr: Cell::new(current_lr),
             last_lr: Cell::new(0.0),
-            initial_lr: Cell::new(current_lr),
         }
     }
 
-    /// Sets the learning rate to the initial learning times a given function.
+    /// Sets new milestones for the scheduler.
+    pub fn set_milestones(&self, milestones: Vec<usize>) {
+        *self.milestones.borrow_mut() = milestones;
+    }
+
+    /// Decays the learning rate by gamma once the number of epoch reaches one of the milestones.
     pub fn step(&self) {
         LRScheduler::step(self);
     }
@@ -79,16 +84,21 @@ where
     }
 }
 
-impl<'a, T, F> LRScheduler for LambdaLR<'a, T, F>
+impl<'a, T> LRScheduler for MultiStepLR<'a, T>
 where
     T: OptimizerStatus,
-    F: Fn(usize) -> f32,
 {
     fn step(&self) {
         prepare_step(&self.last_lr, &self.current_lr, &self.current_epoch);
-        self.current_lr
-            .set(self.initial_lr.get() * (self.lr_fn)(self.current_epoch.get()));
-        self.optimizer.set_lr(self.current_lr.get());
+        if self
+            .milestones
+            .borrow()
+            .iter()
+            .any(|milestone| *milestone == self.current_epoch.get())
+        {
+            self.current_lr.set(self.last_lr.get() * self.gamma);
+            self.optimizer.set_lr(self.current_lr.get());
+        }
     }
 
     fn get_last_lr(&self) -> f32 {

@@ -1,10 +1,11 @@
-use super::super::{L2, SGD};
+use crate::optim::{StochasticGD, L2};
+
 use super::{ExponentialLR, LambdaLR, MultiStepLR, MultiplicativeLR, StepLR};
 
 #[test]
 fn lambda_lr() {
     const EPOCHS: usize = 5;
-    let optim = SGD::new(Vec::new(), 1., L2::new(0.1));
+    let optim = StochasticGD::new(1.0, L2::new(0.1), None, None, false);
     let scheduler = LambdaLR::new(&optim, |epoch| epoch as f32);
 
     scheduler.set_current_epoch(5);
@@ -28,7 +29,7 @@ fn lambda_lr() {
 #[test]
 fn multiplicative_lr() {
     const EPOCHS: usize = 5;
-    let optim = SGD::new(Vec::new(), 1., L2::new(0.1));
+    let optim = StochasticGD::new(1.0, L2::new(0.1), None, None, false);
     let scheduler = MultiplicativeLR::new(&optim, |epoch| epoch as f32);
 
     scheduler.set_current_epoch(5);
@@ -52,7 +53,7 @@ fn multiplicative_lr() {
 #[test]
 fn step_lr() {
     const EPOCHS: usize = 5;
-    let optim = SGD::new(Vec::new(), 1., L2::new(0.1));
+    let optim = StochasticGD::new(1.0, L2::new(0.1), None, None, false);
     let scheduler = StepLR::new(&optim, 1, 2.);
 
     scheduler.set_current_epoch(5);
@@ -74,8 +75,8 @@ fn step_lr() {
 #[test]
 fn multistep_lr() {
     const EPOCHS: usize = 5;
-    let optim = SGD::new(Vec::new(), 1., L2::new(0.1));
-    let scheduler = MultiStepLR::new(&optim, [1, 2, 3, 4], 2.);
+    let optim = StochasticGD::new(1.0, L2::new(0.1), None, None, false);
+    let scheduler = MultiStepLR::new(&optim, vec![1, 2, 3, 4], 2.);
 
     scheduler.set_current_epoch(5);
     assert_eq!(scheduler.get_current_epoch(), 5);
@@ -96,7 +97,7 @@ fn multistep_lr() {
 #[test]
 fn exponential_lr() {
     const EPOCHS: usize = 5;
-    let optim = SGD::new(Vec::new(), 1., L2::new(0.1));
+    let optim = StochasticGD::new(1.0, L2::new(0.1), None, None, false);
     let scheduler = ExponentialLR::new(&optim, 5.);
 
     scheduler.set_current_epoch(5);
