@@ -1,29 +1,35 @@
-use super::{super::L2, SGD};
+use super::{super::L2, StochasticGD};
 
 #[test]
 fn creation() {
-    let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2));
+    let optim = StochasticGD::new(1e-2, L2::new(1e-2), None, None, false);
 
-    assert_eq!(optim.params.borrow().len(), 0);
     assert!((optim.get_lr() - 1e-2).abs() <= f32::EPSILON);
 
-    let optim = optim.with_momentum(0.5, 0.0, true);
+    optim.status().set_momentum(0.5);
+    optim.status().set_nesterov(true);
 
-    assert_eq!(optim.params.borrow().len(), 0);
     assert!((optim.get_lr() - 1e-2).abs() <= f32::EPSILON);
-    assert!((optim.get_momentum() - 0.5).abs() <= f32::EPSILON);
-    assert!(optim.get_dampening().abs() <= f32::EPSILON);
-    assert!(optim.get_nesterov());
+    assert!((optim.status().get_momentum().unwrap() - 0.5).abs() <= f32::EPSILON);
+    assert!(optim.status().get_dampening() == None);
+    assert!(optim.status().get_nesterov());
+}
+
+#[test]
+#[should_panic]
+fn creation_invalid_nesterov() {
+    let _ = StochasticGD::new(1e-2, L2::new(1e-2), None, None, true);
+}
+
+#[test]
+#[should_panic]
+fn creation_invalid_dampening() {
+    let _ = StochasticGD::new(1e-2, L2::new(1e-2), 0.5, 3.0, false);
 }
 
 #[test]
 fn set_lr() {
-    let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2));
-    optim.set_lr(1e-3);
-
-    assert!((optim.get_lr() - 1e-3).abs() <= f32::EPSILON);
-
-    let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2)).with_momentum(0.5, 0.0, true);
+    let optim = StochasticGD::new(1e-2, L2::new(1e-2), None, None, false);
     optim.set_lr(1e-3);
 
     assert!((optim.get_lr() - 1e-3).abs() <= f32::EPSILON);
@@ -31,43 +37,42 @@ fn set_lr() {
 
 #[test]
 fn set_dampening() {
-    let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2)).with_momentum(0.5, 0.0, true);
-    optim.set_dampening(1.0);
+    let optim = StochasticGD::new(1e-2, L2::new(1e-2), None, None, false);
+    optim.status().set_dampening(1.0);
 
-    assert!((optim.get_dampening() - 1.0).abs() <= f32::EPSILON);
+    assert!((optim.status().get_dampening().unwrap() - 1.0).abs() <= f32::EPSILON);
 }
 
 #[test]
 fn set_momentum() {
-    let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2)).with_momentum(0.5, 0.0, true);
-    optim.set_momentum(0.3);
+    let optim = StochasticGD::new(1e-2, L2::new(1e-2), None, None, false);
+    optim.status().set_momentum(0.3);
 
-    assert!((optim.get_momentum() - 0.3).abs() <= f32::EPSILON);
+    assert!((optim.status().get_momentum().unwrap() - 0.3).abs() <= f32::EPSILON);
 }
 
 #[test]
 fn set_nesterov() {
-    let optim = SGD::new(Vec::new(), 1e-2, L2::new(1e-2)).with_momentum(0.5, 0.0, false);
-    optim.set_nesterov(true);
+    let optim = StochasticGD::new(1e-2, L2::new(1e-2), None, None, false);
+    optim.status().set_nesterov(true);
 
-    assert!(optim.get_nesterov());
+    assert!(optim.status().get_nesterov());
 }
 
-const EPOCHS: usize = 200;
+const EPOCHS: usize = 10;
 
 #[test]
 fn step() {
-    // SGD.
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.));
+    let first_value = loss.item();
+    let optim = StochasticGD::new(1e-4, L2::new(0.0), None, None, false);
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -76,22 +81,22 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value);
 }
 
 #[test]
 fn step_with_momentum() {
-    // SGD with momentum.
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.)).with_momentum(0.7, 0.0, false);
+    let first_value = loss.item();
+    let optim = StochasticGD::new(1e-4, L2::new(0.0), 0.7, 0.3, false);
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -100,22 +105,22 @@ fn step_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value);
 }
 
 #[test]
 fn step_with_nesterov_momentum() {
-    // SGD with momentum.
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim = SGD::new(loss.parameters(), 0.1, L2::new(0.)).with_momentum(0.7, 0.0, true);
+    let first_value = loss.item();
+    let optim = StochasticGD::new(1e-4, L2::new(0.), 0.7, 0.3, true);
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -124,5 +129,6 @@ fn step_with_nesterov_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value.clone());
 }

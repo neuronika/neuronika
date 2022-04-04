@@ -33,7 +33,7 @@ fn set_eps() {
     assert!((optim.status().get_eps() - 1e-9).abs() <= f32::EPSILON);
 }
 
-const EPOCHS: usize = 200;
+const EPOCHS: usize = 10;
 
 #[test]
 fn step() {
@@ -46,7 +46,7 @@ fn step() {
 
     let first_value = loss.item();
 
-    let optim = Adagrad::new(0.01, 1e-9, L2::new(0.0), 1e-10);
+    let optim = Adagrad::new(1e-4, 1e-9, L2::new(0.0), 1e-10);
     optim.register(x);
 
     for _ in 0..EPOCHS {

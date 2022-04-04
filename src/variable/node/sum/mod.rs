@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use ndarray::{arr0, Array, Array0, Dimension, Ix0, Zip};
+use ndarray::{arr0, Array, Array0, Dimension, Ix0};
 
 use crate::variable::{gradient::Gradient, utils::Shared};
 
@@ -57,9 +57,7 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        Zip::from(&mut *self.operand_gradient.borrow_mut())
-            .and_broadcast(&*self.gradient.borrow())
-            .for_each(|op_grad_el, &grad_el| *op_grad_el += grad_el);
+        *self.operand_gradient.borrow_mut() += self.gradient.borrow()[()];
     }
 }
 

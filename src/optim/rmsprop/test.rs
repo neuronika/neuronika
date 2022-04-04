@@ -2,46 +2,21 @@ use super::{super::L2, RMSProp};
 
 #[test]
 fn creation() {
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8);
+    let optim = RMSProp::new(1e-2, L2::new(1e-2), 1e-3, None, false, 1e-8);
 
-    assert_eq!(optim.params.borrow().len(), 0);
     assert!((optim.get_lr() - 1e-2).abs() <= f32::EPSILON);
-    assert!((optim.get_alpha() - 1e-3).abs() <= f32::EPSILON);
+    assert!((optim.status().get_alpha().unwrap() - 1e-3).abs() <= f32::EPSILON);
+}
 
-    let optim = optim.with_momentum(0.5);
-
-    assert_eq!(optim.params.borrow().len(), 0);
-    assert!((optim.get_lr() - 1e-2).abs() <= f32::EPSILON);
-    assert!((optim.get_alpha() - 1e-3).abs() <= f32::EPSILON);
-    assert!((optim.get_momentum() - 0.5).abs() <= f32::EPSILON);
-
-    let optim = optim.centered();
-
-    assert_eq!(optim.params.borrow().len(), 0);
-    assert!((optim.get_lr() - 1e-2).abs() <= f32::EPSILON);
-    assert!((optim.get_alpha() - 1e-3).abs() <= f32::EPSILON);
-    assert!((optim.get_momentum() - 0.5).abs() <= f32::EPSILON);
+#[test]
+#[should_panic]
+fn creation_invalid() {
+    let _ = RMSProp::new(1e-2, L2::new(1e-2), 2.0, None, false, 1e-8);
 }
 
 #[test]
 fn set_lr() {
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8);
-
-    optim.set_lr(1e-3);
-    assert!((optim.get_lr() - 1e-3).abs() <= f32::EPSILON);
-
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).with_momentum(0.5);
-
-    optim.set_lr(1e-3);
-    assert!((optim.get_lr() - 1e-3).abs() <= f32::EPSILON);
-
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered();
-
-    optim.set_lr(1e-3);
-    assert!((optim.get_lr() - 1e-3).abs() <= f32::EPSILON);
-
-    let optim =
-        RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered_with_momentum(0.5);
+    let optim = RMSProp::new(1e-2, L2::new(1e-2), 1e-3, None, false, 1e-8);
 
     optim.set_lr(1e-3);
     assert!((optim.get_lr() - 1e-3).abs() <= f32::EPSILON);
@@ -49,80 +24,42 @@ fn set_lr() {
 
 #[test]
 fn set_alpha() {
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8);
+    let optim = RMSProp::new(1e-2, L2::new(1e-2), 1e-3, None, false, 1e-8);
 
-    optim.set_alpha(1e-2);
-    assert!((optim.get_alpha() - 1e-2).abs() <= f32::EPSILON);
-
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).with_momentum(0.5);
-
-    optim.set_alpha(1e-2);
-    assert!((optim.get_alpha() - 1e-2).abs() <= f32::EPSILON);
-
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered();
-
-    optim.set_alpha(1e-2);
-    assert!((optim.get_alpha() - 1e-2).abs() <= f32::EPSILON);
-
-    let optim =
-        RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered_with_momentum(0.5);
-
-    optim.set_alpha(1e-2);
-    assert!((optim.get_alpha() - 1e-2).abs() <= f32::EPSILON);
+    optim.status().set_alpha(1e-2);
+    assert!((optim.status().get_alpha().unwrap() - 1e-2).abs() <= f32::EPSILON);
 }
 
 #[test]
 fn set_eps() {
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8);
+    let optim = RMSProp::new(1e-2, L2::new(1e-2), 1e-3, None, false, 1e-8);
 
-    optim.set_eps(1e-9);
-    assert!((optim.get_eps() - 1e-9).abs() <= f32::EPSILON);
-
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).with_momentum(0.5);
-
-    optim.set_eps(1e-9);
-    assert!((optim.get_eps() - 1e-9).abs() <= f32::EPSILON);
-
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered();
-
-    optim.set_eps(1e-9);
-    assert!((optim.get_eps() - 1e-9).abs() <= f32::EPSILON);
-
-    let optim =
-        RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).centered_with_momentum(0.5);
-
-    optim.set_eps(1e-9);
-    assert!((optim.get_eps() - 1e-9).abs() <= f32::EPSILON);
+    optim.status().set_eps(1e-9);
+    assert!((optim.status().get_eps() - 1e-9).abs() <= f32::EPSILON);
 }
 
 #[test]
 fn set_momentum() {
-    let optim = RMSProp::new(Vec::new(), 1e-2, 1e-3, L2::new(1e-2), 1e-8).with_momentum(0.5);
+    let optim = RMSProp::new(1e-2, L2::new(1e-2), 1e-3, None, false, 1e-8);
 
-    optim.set_momentum(0.8);
-    assert!((optim.get_momentum() - 0.8).abs() <= f32::EPSILON);
-
-    let optim = optim.centered();
-
-    optim.set_momentum(0.5);
-    assert!((optim.get_momentum() - 0.5).abs() <= f32::EPSILON);
+    optim.status().set_momentum(0.8);
+    assert!((optim.status().get_momentum().unwrap() - 0.8).abs() <= f32::EPSILON);
 }
 
-const EPOCHS: usize = 200;
+const EPOCHS: usize = 10;
 
 #[test]
 fn step() {
-    // RMSProp.
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim = RMSProp::new(loss.parameters(), 0.01, 0.7, L2::new(0.0), 1e-8);
+    let first_value = loss.item();
+    let optim = RMSProp::new(1e-4, L2::new(0.0), 0.99, None, false, 1e-8);
+    optim.register(x.clone());
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -131,22 +68,22 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value.clone());
 }
 
 #[test]
 fn step_centered() {
-    // RMSProp centered.
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim = RMSProp::new(loss.parameters(), 0.01, 0.7, L2::new(0.0), 1e-8).centered();
+    let first_value = loss.item();
+    let optim = RMSProp::new(1e-4, L2::new(0.0), 0.99, None, true, 1e-8);
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -155,22 +92,22 @@ fn step_centered() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value.clone());
 }
 
 #[test]
 fn step_with_momentum() {
-    // RMSProp with momentum.
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim = RMSProp::new(loss.parameters(), 0.01, 0.99, L2::new(0.0), 1e-8).with_momentum(0.5);
+    let first_value = loss.item();
+    let optim = RMSProp::new(1e-4, L2::new(0.0), 0.99, 0.5, false, 1e-8);
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -179,23 +116,22 @@ fn step_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value.clone());
 }
 
 #[test]
 fn step_centered_with_momentum() {
-    // RMSProp centered with momentum.
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim =
-        RMSProp::new(loss.parameters(), 0.01, 0.99, L2::new(0.0), 1e-8).centered_with_momentum(0.5);
+    let first_value = loss.item();
+    let optim = RMSProp::new(1e-4, L2::new(0.0), 0.99, 0.5, true, 1e-8);
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -204,5 +140,6 @@ fn step_centered_with_momentum() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value.clone());
 }

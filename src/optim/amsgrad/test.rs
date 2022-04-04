@@ -36,7 +36,7 @@ fn set_eps() {
     assert!((optim.status().get_eps() - 1e-9).abs() <= f32::EPSILON);
 }
 
-const EPOCHS: usize = 200;
+const EPOCHS: usize = 10;
 
 #[test]
 fn step() {
@@ -49,7 +49,7 @@ fn step() {
 
     let first_value = loss.item();
 
-    let optim = AMSGrad::new(0.001, 0.9, 0.999, L2::new(0.0), 1e-8);
+    let optim = AMSGrad::new(1e-4, 0.9, 0.999, L2::new(0.0), 1e-8);
     optim.register(x);
 
     for _ in 0..EPOCHS {
@@ -60,5 +60,5 @@ fn step() {
         optim.zero_grad();
     }
 
-    assert!(loss.item() < first_value.clone());
+    assert!(loss.item() < first_value);
 }

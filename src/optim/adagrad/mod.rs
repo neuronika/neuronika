@@ -82,18 +82,18 @@ where
         self.lr_decay.set(lr_decay)
     }
 
-    /// Return the current eps constant.
+    /// Return the current epsilon constant.
     pub fn get_eps(&self) -> f32 {
         self.eps.get()
     }
 
-    /// Sets a  new value for the eps constant.
+    /// Sets a  new value for the epsilon constant.
     pub fn set_eps(&self, eps: f32) {
         self.eps.set(eps)
     }
 }
 
-/// A parameter used by the *Adagrad* optimizer.
+/// A parameter used by the Adagrad optimizer.
 pub struct AdagradParam<D, T>
 where
     D: Dimension,
@@ -118,7 +118,7 @@ where
         let eps = self.status.get_eps();
         let penalty = self.status.penalty;
 
-        let clr = lr / (1. + (self.step - 1) as f32 * lr_decay);
+        let clr = lr / (1.0 + (self.step - 1) as f32 * lr_decay);
 
         let mut data = self.variable.data_mut();
         let mut grad = self.variable.grad_mut();

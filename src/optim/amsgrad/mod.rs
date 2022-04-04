@@ -100,18 +100,18 @@ where
         self.beta2.set(beta2)
     }
 
-    /// Return the current eps constant.
+    /// Return the current epsilon constant.
     pub fn get_eps(&self) -> f32 {
         self.eps.get()
     }
 
-    /// Sets a new value for the eps constant.
+    /// Sets a new value for the epsilon constant.
     pub fn set_eps(&self, eps: f32) {
         self.eps.set(eps)
     }
 }
 
-/// A parameter used by the *AMSGrad* optimizer.
+/// A parameter used by the AMSGrad optimizer.
 #[allow(clippy::upper_case_acronyms)]
 pub struct AMSGradParam<D, T>
 where
