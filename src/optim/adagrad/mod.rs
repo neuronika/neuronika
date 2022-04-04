@@ -1,25 +1,44 @@
-use super::{Optimizer, Param, Penalty};
-use ndarray::{ArrayD, ArrayViewMutD, Zip};
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
-use std::cell::{Cell, RefCell};
+use std::{cell::Cell, rc::Rc};
 
-/// **Adagrad** optimizer.
+use ndarray::{Array, Dimension, Zip};
+
+use crate::variable::VarDiff;
+
+use super::{IntoParam, Optimize, Optimizer, OptimizerStatus, Penalty};
+
+/// Adagrad optimizer.
 ///
 /// The algorithm has been proposed in [this paper](http://jmlr.org/papers/v12/duchi11a.html).
-pub struct Adagrad<'a, T: Penalty> {
-    params: RefCell<Vec<AdagradParam<'a>>>,
+pub struct Adagrad<T>
+where
+    T: Penalty,
+{
     lr: Cell<f32>,
     lr_decay: Cell<f32>,
     penalty: T,
     eps: Cell<f32>,
 }
 
-impl<'a, T: Penalty> Adagrad<'a, T> {
-    /// Creates a new *Adagrad* optimizer.
+impl<T> OptimizerStatus for Adagrad<T>
+where
+    T: Penalty,
+{
+    fn get_lr(&self) -> f32 {
+        self.lr.get()
+    }
+
+    fn set_lr(&self, lr: f32) {
+        self.lr.set(lr)
+    }
+}
+
+impl<T> Adagrad<T>
+where
+    T: Penalty,
+{
+    /// Creates a new Adagrad optimizer.
     ///
     /// # Arguments
-    ///
-    /// * `params` - vector of [`Param`] to optimize.
     ///
     /// * `lr` - learning rate.
     ///
@@ -28,27 +47,29 @@ impl<'a, T: Penalty> Adagrad<'a, T> {
     /// * `penalty` - penalty regularization.
     ///
     /// * `eps` - small constant for numerical stability. A good default value is *1e-10*.
-    pub fn new(params: Vec<Param<'a>>, lr: f32, lr_decay: f32, penalty: T, eps: f32) -> Self {
-        let params = RefCell::new(Self::build_params(params));
+    pub fn new(lr: f32, lr_decay: f32, penalty: T, eps: f32) -> Optimizer<Self> {
         let lr = Cell::new(lr);
+        let lr_decay = Cell::new(lr_decay);
+        let eps = Cell::new(eps);
 
-        Self {
-            params,
+        let status = Self {
             lr,
-            lr_decay: Cell::new(lr_decay),
+            lr_decay,
             penalty,
-            eps: Cell::new(eps),
-        }
+            eps,
+        };
+
+        Optimizer::new(status)
     }
 
-    /// Return the current learning rate.
+    /// Returns the current learning rate.
     pub fn get_lr(&self) -> f32 {
-        Optimizer::get_lr(self)
+        OptimizerStatus::get_lr(self)
     }
 
-    /// Sets `lr` as the  new value for the learning rate.
+    /// Sets a new value for the learning rate.
     pub fn set_lr(&self, lr: f32) {
-        Optimizer::set_lr(self, lr);
+        OptimizerStatus::set_lr(self, lr);
     }
 
     /// Return the current learning rate decay parameter.
@@ -61,98 +82,86 @@ impl<'a, T: Penalty> Adagrad<'a, T> {
         self.lr_decay.set(lr_decay)
     }
 
-    /// Return the current *eps* constant.
+    /// Return the current eps constant.
     pub fn get_eps(&self) -> f32 {
         self.eps.get()
     }
 
-    /// Sets `eps` as the  new value for the *eps* constant.
+    /// Sets a  new value for the eps constant.
     pub fn set_eps(&self, eps: f32) {
         self.eps.set(eps)
-    }
-
-    /// Performs a single Adagrad optimization step.
-    pub fn step(&self) {
-        Optimizer::step(self);
-    }
-
-    /// Zeroes the gradient of this optimizer's parameters.
-    pub fn zero_grad(&self) {
-        Optimizer::zero_grad(self);
     }
 }
 
 /// A parameter used by the *Adagrad* optimizer.
-pub struct AdagradParam<'a> {
-    data: ArrayViewMutD<'a, f32>,
-    grad: ArrayViewMutD<'a, f32>,
+pub struct AdagradParam<D, T>
+where
+    D: Dimension,
+    T: Penalty,
+{
+    variable: VarDiff<D>,
     step: usize,
-    grad_sq: ArrayD<f32>,
+    grad_sq: Array<f32, D>,
+    status: Rc<Adagrad<T>>,
 }
 
-impl<'a> From<Param<'a>> for AdagradParam<'a> {
-    fn from(param: Param<'a>) -> Self {
-        let Param { data, grad } = param;
-        let step = 0;
-        let grad_sq = ArrayD::zeros(grad.raw_dim());
+impl<D, T> Optimize for AdagradParam<D, T>
+where
+    D: Dimension,
+    T: Penalty,
+{
+    fn optimize(&mut self) {
+        self.step += 1;
 
-        Self {
-            data,
-            grad,
+        let lr = self.status.get_lr();
+        let lr_decay = self.status.get_lr_decay();
+        let eps = self.status.get_eps();
+        let penalty = self.status.penalty;
+
+        let clr = lr / (1. + (self.step - 1) as f32 * lr_decay);
+
+        let mut data = self.variable.data_mut();
+        let mut grad = self.variable.grad_mut();
+
+        Zip::from(&mut *grad)
+            .and(&*data)
+            .for_each(|grad_el, data_el| *grad_el += penalty.penalize(data_el));
+
+        Zip::from(&mut self.grad_sq)
+            .and(&*grad)
+            .for_each(|grad_sq_el, grad_el| *grad_sq_el += grad_el * grad_el);
+
+        Zip::from(&mut *data)
+            .and(&*grad)
+            .and(&self.grad_sq)
+            .for_each(|data_el, grad_el, grad_sq_el| {
+                *data_el -= grad_el / (grad_sq_el.sqrt() + eps) * clr
+            });
+    }
+
+    fn zero_grad(&mut self) {
+        self.variable.zero_grad()
+    }
+}
+
+impl<D, T> IntoParam<Adagrad<T>> for VarDiff<D>
+where
+    D: 'static + Dimension,
+    T: 'static + Penalty,
+{
+    type Param = AdagradParam<D, T>;
+
+    fn into_param(self, status: Rc<Adagrad<T>>) -> Self::Param {
+        let variable = self;
+        let step = 0;
+        let grad_sq = Array::zeros(variable.grad().raw_dim());
+
+        Self::Param {
+            variable,
             step,
             grad_sq,
+            status,
         }
-    }
-}
-
-impl<'a, T: Penalty> Optimizer<'a> for Adagrad<'a, T> {
-    type ParamRepr = AdagradParam<'a>;
-    fn step(&self) {
-        let (mut params, lr, lr_decay, penalty, eps) = (
-            self.params.borrow_mut(),
-            self.lr.get(),
-            &self.lr_decay.get(),
-            &self.penalty,
-            &self.eps.get(),
-        );
-
-        params.par_iter_mut().for_each(|param| {
-            let (step, grad_sq) = (&mut param.step, &mut param.grad_sq);
-
-            *step += 1;
-            let clr = lr / (1. + (*step - 1) as f32 * lr_decay);
-
-            let mut p_grad = param.grad.to_owned();
-            Zip::from(&mut p_grad)
-                .and(&param.data)
-                .for_each(|p_grad_el, data_el| *p_grad_el += penalty.penalize(data_el));
-
-            Zip::from(grad_sq)
-                .and(&p_grad)
-                .for_each(|grad_sq_el, p_grad_el| *grad_sq_el += p_grad_el * p_grad_el);
-
-            Zip::from(&mut param.data)
-                .and(&p_grad)
-                .and(&param.grad_sq)
-                .for_each(|data_el, p_grad_el, grad_sq_el| {
-                    *data_el += -p_grad_el / (grad_sq_el.sqrt() + eps) * clr
-                });
-        });
-    }
-
-    fn zero_grad(&self) {
-        self.params.borrow_mut().par_iter_mut().for_each(|param| {
-            let grad = &mut param.grad;
-            Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
-        });
-    }
-
-    fn get_lr(&self) -> f32 {
-        self.lr.get()
-    }
-
-    fn set_lr(&self, lr: f32) {
-        self.lr.set(lr)
     }
 }
 

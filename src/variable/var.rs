@@ -132,6 +132,13 @@ where
     }
 }
 
+impl Var<Ix0> {
+    /// Returns the scalar contained in the variable.
+    pub fn item(&self) -> f32 {
+        self.data()[()]
+    }
+}
+
 impl Var<Ix1> {
     /// Performs a vector-matrix multiplication between the vector variable `self` and the matrix
     /// variable `rhs`.

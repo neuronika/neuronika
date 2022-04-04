@@ -7,7 +7,7 @@ use std::{
 
 use ndarray::{
     arr0, concatenate, stack, Array, Axis, DimMax, Dimension, IntoDimension, Ix0, Ix1, Ix2,
-    RemoveAxis,
+    RemoveAxis, Zip,
 };
 
 use crate::{
@@ -98,6 +98,11 @@ where
         self.grad.borrow_mut()
     }
 
+    /// Sets the variable's gradient to zero.
+    pub fn zero_grad(&self) {
+        Zip::from(&mut *self.grad_mut()).for_each(|grad_el| *grad_el = 0.0);
+    }
+
     /// Propagates the computations forwards and populates all the variables and differentiable
     /// variables from the leaves of the graph to `self`.   
     pub fn forward(&self) {
@@ -159,6 +164,13 @@ where
         }
 
         buffer.iter().for_each(|(_, grad)| grad.with_grad());
+    }
+}
+
+impl VarDiff<Ix0> {
+    /// Returns the scalar contained in the variable.
+    pub fn item(&self) -> f32 {
+        self.data()[()]
     }
 }
 

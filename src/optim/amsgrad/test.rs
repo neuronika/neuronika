@@ -2,17 +2,17 @@ use super::{super::L2, AMSGrad};
 
 #[test]
 fn creation() {
-    let optim = AMSGrad::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
+    let optim = AMSGrad::new(1e-2, 0.9, 0.999, L2::new(1e-2), 1e-8);
 
-    assert_eq!(optim.params.borrow().len(), 0);
     assert!((optim.get_lr() - 1e-2).abs() <= f32::EPSILON);
-    assert_eq!(optim.get_betas(), (0.9, 0.999));
-    assert!((optim.get_eps() - 1e-8).abs() <= f32::EPSILON);
+    assert!((optim.status().get_beta1() - 0.9).abs() <= f32::EPSILON);
+    assert!((optim.status().get_beta2() - 0.999).abs() <= f32::EPSILON);
+    assert!((optim.status().get_eps() - 1e-8).abs() <= f32::EPSILON);
 }
 
 #[test]
 fn set_lr() {
-    let optim = AMSGrad::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
+    let optim = AMSGrad::new(1e-2, 0.9, 0.999, L2::new(1e-2), 1e-8);
 
     optim.set_lr(1e-3);
     assert!((optim.get_lr() - 1e-3).abs() <= f32::EPSILON);
@@ -20,34 +20,37 @@ fn set_lr() {
 
 #[test]
 fn set_betas() {
-    let optim = AMSGrad::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
+    let optim = AMSGrad::new(1e-2, 0.9, 0.999, L2::new(1e-2), 1e-8);
 
-    optim.set_betas((0.91, 0.9991));
-    assert_eq!(optim.get_betas(), (0.91, 0.9991));
+    optim.status().set_beta1(0.91);
+    optim.status().set_beta2(0.9991);
+    assert!((optim.status().get_beta1() - 0.91).abs() <= f32::EPSILON);
+    assert!((optim.status().get_beta2() - 0.9991).abs() <= f32::EPSILON);
 }
 
 #[test]
 fn set_eps() {
-    let optim = AMSGrad::new(Vec::new(), 1e-2, (0.9, 0.999), L2::new(1e-2), 1e-8);
+    let optim = AMSGrad::new(1e-2, 0.9, 0.999, L2::new(1e-2), 1e-8);
 
-    optim.set_eps(1e-9);
-    assert!((optim.get_eps() - 1e-9).abs() <= f32::EPSILON);
+    optim.status().set_eps(1e-9);
+    assert!((optim.status().get_eps() - 1e-9).abs() <= f32::EPSILON);
 }
 
 const EPOCHS: usize = 200;
 
 #[test]
 fn step() {
-    let x = crate::rand((3, 3));
+    let x = crate::rand((3, 3)).requires_grad();
     let y = crate::rand((3, 3));
-    let z = x.clone().mm(y);
+    let z = crate::rand((3, 3));
 
-    let w = crate::rand((3, 3)).requires_grad();
-    let loss = (x.mm(w) - z).pow(2).sum();
+    let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
-    let optim = AMSGrad::new(loss.parameters(), 0.01, (0.9, 0.999), L2::new(0.0), 1e-8);
+    let first_value = loss.item();
+
+    let optim = AMSGrad::new(0.001, 0.9, 0.999, L2::new(0.0), 1e-8);
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -56,5 +59,6 @@ fn step() {
         optim.step();
         optim.zero_grad();
     }
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+
+    assert!(loss.item() < first_value.clone());
 }

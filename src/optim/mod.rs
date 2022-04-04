@@ -211,18 +211,18 @@
 // //!
 // //! * [`SGD`] - Implements the stochastic gradient descent algorithm.
 
+mod adagrad;
+mod adam;
+mod amsgrad;
 mod optimizer;
 mod penalty;
-// mod adagrad;
-mod adam;
-// mod amsgrad;
 // mod rmsprop;
 // mod sgd;
 
+pub use adagrad::*;
+pub use adam::*;
 pub use optimizer::*;
 pub use penalty::*;
-
-// use crate::variable::VarDiff;
 
 // pub use adagrad::*;
 // pub use adam::*;

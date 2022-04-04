@@ -131,15 +131,14 @@ where
     fn optimize(&mut self) {
         self.step += 1;
 
-        let step = self.step;
         let beta1 = self.status.beta1.get();
         let beta2 = self.status.beta2.get();
         let lr = self.status.lr.get();
         let eps = self.status.eps.get();
         let penalty = self.status.penalty;
 
-        let bias_correction1 = 1.0 - beta1.powi(step as i32);
-        let bias_correction2 = 1.0 - beta2.powi(step as i32);
+        let bias_correction1 = 1.0 - beta1.powi(self.step as i32);
+        let bias_correction2 = 1.0 - beta2.powi(self.step as i32);
 
         let mut data = self.variable.data_mut();
         let mut grad = self.variable.grad_mut();
@@ -151,7 +150,7 @@ where
         Zip::from(&mut self.exp_avg)
             .and(&*grad)
             .for_each(|exp_avg_el, grad_el| {
-                *exp_avg_el = *exp_avg_el * beta1 + grad_el * (1. - beta1)
+                *exp_avg_el = *exp_avg_el * beta1 + grad_el * (1.0 - beta1)
             });
 
         Zip::from(&mut self.exp_avg_sq)
@@ -170,7 +169,7 @@ where
     }
 
     fn zero_grad(&mut self) {
-        Zip::from(&mut *self.variable.grad_mut()).for_each(|grad_el| *grad_el = 0.0);
+        self.variable.zero_grad()
     }
 }
 

@@ -47,7 +47,7 @@ fn step() {
     let loss = (x.clone().mm(y) - z).pow(2).sum();
     loss.forward();
 
-    let first_value = loss.data().clone().into_scalar();
+    let first_value = loss.item();
 
     let optim = Adam::new(0.001, 0.9, 0.999, L2::new(0.0), 1e-8);
     optim.register(x);
@@ -60,5 +60,5 @@ fn step() {
         optim.zero_grad();
     }
 
-    assert!(loss.data().clone().into_scalar() < first_value.clone());
+    assert!(loss.item() < first_value.clone());
 }
