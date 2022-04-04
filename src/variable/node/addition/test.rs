@@ -1,24 +1,6 @@
-use ndarray::{Array, Dimension};
-use std::{
-    cell::{Ref, RefCell},
-    error::Error,
-    rc::Rc,
-};
-
-fn new_shared<T>(item: T) -> Rc<RefCell<T>> {
-    Rc::new(RefCell::new(item))
-}
-
-fn are_similar<D: Dimension>(
-    result: Ref<Array<f32, D>>,
-    expected: &Array<f32, D>,
-) -> Result<(), Box<dyn Error>> {
-    if !result.abs_diff_eq(expected, f32::EPSILON) {
-        return Err(format!("Result: {} | Expected: {}", result, expected).into());
-    }
-
-    Ok(())
-}
+use crate::variable::utils::{are_similar, new_shared};
+use ndarray::Array;
+use std::{error::Error, rc::Rc};
 
 mod forward {
     use super::super::{Addition, Forward};
@@ -35,8 +17,8 @@ mod forward {
             new_shared(data.clone()),
         );
 
-        are_similar(op.left.borrow(), &left)?;
-        are_similar(op.right.borrow(), &right)?;
+        are_similar(op.left_data.borrow(), &left)?;
+        are_similar(op.right_data.borrow(), &right)?;
         are_similar(op.data.borrow(), &data)
     }
 
@@ -142,7 +124,7 @@ mod backward {
         are_similar(op.gradient.borrow(), &grad)?;
 
         op.backward();
-        are_similar(op.operand_gradient.borrow(), &(&left + &grad * 2.))?;
+        are_similar(op.operand_gradient.borrow(), &(left + &grad * 2.))?;
         are_similar(op.gradient.borrow(), &grad)
     }
 
@@ -152,16 +134,16 @@ mod backward {
         let grad = Array::ones((3, 3));
         let op = AdditionBackwardLeft::<Ix1, Ix2>::new(
             Rc::new(Gradient::from_ndarray(left)),
-            Rc::new(Gradient::from_ndarray(grad)),
+            Rc::new(Gradient::from_ndarray(grad.clone())),
         );
 
         op.backward();
         are_similar(op.operand_gradient.borrow(), &Array::from_elem(3, 3.))?;
-        are_similar(op.gradient.borrow(), &Array::ones((3, 3)))?;
+        are_similar(op.gradient.borrow(), &grad)?;
 
         op.backward();
         are_similar(op.operand_gradient.borrow(), &Array::from_elem(3, 6.))?;
-        are_similar(op.gradient.borrow(), &Array::ones((3, 3)))
+        are_similar(op.gradient.borrow(), &grad)
     }
 
     #[test]
@@ -204,7 +186,7 @@ mod backward {
         are_similar(op.gradient.borrow(), &grad)?;
 
         op.backward();
-        are_similar(op.operand_gradient.borrow(), &(&right + &grad * 2.))?;
+        are_similar(op.operand_gradient.borrow(), &(right + &grad * 2.))?;
         are_similar(op.gradient.borrow(), &grad)
     }
 
@@ -259,13 +241,13 @@ mod backward {
         op.backward();
         are_similar(op.left.operand_gradient.borrow(), &(&left + &grad))?;
         are_similar(op.left.gradient.borrow(), &grad)?;
-        are_similar(op.right.operand_gradient.borrow(), &(&grad + &right))?;
+        are_similar(op.right.operand_gradient.borrow(), &(&right + &grad))?;
         are_similar(op.right.gradient.borrow(), &grad)?;
 
         op.backward();
-        are_similar(op.left.operand_gradient.borrow(), &(&left + &grad * 2.))?;
+        are_similar(op.left.operand_gradient.borrow(), &(left + &grad * 2.))?;
         are_similar(op.left.gradient.borrow(), &grad)?;
-        are_similar(op.right.operand_gradient.borrow(), &(2. * &grad + &right))?;
+        are_similar(op.right.operand_gradient.borrow(), &(right + &grad * 2.))?;
         are_similar(op.right.gradient.borrow(), &grad)
     }
 }

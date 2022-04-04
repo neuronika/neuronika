@@ -14,8 +14,8 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left: Shared<Array<f32, D>>,
-    right: Shared<Array<f32, E>>,
+    left_data: Shared<Array<f32, D>>,
+    right_data: Shared<Array<f32, E>>,
     data: Shared<Array<f32, Broadcast<D, E>>>,
 }
 
@@ -25,11 +25,15 @@ where
     E: Dimension,
 {
     pub(crate) fn new(
-        left: Shared<Array<f32, D>>,
-        right: Shared<Array<f32, E>>,
+        left_data: Shared<Array<f32, D>>,
+        right_data: Shared<Array<f32, E>>,
         data: Shared<Array<f32, Broadcast<D, E>>>,
     ) -> Self {
-        Self { left, right, data }
+        Self {
+            left_data,
+            right_data,
+            data,
+        }
     }
 }
 
@@ -40,8 +44,8 @@ where
 {
     fn forward(&self) {
         Zip::from(&mut *self.data.borrow_mut())
-            .and_broadcast(&*self.left.borrow())
-            .and_broadcast(&*self.right.borrow())
+            .and_broadcast(&*self.left_data.borrow())
+            .and_broadcast(&*self.right_data.borrow())
             .for_each(|v, &l, &r| *v = l + r);
     }
 }
