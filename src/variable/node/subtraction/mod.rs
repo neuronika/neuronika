@@ -117,7 +117,7 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let reduced = reduce(self.gradient.shape(), &self.gradient.borrow());
+        let reduced = reduce(self.operand_gradient.shape(), &self.gradient.borrow());
         *self.operand_gradient.borrow_mut() -= &reduced;
     }
 }
@@ -155,8 +155,5 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
