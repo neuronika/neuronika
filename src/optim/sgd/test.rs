@@ -130,5 +130,5 @@ fn step_with_nesterov_momentum() {
         optim.zero_grad();
     }
 
-    assert!(loss.item() < first_value.clone());
+    assert!(loss.item() < first_value);
 }

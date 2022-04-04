@@ -59,7 +59,7 @@ fn step() {
 
     let first_value = loss.item();
     let optim = RMSProp::new(1e-4, L2::new(0.0), 0.99, None, false, 1e-8);
-    optim.register(x.clone());
+    optim.register(x);
 
     for _ in 0..EPOCHS {
         loss.forward();
@@ -69,7 +69,7 @@ fn step() {
         optim.zero_grad();
     }
 
-    assert!(loss.item() < first_value.clone());
+    assert!(loss.item() < first_value);
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn step_centered() {
         optim.zero_grad();
     }
 
-    assert!(loss.item() < first_value.clone());
+    assert!(loss.item() < first_value);
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn step_with_momentum() {
         optim.zero_grad();
     }
 
-    assert!(loss.item() < first_value.clone());
+    assert!(loss.item() < first_value);
 }
 
 #[test]
@@ -141,5 +141,5 @@ fn step_centered_with_momentum() {
         optim.zero_grad();
     }
 
-    assert!(loss.item() < first_value.clone());
+    assert!(loss.item() < first_value);
 }
