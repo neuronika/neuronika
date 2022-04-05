@@ -68,9 +68,7 @@ where
         let mut option = self.array.borrow_mut();
 
         if option.is_none() {
-            let shape = self.shape.clone();
-
-            *option = Some(Array::zeros(shape))
+            *option = Some(Array::zeros(self.shape.clone()))
         }
     }
 }
@@ -87,7 +85,7 @@ impl<D> BufferedGradient<D>
 where
     D: Dimension,
 {
-    pub(crate) fn from_gradient(gradient: Rc<Gradient<D>>) -> Self {
+    pub(crate) fn new(gradient: Rc<Gradient<D>>) -> Self {
         let buffer = RefCell::new(Some(Array::zeros(gradient.shape())));
 
         Self { gradient, buffer }
@@ -95,6 +93,12 @@ where
 
     pub(crate) fn borrow(&self) -> Ref<Array<f32, D>> {
         self.gradient.borrow()
+    }
+
+    pub(crate) fn buffer(&self) -> Ref<Array<f32, D>> {
+        Ref::map(self.buffer.borrow(), |option| {
+            option.as_ref().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
+        })
     }
 
     pub(crate) fn buffer_mut(&self) -> RefMut<Array<f32, D>> {
@@ -122,8 +126,7 @@ where
 
         let mut option = self.buffer.borrow_mut();
         if option.is_none() {
-            let shape = self.shape();
-            *option = Some(Array::zeros(shape));
+            *option = Some(Array::zeros(self.shape()));
         }
     }
 }

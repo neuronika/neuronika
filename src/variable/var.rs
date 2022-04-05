@@ -976,7 +976,7 @@ where
             &self.data.borrow(),
             &rhs.var.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::from_gradient(grad.clone()));
+        let buff = Rc::new(BufferedGradient::new(grad.clone()));
         let op = MultiplicationBackwardRight::new(rhs.grad, self.data.clone(), buff.clone());
         let var = self.mul(rhs.var);
 
@@ -1018,7 +1018,7 @@ where
             &self.data.borrow(),
             &rhs.var.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::from_gradient(grad.clone()));
+        let buff = Rc::new(BufferedGradient::new(grad.clone()));
         let op = DivisionBackwardRight::new(
             self.data.clone(),
             rhs.var.data.clone(),

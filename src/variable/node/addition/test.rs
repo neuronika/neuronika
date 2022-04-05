@@ -55,8 +55,8 @@ mod forward {
     #[test]
     #[should_panic]
     fn wrong_left_broadcast() {
-        let left = Array::linspace(1., 3., 9).into_shape((3, 3)).unwrap();
-        let right = Array::ones((2, 2, 3));
+        let left = Array::zeros((3, 3));
+        let right = Array::zeros((2, 2, 3));
         let data = Array::zeros((2, 2, 3));
         let op = Addition::new(new_shared(left), new_shared(right), new_shared(data));
 
@@ -81,8 +81,8 @@ mod forward {
     #[test]
     #[should_panic]
     fn wrong_right_broadcast() {
-        let left = Array::ones((2, 2, 3));
-        let right = Array::linspace(1., 3., 9).into_shape((3, 3)).unwrap();
+        let left = Array::zeros((2, 2, 3));
+        let right = Array::zeros((3, 3));
         let data = Array::zeros((2, 2, 3));
         let op = Addition::new(new_shared(left), new_shared(right), new_shared(data));
 
@@ -150,7 +150,7 @@ mod backward {
     #[should_panic]
     fn wrong_left_reduction() {
         let left = Array::zeros(2);
-        let grad = Array::ones((3, 3));
+        let grad = Array::zeros((2, 3));
         let op = AdditionBackwardLeft::<Ix1, Ix2>::new(
             Rc::new(Gradient::from_ndarray(left)),
             Rc::new(Gradient::from_ndarray(grad)),
@@ -212,7 +212,7 @@ mod backward {
     #[should_panic]
     fn wrong_right_reduction() {
         let right = Array::zeros(2);
-        let grad = Array::ones((3, 3));
+        let grad = Array::zeros((2, 3));
         let op = AdditionBackwardRight::<Ix2, Ix1>::new(
             Rc::new(Gradient::from_ndarray(right)),
             Rc::new(Gradient::from_ndarray(grad)),
