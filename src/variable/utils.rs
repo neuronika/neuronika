@@ -108,23 +108,23 @@ where
     } else {
         (right.shape(), left.shape())
     };
+
     let mut out = <D as DimMax<E>>::Output::zeros(bigger.len());
     out.slice_mut()
         .iter_mut()
         .zip(bigger.iter())
-        .for_each(|(l, r)| *l = *r);
-    let k = bigger.len() - smaller.len();
+        .for_each(|(l, &r)| *l = r);
+
     out.slice_mut()
         .iter_mut()
-        .skip(k)
+        .skip(bigger.len() - smaller.len())
         .zip(smaller.iter())
-        .for_each(|(l, r)| {
-            if *l != *r {
-                if *l == 1 {
-                    *l = *r
-                } else if *r != 1 {
-                    panic!("The two tensors have incompatible shape.")
-                }
+        .filter(|(l, r)| l != r)
+        .for_each(|(l, &r)| {
+            if *l == 1 {
+                *l = r
+            } else if r != 1 {
+                panic!("The two tensors have incompatible shape.")
             }
         });
 
@@ -159,17 +159,19 @@ where
     E: Dimension,
 {
     let mut src = src.clone().into_dyn();
-
     while src.ndim() > dim.ndim() {
         sum_axis_inplace(&mut src, Axis(0));
     }
 
-    for (axis, size) in dim.slice().iter().enumerate() {
-        if *size == 1 {
-            sum_axis_inplace(&mut src, Axis(axis));
-            src.insert_axis_inplace(Axis(axis));
-        }
-    }
+    dim.slice()
+        .iter()
+        .enumerate()
+        .filter(|(_, &size)| size == 1)
+        .for_each(|(axis, _)| {
+            let axis = Axis(axis);
+            sum_axis_inplace(&mut src, axis);
+            src.insert_axis_inplace(axis)
+        });
 
     debug_assert_eq!(
         src.raw_dim(),
@@ -177,11 +179,10 @@ where
         "Dimension mismatch in gradient reduction."
     );
 
-    if src.is_standard_layout() {
-        src.into_dimensionality::<D>().unwrap()
-    } else {
-        src.clone().into_dimensionality::<D>().unwrap()
+    if !src.is_standard_layout() {
+        src = src.clone()
     }
+    src.into_dimensionality().unwrap()
 }
 
 /// Computes the shape of the array resulting from the **n**-dimensional convolution
@@ -487,4 +488,21 @@ pub(crate) fn check_groups_args(input_shape: &[usize], kernel_shape: &[usize], g
         kernel_shape[0],
         groups
     );
+}
+
+#[cfg(test)]
+pub(crate) fn new_shared<T>(item: T) -> Rc<RefCell<T>> {
+    Rc::new(RefCell::new(item))
+}
+
+#[cfg(test)]
+pub(crate) fn are_similar<D: Dimension>(
+    result: std::cell::Ref<Array<f32, D>>,
+    expected: &Array<f32, D>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !result.abs_diff_eq(expected, f32::EPSILON) {
+        return Err(format!("Result: {} | Expected: {}", result, expected).into());
+    }
+
+    Ok(())
 }
