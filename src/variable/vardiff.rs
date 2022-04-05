@@ -984,7 +984,7 @@ where
             &rhs.data.borrow(),
         )));
         let buff = Rc::new(BufferedGradient::new(grad.clone()));
-        let op = MultiplicationBackwardLeft::new(self.grad, rhs.data.clone(), buff.clone());
+        let op = MultiplicationBackwardLeft::new(rhs.data.clone(), self.grad, buff.clone());
         let var = self.var.mul(rhs);
 
         VarDiff::node(var, grad, (Rc::new(op), buff), self.history)
@@ -1006,8 +1006,8 @@ where
             &rhs.var.data.borrow(),
         )));
         let buff = Rc::new(BufferedGradient::new(grad.clone()));
-        let left = MultiplicationBackwardLeft::new(self.grad, rhs.var.data.clone(), buff.clone());
-        let right = MultiplicationBackwardRight::new(rhs.grad, self.var.data.clone(), buff.clone());
+        let left = MultiplicationBackwardLeft::new(rhs.var.data.clone(), self.grad, buff.clone());
+        let right = MultiplicationBackwardRight::new(self.var.data.clone(), rhs.grad, buff.clone());
         let op = MultiplicationBackward::new(left, right);
         let var = self.var.mul(rhs.var);
 

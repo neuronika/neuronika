@@ -1,431 +1,313 @@
-use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cache, Data,
-    Forward, Gradient, Multiplication, MultiplicationBackward, MultiplicationBackwardUnary,
-    Overwrite, Tensor,
-};
+use std::{error::Error, rc::Rc};
+
+use ndarray::Array;
+
+use crate::variable::utils::{are_similar, new_shared};
 
 mod forward {
-    use super::{
-        assert_almost_equals, new_input, new_tensor, Cache, Data, Forward, Multiplication, Tensor,
-    };
+    use super::super::{Forward, Multiplication};
+    use super::*;
 
     #[test]
-    fn creation() {
-        let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let right = new_input((3, 3), vec![-1.; 9]);
-        let node = Multiplication::new(left, right);
-
-        assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-        assert_eq!(*node.data_mut(), Tensor::from_elem((3, 3), 0.));
-        assert!(!node.was_computed());
-    }
-
-    #[test]
-    fn computation_was_computed_transition() {
-        let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let right = new_input((3, 3), vec![-1.; 9]);
-        let node = Multiplication::new(left, right);
-
-        node.forward();
-        assert!(node.was_computed());
-
-        node.forward();
-        assert!(node.was_computed());
-
-        node.reset_computation();
-        assert!(!node.was_computed());
-
-        node.reset_computation();
-        assert!(!node.was_computed());
-    }
-
-    #[test]
-    fn forward() {
-        let left = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let right = new_input((3, 3), vec![-1.; 9]);
-        let node = Multiplication::new(left, right.clone());
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
+    fn creation() -> Result<(), Box<dyn Error>> {
+        let left = Array::linspace(1., 9., 9).into_shape((3, 3))?;
+        let right = Array::from_elem((3, 3), 2.);
+        let data = Array::zeros((3, 3));
+        let op = Multiplication::new(
+            new_shared(left.clone()),
+            new_shared(right.clone()),
+            new_shared(data.clone()),
         );
 
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        *right.data_mut() = new_tensor((3, 3), vec![2.; 9]);
-        assert_almost_equals(&*right.data(), &new_tensor((3, 3), vec![2.; 9]));
-
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor((3, 3), vec![4., 3., 2., 1., 0., -1., -2., -3., -4.]),
-        );
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.reset_computation();
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor((3, 3), vec![-8., -6., -4., -2., 0., 2., 4., 6., 8.]),
-        );
+        are_similar(op.left_data.borrow(), &left)?;
+        are_similar(op.right_data.borrow(), &right)?;
+        are_similar(op.data.borrow(), &data)
     }
 
     #[test]
-    fn left_broadcast_forward() {
-        let left = new_input((1, 3), vec![-1., 0., 1.]);
-        let right = new_input((2, 2, 3), vec![-2.; 12]);
-        let node = Multiplication::new(left, right);
-
-        assert_eq!(*node.data(), Tensor::from_elem((2, 2, 3), 0.));
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor(
-                (2, 2, 3),
-                vec![2., 0., -2., 2., 0., -2., 2., 0., -2., 2., 0., -2.],
-            ),
+    fn base_case() -> Result<(), Box<dyn Error>> {
+        let left = Array::linspace(1., 9., 9).into_shape((3, 3))?;
+        let right = Array::from_elem((3, 3), 2.);
+        let data = Array::zeros((3, 3));
+        let op = Multiplication::new(
+            new_shared(left.clone()),
+            new_shared(right.clone()),
+            new_shared(data),
         );
+
+        op.forward();
+        are_similar(op.data.borrow(), &(left * right))
     }
 
     #[test]
-    fn right_broadcast_forward() {
-        let left = new_input((2, 2, 3), vec![-2.; 12]);
-        let right = new_input((1, 3), vec![-1., 0., 1.]);
-        let node = Multiplication::new(left, right);
-
-        assert_eq!(*node.data(), Tensor::from_elem((2, 2, 3), 0.));
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor(
-                (2, 2, 3),
-                vec![2., 0., -2., 2., 0., -2., 2., 0., -2., 2., 0., -2.],
-            ),
+    fn left_broadcast() -> Result<(), Box<dyn Error>> {
+        let left = Array::linspace(1., 3., 3).into_shape((1, 3))?;
+        let right = Array::from_elem((2, 2, 3), 2.);
+        let data = Array::zeros((2, 2, 3));
+        let op = Multiplication::new(
+            new_shared(left.clone()),
+            new_shared(right.clone()),
+            new_shared(data),
         );
+
+        op.forward();
+        are_similar(op.data.borrow(), &(left * right))
     }
 
     #[test]
-    fn debug() {
-        let left = new_input(1, vec![0.]);
-        let right = new_input(1, vec![0.]);
-        let node = Multiplication::new(left, right);
+    #[should_panic]
+    fn wrong_left_broadcast() {
+        let left = Array::zeros((3, 3));
+        let right = Array::zeros((2, 2, 3));
+        let data = Array::zeros((2, 2, 3));
+        let op = Multiplication::new(new_shared(left), new_shared(right), new_shared(data));
 
-        let output = "Multiplication { data: [0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1, computed: false }";
-
-        assert_eq!(output, format!("{:?}", node));
+        op.forward();
     }
 
     #[test]
-    fn display() {
-        let left = new_input(1, vec![0.]);
-        let right = new_input(1, vec![0.]);
-        let node = Multiplication::new(left, right);
+    fn right_broadcast() -> Result<(), Box<dyn Error>> {
+        let left = Array::from_elem((2, 2, 3), 2.);
+        let right = Array::linspace(1., 3., 3).into_shape((1, 3))?;
+        let data = Array::zeros((2, 2, 3));
+        let op = Multiplication::new(
+            new_shared(left.clone()),
+            new_shared(right.clone()),
+            new_shared(data),
+        );
 
-        assert_eq!(format!("{}", node.data()), format!("{}", node));
+        op.forward();
+        are_similar(op.data.borrow(), &(left * right))
+    }
+
+    #[test]
+    #[should_panic]
+    fn wrong_right_broadcast() {
+        let left = Array::zeros((2, 2, 3));
+        let right = Array::zeros((3, 3));
+        let data = Array::zeros((2, 2, 3));
+        let op = Multiplication::new(new_shared(left), new_shared(right), new_shared(data));
+
+        op.forward();
     }
 }
+
 mod backward {
-    use super::{
-        assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Gradient,
-        MultiplicationBackward, MultiplicationBackwardUnary, Overwrite, Tensor,
+    use super::super::{
+        Backward, BufferedGradient, Gradient, MultiplicationBackward, MultiplicationBackwardLeft,
+        MultiplicationBackwardRight,
     };
+    use super::*;
 
     #[test]
-    fn creation() {
-        let node = MultiplicationBackward::new(
-            new_input((3, 3), vec![3.; 9]),
-            new_backward_input((3, 3), vec![0.; 9]),
-            new_input((3, 3), vec![5.; 9]),
-            new_backward_input((3, 3), vec![0.; 9]),
+    fn left_creation() -> Result<(), Box<dyn Error>> {
+        let left_grad = Array::ones((3, 3));
+        let right_data = Array::from_elem((3, 3), 2.);
+        let grad = Array::from_elem((3, 3), 3.);
+        let buff = Array::zeros((3, 3));
+        let op = MultiplicationBackwardLeft::new(
+            new_shared(right_data.clone()),
+            Rc::new(Gradient::from_ndarray(left_grad.clone())),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
+                grad.clone(),
+            )))),
         );
 
-        assert_eq!(*node.gradient(), Tensor::from_elem((3, 3), 0.));
-        assert_eq!(*node.gradient_mut(), Tensor::from_elem((3, 3), 0.));
-        assert!(node.can_overwrite());
+        are_similar(op.left_gradient.borrow(), &left_grad)?;
+        are_similar(op.right_data.borrow(), &right_data)?;
+        are_similar(op.gradient.borrow(), &grad)?;
+        are_similar(op.gradient.buffer(), &buff)
     }
 
     #[test]
-    fn computation_state_transition() {
-        let lhs = new_backward_input((3, 3), vec![0.; 9]);
-        let rhs = new_backward_input((3, 3), vec![0.; 9]);
-        let node = MultiplicationBackward::new(
-            new_input((3, 3), vec![3.; 9]),
-            lhs.clone(),
-            new_input((3, 3), vec![5.; 9]),
-            rhs.clone(),
+    fn left_base_case() -> Result<(), Box<dyn Error>> {
+        let left_grad = Array::zeros((3, 3));
+        let right_data = Array::from_elem((3, 3), 5.);
+        let grad = Array::from_elem((3, 3), 1.);
+        let op = MultiplicationBackwardLeft::new(
+            new_shared(right_data.clone()),
+            Rc::new(Gradient::from_ndarray(left_grad)),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
+                grad.clone(),
+            )))),
         );
 
-        node.backward();
-        assert!(node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
+        op.backward();
+        are_similar(op.left_gradient.borrow(), &Array::from_elem((3, 3), 5.))?;
+        are_similar(op.right_data.borrow(), &right_data)?;
+        are_similar(op.gradient.borrow(), &grad)?;
 
-        node.backward();
-        assert!(node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        lhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        lhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        rhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        rhs.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        node.set_overwrite(false);
-        assert!(!node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        node.set_overwrite(false);
-        assert!(!node.can_overwrite());
-        assert!(lhs.can_overwrite());
-        assert!(rhs.can_overwrite());
-
-        node.backward();
-        assert!(!node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
-
-        node.backward();
-        assert!(!node.can_overwrite());
-        assert!(!lhs.can_overwrite());
-        assert!(!rhs.can_overwrite());
+        op.backward();
+        are_similar(op.left_gradient.borrow(), &Array::from_elem((3, 3), 10.))?;
+        are_similar(op.right_data.borrow(), &right_data)?;
+        are_similar(op.gradient.borrow(), &grad)
     }
 
     #[test]
-    fn backward() {
-        let lhs = new_backward_input((3, 3), vec![0.; 9]);
-        let rhs = new_backward_input((3, 3), vec![0.; 9]);
-        let node = MultiplicationBackward::new(
-            new_input((3, 3), vec![3.; 9]),
-            lhs.clone(),
-            new_input((3, 3), vec![5.; 9]),
-            rhs.clone(),
+    fn left_reduction() -> Result<(), Box<dyn Error>> {
+        let left_grad = Array::zeros(3);
+        let right_data = Array::from_elem((3, 3), 5.);
+        let grad = Array::from_elem((3, 3), 1.);
+        let op = MultiplicationBackwardLeft::new(
+            new_shared(right_data.clone()),
+            Rc::new(Gradient::from_ndarray(left_grad)),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
+                grad.clone(),
+            )))),
         );
 
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
-        assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
+        op.backward();
+        are_similar(op.left_gradient.borrow(), &Array::from_elem(3, 15.))?;
+        are_similar(op.right_data.borrow(), &right_data)?;
+        are_similar(op.gradient.borrow(), &grad)?;
 
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![10.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![6.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        lhs.set_overwrite(true);
-        rhs.set_overwrite(true);
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
+        op.backward();
+        are_similar(op.left_gradient.borrow(), &Array::from_elem(3, 30.))?;
+        are_similar(op.right_data.borrow(), &right_data)?;
+        are_similar(op.gradient.borrow(), &grad)
     }
 
     #[test]
-    fn backward_broadcast_left() {
-        let lhs = new_backward_input(3, vec![0.; 3]);
-        let rhs = new_backward_input((3, 3), vec![0.; 9]);
-        let node = MultiplicationBackward::new(
-            new_input(3, vec![3.; 3]),
-            lhs.clone(),
-            new_input((3, 3), vec![5.; 9]),
-            rhs.clone(),
+    #[should_panic]
+    fn wrong_left_reduction() {
+        let left_grad = Array::zeros((3, 3));
+        let right_data = Array::zeros((2, 2, 3));
+        let grad = Array::zeros((2, 2, 3));
+        let op = MultiplicationBackwardLeft::new(
+            new_shared(right_data),
+            Rc::new(Gradient::from_ndarray(left_grad)),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(grad)))),
         );
 
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
-        assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![15.; 3]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![30.; 3]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![6.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        lhs.set_overwrite(true);
-        rhs.set_overwrite(true);
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor(3, vec![15.; 3]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((3, 3), vec![3.; 9]));
+        op.backward();
     }
 
     #[test]
-    fn backward_broadcast_right() {
-        let lhs = new_backward_input((3, 3), vec![0.; 9]);
-        let rhs = new_backward_input((1, 3), vec![0.; 3]);
-        let node = MultiplicationBackward::new(
-            new_input((3, 3), vec![3.; 9]),
-            lhs.clone(),
-            new_input((1, 3), vec![5.; 3]),
-            rhs.clone(),
+    fn right_creation() -> Result<(), Box<dyn Error>> {
+        let left_data = Array::ones((3, 3));
+        let right_grad = Array::from_elem((3, 3), 2.);
+        let grad = Array::from_elem((3, 3), 3.);
+        let buff = Array::zeros((3, 3));
+        let op = MultiplicationBackwardRight::new(
+            new_shared(left_data.clone()),
+            Rc::new(Gradient::from_ndarray(right_grad.clone())),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
+                grad.clone(),
+            )))),
         );
 
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
-        assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((1, 3), vec![9.; 3]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![10.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((1, 3), vec![18.; 3]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        lhs.set_overwrite(true);
-        rhs.set_overwrite(true);
-        node.backward();
-        assert_almost_equals(&*lhs.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-        assert_almost_equals(&*rhs.gradient(), &new_tensor((1, 3), vec![9.; 3]));
+        are_similar(op.left_data.borrow(), &left_data)?;
+        are_similar(op.right_gradient.borrow(), &right_grad)?;
+        are_similar(op.gradient.borrow(), &grad)?;
+        are_similar(op.gradient.buffer(), &buff)
     }
 
     #[test]
-    fn backward_unary() {
-        let diff = new_backward_input((3, 3), vec![0.; 9]);
-        let node = MultiplicationBackwardUnary::new(diff.clone(), new_input((3, 3), vec![5.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
-        assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![10.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        diff.set_overwrite(true);
-        node.backward();
-        assert_almost_equals(&*diff.gradient(), &new_tensor((3, 3), vec![5.; 9]));
-    }
-
-    #[test]
-    fn backward_unary_broadcast() {
-        let diff = new_backward_input(3, vec![0.; 3]);
-        let node = MultiplicationBackwardUnary::new(diff.clone(), new_input((3, 3), vec![5.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        *node.gradient_mut() = new_tensor((3, 3), vec![1.; 9]);
-        assert_almost_equals(&*node.gradient(), &new_tensor((3, 3), vec![1.; 9]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![15.; 3]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![30.; 3]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        diff.set_overwrite(true);
-        node.backward();
-        assert_almost_equals(&*diff.gradient(), &new_tensor(3, vec![15.; 3]));
-    }
-
-    #[test]
-    fn no_grad() {
-        // MultiplicationBackward
-        let node = MultiplicationBackward::new(
-            new_input((3, 3), vec![0.; 9]),
-            new_backward_input((3, 3), vec![0.; 9]),
-            new_input((3, 3), vec![0.; 9]),
-            new_backward_input((3, 3), vec![0.; 9]),
+    fn right_base_case() -> Result<(), Box<dyn Error>> {
+        let left_data = Array::from_elem((3, 3), 5.);
+        let right_grad = Array::zeros((3, 3));
+        let grad = Array::ones((3, 3));
+        let op = MultiplicationBackwardRight::new(
+            new_shared(left_data),
+            Rc::new(Gradient::from_ndarray(right_grad)),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
+                grad.clone(),
+            )))),
         );
 
-        node.no_grad();
-        assert!(node.gradient.borrow().is_none());
+        op.backward();
+        are_similar(op.right_gradient.borrow(), &Array::from_elem((3, 3), 5.))?;
+        are_similar(op.gradient.borrow(), &grad)?;
 
-        node.with_grad();
-        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        op.backward();
+        are_similar(op.right_gradient.borrow(), &Array::from_elem((3, 3), 10.))?;
+        are_similar(op.gradient.borrow(), &grad)
+    }
 
-        // MultiplicationBackwardUnary
-        let node = MultiplicationBackwardUnary::new(
-            new_backward_input((3, 3), vec![0.; 9]),
-            new_input((3, 3), vec![0.; 9]),
+    #[test]
+    fn right_reduction() -> Result<(), Box<dyn Error>> {
+        let left_data = Array::from_elem((3, 3), 5.);
+        let right_grad = Array::zeros(3);
+        let grad = Array::ones((3, 3));
+        let op = MultiplicationBackwardRight::new(
+            new_shared(left_data),
+            Rc::new(Gradient::from_ndarray(right_grad)),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
+                grad.clone(),
+            )))),
         );
 
-        node.no_grad();
-        assert!(node.gradient.borrow().is_none());
+        op.backward();
+        are_similar(op.right_gradient.borrow(), &Array::from_elem(3, 15.))?;
+        are_similar(op.gradient.borrow(), &grad)?;
 
-        node.with_grad();
-        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
+        op.backward();
+        are_similar(op.right_gradient.borrow(), &Array::from_elem(3, 30.))?;
+        are_similar(op.gradient.borrow(), &grad)
     }
 
     #[test]
-    fn debug() {
-        {
-            let node = MultiplicationBackward::new(
-                new_input(1, vec![0.]),
-                new_backward_input(1, vec![0.]),
-                new_input(1, vec![0.]),
-                new_backward_input(1, vec![0.]),
-            );
-
-            let output = "MultiplicationBackward { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
-            assert_eq!(output, format!("{:?}", node));
-        }
-    }
-
-    #[test]
-    fn debug_unary() {
-        let node = MultiplicationBackwardUnary::new(
-            new_backward_input(1, vec![0.]),
-            new_input(1, vec![0.]),
+    #[should_panic]
+    fn wrong_right_reduction() {
+        let left_data = Array::zeros((2, 2, 3));
+        let right_grad = Array::zeros((3, 3));
+        let grad = Array::zeros((2, 2, 3));
+        let op = MultiplicationBackwardRight::new(
+            new_shared(left_data),
+            Rc::new(Gradient::from_ndarray(right_grad)),
+            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(grad)))),
         );
 
-        let output = "MultiplicationBackwardUnary { gradient: Some([0.0], shape=[1], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
-        assert_eq!(output, format!("{:?}", node));
+        op.backward();
     }
 
     #[test]
-    fn display() {
-        {
-            let node = MultiplicationBackward::new(
-                new_input(1, vec![0.]),
-                new_backward_input(1, vec![0.]),
-                new_input(1, vec![0.]),
-                new_backward_input(1, vec![0.]),
-            );
-            assert_eq!(format!("{}", node.gradient()), format!("{}", node));
-        }
-    }
-
-    #[test]
-    fn display_unary() {
-        let node = MultiplicationBackwardUnary::new(
-            new_backward_input(1, vec![0.]),
-            new_input(1, vec![0.]),
+    fn backward() -> Result<(), Box<dyn Error>> {
+        let left_data = Array::from_elem((3, 3), 3.);
+        let left_grad = Array::zeros((3, 3));
+        let right_data = Array::from_elem((3, 3), 5.);
+        let right_grad = Array::zeros((3, 3));
+        let grad = Array::from_elem((3, 3), 1.);
+        let shared_grad = Rc::new(Gradient::from_ndarray(grad.clone()));
+        let op = MultiplicationBackward::new(
+            MultiplicationBackwardLeft::new(
+                new_shared(right_data.clone()),
+                Rc::new(Gradient::from_ndarray(left_grad)),
+                Rc::new(BufferedGradient::new(shared_grad.clone())),
+            ),
+            MultiplicationBackwardRight::new(
+                new_shared(left_data.clone()),
+                Rc::new(Gradient::from_ndarray(right_grad)),
+                Rc::new(BufferedGradient::new(shared_grad)),
+            ),
         );
-        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+
+        op.backward();
+        are_similar(
+            op.left.left_gradient.borrow(),
+            &Array::from_elem((3, 3), 5.),
+        )?;
+        are_similar(op.left.right_data.borrow(), &right_data)?;
+        are_similar(op.left.gradient.borrow(), &grad)?;
+        are_similar(
+            op.right.right_gradient.borrow(),
+            &Array::from_elem((3, 3), 3.),
+        )?;
+        are_similar(op.right.left_data.borrow(), &left_data)?;
+        are_similar(op.right.gradient.borrow(), &grad)?;
+
+        op.backward();
+        are_similar(
+            op.left.left_gradient.borrow(),
+            &Array::from_elem((3, 3), 10.),
+        )?;
+        are_similar(op.left.right_data.borrow(), &right_data)?;
+        are_similar(op.left.gradient.borrow(), &grad)?;
+        are_similar(
+            op.right.right_gradient.borrow(),
+            &Array::from_elem((3, 3), 6.),
+        )?;
+        are_similar(op.right.left_data.borrow(), &left_data)?;
+        are_similar(op.right.gradient.borrow(), &grad)
     }
 }

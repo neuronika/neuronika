@@ -55,8 +55,8 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    left_gradient: Rc<Gradient<D>>,
     right_data: Shared<Array<f32, E>>,
+    left_gradient: Rc<Gradient<D>>,
     gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
 }
 
@@ -66,13 +66,13 @@ where
     E: Dimension,
 {
     pub(crate) fn new(
-        left_gradient: Rc<Gradient<D>>,
         right_data: Shared<Array<f32, E>>,
+        left_gradient: Rc<Gradient<D>>,
         gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
     ) -> Self {
         Self {
-            left_gradient,
             right_data,
+            left_gradient,
             gradient,
         }
     }
@@ -101,8 +101,8 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    right_gradient: Rc<Gradient<E>>,
     left_data: Shared<Array<f32, D>>,
+    right_gradient: Rc<Gradient<E>>,
     gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
 }
 
@@ -112,13 +112,13 @@ where
     E: Dimension,
 {
     pub(crate) fn new(
-        right_gradient: Rc<Gradient<E>>,
         left_data: Shared<Array<f32, D>>,
+        right_gradient: Rc<Gradient<E>>,
         gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
     ) -> Self {
         Self {
-            right_gradient,
             left_data,
+            right_gradient,
             gradient,
         }
     }
@@ -174,8 +174,5 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
