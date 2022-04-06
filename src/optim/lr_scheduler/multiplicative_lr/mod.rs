@@ -104,3 +104,6 @@ where
         self.current_epoch.get()
     }
 }
+
+#[cfg(test)]
+mod test;

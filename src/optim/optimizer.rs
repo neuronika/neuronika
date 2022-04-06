@@ -50,10 +50,12 @@ where
         Self { status, params }
     }
 
+    /// Returns the current learning rate.
     pub fn get_lr(&self) -> f32 {
         self.status.get_lr()
     }
 
+    /// Sets a new value for the learning rate.
     pub fn set_lr(&self, lr: f32) {
         self.status.set_lr(lr)
     }
@@ -89,5 +91,14 @@ where
             .borrow_mut()
             .iter_mut()
             .for_each(|param| param.zero_grad());
+    }
+}
+
+impl<T> Default for Optimizer<T>
+where
+    T: OptimizerStatus + Default,
+{
+    fn default() -> Self {
+        Self::new(T::default())
     }
 }
