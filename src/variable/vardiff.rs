@@ -1080,7 +1080,7 @@ impl MatMatMul<Var<Ix2>> for VarDiff<Ix2> {
             self.var.data().raw_dim(),
             rhs.data().raw_dim(),
         )));
-        let op = MatrixMatrixMulBackwardLeft::new(self.grad, rhs.data.clone(), grad.clone());
+        let op = MatrixMatrixMulBackwardLeft::new(rhs.data.clone(), self.grad, grad.clone());
         let var = self.var.mm(rhs);
 
         VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
@@ -1097,7 +1097,7 @@ impl MatMatMul<VarDiff<Ix2>> for VarDiff<Ix2> {
             self.var.data().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
-        let left = MatrixMatrixMulBackwardLeft::new(self.grad, rhs.var.data.clone(), grad.clone());
+        let left = MatrixMatrixMulBackwardLeft::new(rhs.var.data.clone(), self.grad, grad.clone());
         let right =
             MatrixMatrixMulBackwardRight::new(self.var.data.clone(), rhs.grad, grad.clone());
         let op = MatrixMatrixMulBackward::new(left, right);

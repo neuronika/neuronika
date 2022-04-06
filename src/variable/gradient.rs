@@ -95,6 +95,7 @@ where
         self.gradient.borrow()
     }
 
+    #[cfg(test)]
     pub(crate) fn buffer(&self) -> Ref<Array<f32, D>> {
         Ref::map(self.buffer.borrow(), |option| {
             option.as_ref().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")

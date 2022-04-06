@@ -1,6 +1,8 @@
-use crate::variable::utils::{are_similar, new_shared};
-use ndarray::Array;
 use std::{error::Error, rc::Rc};
+
+use ndarray::Array;
+
+use crate::variable::utils::{are_similar, new_shared};
 
 mod forward {
     use super::super::{Addition, Forward};

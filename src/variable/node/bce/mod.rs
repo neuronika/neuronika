@@ -9,7 +9,6 @@ use crate::{
 
 use super::{Backward, Forward};
 
-#[allow(clippy::upper_case_acronyms)]
 pub(crate) struct BinaryCrossEntropy<D>
 where
     D: Dimension,
@@ -44,16 +43,10 @@ where
     D: Dimension,
 {
     fn forward(&self) {
-        let (mut data, input_data, target_data) = {
-            (
-                self.data.borrow_mut(),
-                self.input_data.borrow(),
-                self.target_data.borrow(),
-            )
-        };
+        let (input_data, target_data) = (self.input_data.borrow(), self.target_data.borrow());
 
         const MIN_LOG: f32 = -100.;
-        *data = {
+        *self.data.borrow_mut() = {
             let total_loss =
                 Zip::from(&*input_data)
                     .and(&*target_data)
@@ -69,7 +62,6 @@ where
     }
 }
 
-#[allow(clippy::upper_case_acronyms)]
 pub(crate) struct BinaryCrossEntropyBackward<D>
 where
     D: Dimension,

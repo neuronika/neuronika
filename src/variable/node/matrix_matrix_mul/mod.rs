@@ -39,20 +39,20 @@ impl Forward for MatrixMatrixMul {
 }
 
 pub(crate) struct MatrixMatrixMulBackwardLeft {
-    left_gradient: Rc<Gradient<Ix2>>,
     right_data: Shared<Array2<f32>>,
+    left_gradient: Rc<Gradient<Ix2>>,
     gradient: Rc<Gradient<Ix2>>,
 }
 
 impl MatrixMatrixMulBackwardLeft {
     pub(crate) fn new(
-        left_gradient: Rc<Gradient<Ix2>>,
         right_data: Shared<Array2<f32>>,
+        left_gradient: Rc<Gradient<Ix2>>,
         gradient: Rc<Gradient<Ix2>>,
     ) -> Self {
         Self {
-            left_gradient,
             right_data,
+            left_gradient,
             gradient,
         }
     }
@@ -123,8 +123,5 @@ impl Backward for MatrixMatrixMulBackward {
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
