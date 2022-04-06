@@ -199,11 +199,9 @@ pub mod optim;
 mod variable;
 
 use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
-use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
+use ndarray_rand::{rand_distr::Uniform, RandomExt};
 pub use variable::{
-    Cat, /*Convolve, ConvolveWithGroups*/ MatMatMul, MatMatMulT, MatVecMul, Stack, Var,
-    VarDiff, VecMatMul, VecVecMul,
+    Cat, Convolution, MatMatMul, MatMatMulT, MatVecMul, Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
 
 /// Specifies the reduction to apply to the criterion output.
