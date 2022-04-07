@@ -35,8 +35,7 @@ neuronika = { git = "https://github.com/neuronika/neuronika" }
 
 ## Dynamic neural networks and auto-differentiation
 
-At the core of Neuronika lies a mechanism called reverse-mode automatic differentiation, that allows you
-to define dynamically changing neural networks with very low effort and no overhead by using a lean, fully imperative and define by run API.
+At the core of Neuronika lies a mechanism *called reverse-mode automatic differentiation*, that allows you to define dynamically changing neural networks with very low effort and no overhead by using a lean, fully imperative and define by run API.
 
 ![](./misc/neuronika_ad.gif)
 
@@ -47,16 +46,22 @@ There's no need for a FFI, everything happens in front of your eyes.
 
 ## Crate Feature Flags
 
-The following crate feature flags are available. They configure the [`ndarray`](https://github.com/rust-ndarray/ndarray) backend.
+You can use the following crate feature flags to configure the [`ndarray`] backend:
 
-* `serialize` 
-  * Enables serialization support for [`serde`](https://github.com/serde-rs/serde) 1.x.
+* `serialize`:
+  Enables serialization support for [`serde`] `1.x`.
 
-* `blas`
-  * Enables transparent BLAS support for matrix multiplication. Uses `blas-src` for pluggable backend, which needs to be configured separately. See [`here`](https://github.com/rust-ndarray/ndarray#how-to-enable-blas-integration) for more informations.
+* `blas`: 
+  Enables transparent [BLAS] support for matrix multiplication, which uses `blas-src` for pluggable backend, which needs to be configured separately. See [here] for more informations.
 
-* `matrixmultiply-threading`
-  * Enables the `threading` feature in the [`matrixmultiply`](https://github.com/bluss/matrixmultiply) package.
+* `matrixmultiply-threading`:
+  Enables the `threading` feature in the [`matrixmultiply`] package.
+
+[`ndarray`]: https://github.com/rust-ndarray/ndarray
+[`serde`]: https://github.com/serde-rs/serde
+[BLAS]: https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms
+[here]: https://github.com/rust-ndarray/ndarray#how-to-enable-blas-integration
+[`matrixmultiply`]: https://github.com/bluss/matrixmultiply
 
 ## Contributing
 

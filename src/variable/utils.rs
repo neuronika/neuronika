@@ -112,20 +112,17 @@ where
     let mut out = <D as DimMax<E>>::Output::zeros(bigger.len());
     out.slice_mut()
         .iter_mut()
-        .zip(bigger.iter())
+        .zip(bigger)
         .for_each(|(l, &r)| *l = r);
 
     out.slice_mut()
         .iter_mut()
         .skip(bigger.len() - smaller.len())
-        .zip(smaller.iter())
+        .zip(smaller)
         .filter(|(l, r)| l != r)
-        .for_each(|(l, &r)| {
-            if *l == 1 {
-                *l = r
-            } else if r != 1 {
-                panic!("The two tensors have incompatible shape.")
-            }
+        .for_each(|(l, &r)| match l {
+            1 => *l = r,
+            _ => assert_eq!(r, 1, "The two tensors have incompatible shape."),
         });
 
     Array::zeros(out)
