@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use ndarray::{
-    Array, ArrayBase, ArrayD, ArrayViewD, ArrayViewMutD, Axis, Data, DataMut, DimMax, Dimension,
-    Ix1, Ix2, Ix3, ShapeBuilder, Slice, Zip,
+    Array, ArrayBase, ArrayViewD, ArrayViewMutD, Axis, Data, DataMut, DimMax, Dimension, Ix1, Ix2,
+    Ix3, ShapeBuilder, Slice,
 };
 
 /// Shorthand for `Rc<RefCell<T>>`.
@@ -128,58 +128,52 @@ where
     Array::zeros(out)
 }
 
-/// Shrinks `array` summing in-place along `axis`.
+/// Accumulates `source` into `target`, reverting the broadcasting.
 ///
-/// # Arguments
+/// ## Arguments
 ///
-/// * `array` - array to reduce.
-///
-/// * `axis` - axis to sum along to.
-fn sum_axis_inplace(array: &mut ArrayD<f32>, axis: Axis) {
-    let (first, rest) = array.view_mut().split_at(axis, 1);
-    Zip::from(first.remove_axis(axis))
-        .and(rest.lanes(axis))
-        .for_each(|dst, src| *dst += src.sum());
-    array.index_axis_inplace(axis, 0);
-}
-
-/// Reduces `src` to the desired `dim` dimension, reverting the broadcasting.
-///
-/// # Arguments
-///
-/// * `dim` - desired dimension for the source tensor.
-///
-/// * `src` - tensor to reduce.
-pub(crate) fn reduce<D, E>(dim: D, src: &Array<f32, E>) -> Array<f32, D>
+/// * `source` - Tensor to reduce.
+/// * `target` - Tensor in which the accumulation must be pushed.
+pub(crate) fn accumulate<D, E>(target: &mut Array<f32, D>, source: &Array<f32, E>)
 where
     D: Dimension,
     E: Dimension,
 {
-    let mut src = src.clone().into_dyn();
-    while src.ndim() > dim.ndim() {
-        sum_axis_inplace(&mut src, Axis(0));
+    debug_assert!(target.ndim() <= source.ndim());
+
+    if source.shape() == target.shape() {
+        *target += source;
+        return;
     }
 
-    dim.slice()
-        .iter()
-        .enumerate()
-        .filter(|(_, &size)| size == 1)
-        .for_each(|(axis, _)| {
-            let axis = Axis(axis);
-            sum_axis_inplace(&mut src, axis);
-            src.insert_axis_inplace(axis)
-        });
+    // Computes the difference between the number of dimensions
+    let target_dims = target.ndim();
+    let source_shape = source.shape();
+    let k = source_shape.len() - target_dims;
+    let mut reshape = D::Larger::zeros(target_dims + 1);
+    reshape[0] = source_shape[..k].iter().product();
+    reshape
+        .slice_mut()
+        .iter_mut()
+        .skip(1)
+        .zip(source_shape.iter().skip(k))
+        .for_each(|(r, &s)| *r = s);
 
-    debug_assert_eq!(
-        src.raw_dim(),
-        dim.into_dyn(),
-        "Dimension mismatch in gradient reduction."
-    );
-
-    if !src.is_standard_layout() {
-        src = src.clone()
+    // Reshapes such that the sub-views match the dimensionality of target
+    let view = source.view().into_shape(reshape).unwrap();
+    let axis = Axis(target_dims - 1);
+    let mut lanes_v = view.lanes(axis).into_iter();
+    while lanes_v.len() > 0 {
+        for mut lane_t in target.lanes_mut(axis) {
+            if let Some(lane_v) = lanes_v.next() {
+                if lane_t.len() == 1 {
+                    lane_t[0] += lane_v.sum();
+                } else {
+                    lane_t += &lane_v;
+                }
+            }
+        }
     }
-    src.into_dimensionality().unwrap()
 }
 
 /// Computes the shape of the array resulting from the **n**-dimensional convolution

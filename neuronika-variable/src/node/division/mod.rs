@@ -4,7 +4,7 @@ use ndarray::{Array, DimMax, Dimension, Zip};
 
 use crate::{
     gradient::{BufferedGradient, Gradient},
-    utils::{reduce, Broadcast, Shared},
+    utils::{accumulate, Broadcast, Shared},
 };
 
 use super::{Backward, Forward};
@@ -90,8 +90,7 @@ where
             .and_broadcast(&*self.right_data.borrow())
             .for_each(|d, &g, &r| *d = g / r);
 
-        let reduced = reduce(self.left_gradient.shape(), &buffer);
-        *self.left_gradient.borrow_mut() += &reduced;
+        accumulate(&mut self.left_gradient.borrow_mut(), &buffer);
     }
 }
 
@@ -139,8 +138,7 @@ where
             .and_broadcast(&*self.right_data.borrow())
             .for_each(|d, &g, &l, &r| *d = -g * l / r.powi(2));
 
-        let reduced = reduce(self.right_gradient.shape(), &buffer);
-        *self.right_gradient.borrow_mut() += &reduced;
+        accumulate(&mut self.right_gradient.borrow_mut(), &buffer);
     }
 }
 

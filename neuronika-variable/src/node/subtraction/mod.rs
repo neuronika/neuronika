@@ -4,7 +4,7 @@ use ndarray::{Array, DimMax, Dimension, Zip};
 
 use crate::{
     gradient::Gradient,
-    utils::{reduce, Broadcast, Shared},
+    utils::{accumulate, Broadcast, Shared},
 };
 
 use super::{Backward, Forward};
@@ -81,8 +81,10 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let reduced = reduce(self.operand_gradient.shape(), &self.gradient.borrow());
-        *self.operand_gradient.borrow_mut() += &reduced
+        accumulate(
+            &mut self.operand_gradient.borrow_mut(),
+            &self.gradient.borrow(),
+        );
     }
 }
 
@@ -117,8 +119,10 @@ where
     E: Dimension,
 {
     fn backward(&self) {
-        let reduced = reduce(self.operand_gradient.shape(), &self.gradient.borrow());
-        *self.operand_gradient.borrow_mut() -= &reduced;
+        accumulate(
+            &mut self.operand_gradient.borrow_mut(),
+            &self.gradient.borrow(),
+        );
     }
 }
 
