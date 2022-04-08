@@ -1,0 +1,13 @@
+[package]
+authors = ["Francesco Iannelli \"frjnn\"", "Stefano Pacchini \"ste-pac\""]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+name = "neuronika-data"
+version = "0.1.0"
+
+[dependencies]
+csv = "1.1.6"
+itertools = "0.10.3"
+ndarray = "0.15.4"
+rand = "0.8.4"
+serde = "1.0.130"

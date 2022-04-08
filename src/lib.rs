@@ -192,387 +192,699 @@
 // #![doc(
 //     html_favicon_url = "https://raw.githubusercontent.com/neuronika/neuronika/main/misc/neuronika_brain.ico"
 // )]
+pub use neuronika_variable::*;
 
-// pub mod data;
-// pub mod nn;
-pub mod optim;
-mod variable;
+pub mod optim {
 
-use ndarray::{Array, Array2, Dimension, Ix1, Ix2, ShapeBuilder};
-use ndarray_rand::{rand_distr::Uniform, RandomExt};
-pub use variable::{
-    Cat, Convolution, MatMatMul, MatMatMulT, MatVecMul, Stack, Var, VarDiff, VecMatMul, VecVecMul,
-};
-
-/// Specifies the reduction to apply to the criterion output.
-#[derive(Copy, Clone, Debug)]
-pub enum Reduction {
-    /// The output will be summed.
-    Sum,
-    /// The sum of the output will be divided by the batch size for the Kullback-Leibler divergence
-    /// and the negative log-likelihood. For all other criterions the output will be divided by
-    /// the number of elements.
-    Mean,
+    // //! Implementations of various optimization algorithms and penalty regularizations.
+    // //!
+    // //! Some of the most commonly used methods are already supported, and the interface is linear
+    // //! enough, so that more sophisticated ones can be also easily integrated in the future. The
+    // //! complete list can be found [here](#algorithms).
+    // //!
+    // //! An optimizer holds a state, in the form of a *representation*, for each of the parameters to
+    // //! optimize and it updates them accordingly to both their gradient and the state itself.
+    // //!
+    // //! # Using an optimizer
+    // //!
+    // //! The first step to be performed in order to use any optimizer is to construct it.
+    // //!
+    // //! ## Constructing it
+    // //!
+    // //! To construct an optimizer you have to pass it a vector of [`Param`](struct@Param) referring to
+    // //! the parameters you whish to optimize. Depending on the kind of optimizer you may also need to
+    // //! pass several optimizer-specific setting such as the learning rate, the momentum, etc.
+    // //!
+    // //! The optimization algorithms provided by neuronika are designed to work both with variables and
+    // //! neural networks.
+    // //!
+    // //! ```
+    // //! # use neuronika::Param;
+    // //! # use neuronika::nn::{ModelStatus, Linear, Learnable};
+    // //! # struct NeuralNetwork {
+    // //! #     lin1: Linear,
+    // //! #     lin2: Linear,
+    // //! #     lin3: Linear,
+    // //! #     status: ModelStatus,
+    // //! # }
+    // //! # impl NeuralNetwork {
+    // //! #     // Basic constructor.
+    // //! #     fn new() -> Self {
+    // //! #         let mut status = ModelStatus::default();
+    // //! #
+    // //! #         Self {
+    // //! #            lin1: status.register(Linear::new(25, 30)),
+    // //! #            lin2: status.register(Linear::new(30, 35)),
+    // //! #            lin3: status.register(Linear::new(35, 5)),
+    // //! #            status,
+    // //! #         }
+    // //! #     }
+    // //! #
+    // //! #     fn parameters(&self) -> Vec<Param> {
+    // //! #        self.status.parameters()
+    // //! #     }
+    // //! # }
+    // //! use neuronika;
+    // //! use neuronika::optim::{SGD, Adam, L1, L2};
+    // //!
+    // //! let p = neuronika::rand(5).requires_grad();
+    // //! let q = neuronika::rand(5).requires_grad();
+    // //! let x = neuronika::rand(5);
+    // //!
+    // //! let y = p * x + q;
+    // //! let optim = SGD::new(y.parameters(), 0.01, L1::new(0.05));
+    // //!
+    // //! let model = NeuralNetwork::new();
+    // //! let model_optim = Adam::new(model.parameters(), 0.01, (0.9, 0.999), L2::new(0.01), 1e-8);
+    // //! ```
+    // //!
+    // //! ## Taking an optimization step
+    // //!
+    // //! All neuronika's optimizer implement a [`.step()`](Optimizer::step()) method that updates the
+    // //! parameters.
+    // //!
+    // //! # Implementing an optimizer
+    // //!
+    // //! Implementing an optimizer in neuronika is quick and simple. The procedure consists in *3* steps:
+    // //!
+    // //! 1. Define its parameter's representation struct and specify how to build it from
+    // //! [`Param`](crate::Param).
+    // //!
+    // //! 2. Define its struct.
+    // //!
+    // //! 3. Implement the [`Optimizer`] trait.
+    // //!
+    // //! Let's go through them by implementing the classic version of the stochastic gradient descent.
+    // //!
+    // //! Firstly, we define the SGD parameter's struct and the conversion from `Param`.
+    // //!
+    // //! ```
+    // //! use neuronika::Param;
+    // //! use ndarray::{ArrayD, ArrayViewMutD};
+    // //!
+    // //! struct SGDParam<'a> {
+    // //!     data: ArrayViewMutD<'a, f32>,
+    // //!     grad: ArrayViewMutD<'a, f32>,
+    // //! }
+    // //!
+    // //! impl<'a> From<Param<'a>> for SGDParam<'a> {
+    // //!     fn from(param: Param<'a>) -> Self {
+    // //!         let Param { data, grad } = param;
+    // //!         Self { data, grad }
+    // //!     }
+    // //! }
+    // //! ```
+    // //!
+    // //! Being a basic optimizer, the `SGDParam` struct will only contain the gradient and the data views
+    // //! for each of the parameters to optimize.
+    // //!
+    // //! Nevertheless, do note that an optimizer's parameter representation acts as a container for the
+    // //! additional information, such as adaptive learning rates and moments of any kind, that may be
+    // //! needed for the learning steps of more complex algorithms.
+    // //!
+    // //! Then, we define the SGD's struct.
+    // //!
+    // //! ```
+    // //! use neuronika::Param;
+    // //! use neuronika::optim::Penalty;
+    // //! use std::cell::{Cell, RefCell};
+    // //!
+    // //! # use ndarray::{ArrayD, ArrayViewMutD};
+    // //! # struct SGDParam<'a> {
+    // //! #     data: ArrayViewMutD<'a, f32>,
+    // //! #     grad: ArrayViewMutD<'a, f32>,
+    // //! # }
+    // //! struct SGD<'a, T> {
+    // //!     params: RefCell<Vec<SGDParam<'a>>>,
+    // //!     lr: Cell<f32>,
+    // //!     penalty: T,
+    // //! }
+    // //! ```
+    // //!
+    // //! Lastly, we implement [`Optimizer`] for `SGD`.
+    // //!
+    // //! ```
+    // //! use ndarray::Zip;
+    // //! use neuronika::optim::Optimizer;
+    // //! use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+    // //! # use neuronika::Param;
+    // //! # use neuronika::optim::Penalty;
+    // //! # use ndarray::{ArrayD, ArrayViewMutD};
+    // //! # use std::cell::{Cell, RefCell};
+    // //! # struct SGD<'a, T> {
+    // //! #     params: RefCell<Vec<SGDParam<'a>>>,
+    // //! #     lr: Cell<f32>,
+    // //! #     penalty: T,
+    // //! # }
+    // //! # struct SGDParam<'a> {
+    // //! #     data: ArrayViewMutD<'a, f32>,
+    // //! #     grad: ArrayViewMutD<'a, f32>,
+    // //! # }
+    // //! # impl<'a> From<Param<'a>> for SGDParam<'a> {
+    // //! #     fn from(param: Param<'a>) -> Self {
+    // //! #         let Param { data, grad } = param;
+    // //! #         Self { data, grad }
+    // //! #     }
+    // //! # }
+    // //!
+    // //! impl<'a, T: Penalty> Optimizer<'a> for SGD<'a, T> {
+    // //!     type ParamRepr = SGDParam<'a>;
+    // //!
+    // //!     fn step(&self) {
+    // //!         let (lr, penalty) = (self.lr.get(), &self.penalty);
+    // //!
+    // //!         self.params.borrow_mut().par_iter_mut().for_each(|param| {
+    // //!             let (data, grad) = (&mut param.data, &param.grad);
+    // //!
+    // //!             Zip::from(data).and(grad).for_each(|data_el, grad_el| {
+    // //!                 *data_el += -(grad_el + penalty.penalize(data_el)) * lr
+    // //!             });
+    // //!         });
+    // //!     }
+    // //!
+    // //!     fn zero_grad(&self) {
+    // //!         self.params.borrow_mut().par_iter_mut().for_each(|param| {
+    // //!             let grad = &mut param.grad;
+    // //!             Zip::from(grad).for_each(|grad_el| *grad_el = 0.);
+    // //!         });
+    // //!     }
+    // //!
+    // //!     fn get_lr(&self) -> f32 {
+    // //!         self.lr.get()
+    // //!     }
+    // //!
+    // //!     fn set_lr(&self, lr: f32) {
+    // //!         self.lr.set(lr)
+    // //!     }
+    // //! }
+    // //!
+    // //! /// Simple constructor.
+    // //! impl<'a, T: Penalty> SGD<'a, T> {
+    // //!   pub fn new(parameters: Vec<Param<'a>>, lr: f32, penalty: T) -> Self {
+    // //!       Self {
+    // //!           params: RefCell::new(Self::build_params(parameters)),
+    // //!           lr: Cell::new(lr),
+    // //!           penalty,
+    // //!       }
+    // //!    }
+    // //! }
+    // //! ```
+    // //!
+    // //! # Adjusting the learning rate
+    // //!
+    // //! The [`lr_scheduler`] module provides several methods to adjust the learning rate based on the
+    // //! number of epochs.
+    // //!
+    // //! # Algorithms
+    // //!
+    // //! List of all implemented optimizers.
+    // //!
+    // //! * [`Adagrad`] - Implements the Adagrad algorithm.
+    // //!
+    // //! * [`Adam`] - Implements the Adam algorithm.
+    // //!
+    // //! * [`AMSGrad`] - Implements the AMSGrad algorithm.
+    // //!
+    // //! * [`RMSProp`] - Implements the RMSProp algorithm.
+    // //!
+    // //! * [`SGD`] - Implements the stochastic gradient descent algorithm.
+    pub use neuronika_optim::*;
 }
 
-/// Creates a variable from a **[ndarray]** array that owns its data.
-///
-/// # Examples
-///
-/// ```
-/// use ndarray;
-/// use neuronika;
-///
-/// let a = ndarray::array![[1., 2.], [3.,4.]];
-/// let t = neuronika::from_ndarray(a.clone());
-///
-/// assert_eq!(*t.data(), a);
-/// ```
-pub fn from_ndarray<D>(array: Array<f32, D>) -> Var<D>
-where
-    D: Dimension,
-{
-    Var::leaf(array)
+pub mod nn {
+    // //! Basic building blocks for neural networks.
+    // //!
+    // //! Neuronika provides some pre-assembled components, you can either use them individually or
+    // //! combine them into a bigger architecture. Take a look at the [complete list](#layers) to know
+    // //! more.
+    // //!
+    // //! You can also customize the initialization of the parameters of such components, and that of any
+    // //! other differentiable variable, by picking the function that best fits your needs from the
+    // //! [`nn::init`](module@init) module.
+    // //!
+    // //! Refer to the [`nn::loss`](module@loss) module for loss functions.
+    // //!
+    // //! # Assembling a neural network
+    // //!
+    // //! The suggested way of building a model using neuronika's building blocks is to define a struct
+    // //! encapsulating its components.
+    // //!
+    // //! The behavior of the model should be defined by including an appropriate method in its struct
+    // //! implementation. Such method must specify how the components interact.
+    // //!
+    // //! Consider, for the sake of simplicity, a classical *multilayer perceptron* with three dense
+    // //! layers for a multivariate regression task, let's see what it would look like in neuronika.
+    // //!
+    // //! We begin by defining its struct using the provided components.
+    // //!
+    // //! ```
+    // //! use neuronika::nn;
+    // //!
+    // //! // Network definition.
+    // //! struct NeuralNetwork {
+    // //!     lin1: nn::Linear,
+    // //!     lin2: nn::Linear,
+    // //!     lin3: nn::Linear,
+    // //! }
+    // //! ```
+    // //!
+    // //! We'll also include a very simple constructor.
+    // //!
+    // //! ```
+    // //! # use neuronika::nn;
+    // //! # struct NeuralNetwork {
+    // //! #    lin1: nn::Linear,
+    // //! #    lin2: nn::Linear,
+    // //! #    lin3: nn::Linear,
+    // //! # }
+    // //! impl NeuralNetwork {
+    // //!     // Basic constructor.
+    // //!     fn new() -> Self {
+    // //!         Self {
+    // //!             lin1: nn::Linear::new(25, 30),
+    // //!             lin2: nn::Linear::new(30, 35),
+    // //!             lin3: nn::Linear::new(35, 5),
+    // //!         }
+    // //!     }
+    // //! }
+    // //! ```
+    // //!
+    // //! As the last step, we have to specify how the multilayer perceptron behaves, then, we're done.
+    // //!
+    // //! ```
+    // //! use ndarray::Ix2;
+    // //! use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+    // //! use neuronika::nn::Learnable;
+    // //!
+    // //! # use neuronika::nn;
+    // //! # struct NeuralNetwork {
+    // //! #     lin1: nn::Linear,
+    // //! #     lin2: nn::Linear,
+    // //! #     lin3: nn::Linear,
+    // //! # }
+    // //! impl NeuralNetwork {
+    // //!     // NeuralNetwork behavior. Notice the presence of the ReLU non-linearity.
+    // //!     fn forward<I, T, U>(
+    // //!         &self,
+    // //!         input: I,
+    // //!     ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
+    // //!     where
+    // //!         I: MatMatMulT<Learnable<Ix2>>,
+    // //!         I::Output: Into<VarDiff<T, U>>,
+    // //!         T: Data<Dim = Ix2> + Forward,
+    // //!         U: Gradient<Dim = Ix2>,
+    // //!     {
+    // //!         let out1 = self.lin1.forward(input).relu();
+    // //!         let out2 = self.lin2.forward(out1).relu();
+    // //!         let out3 = self.lin3.forward(out2);
+    // //!         out3
+    // //!     }
+    // //! }
+    // //! ```
+    // //!
+    // //! Here's a fictitious example of the newly created multilayer perceptron in use.
+    // //!
+    // //! ```
+    // //! # use neuronika::nn;
+    // //! # use ndarray::Ix2;
+    // //! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+    // //! # use neuronika::nn::Learnable;
+    // //! # #[cfg(feature = "blas")]
+    // //! # extern crate blas_src;
+    // //! # struct NeuralNetwork {
+    // //! #    lin1: nn::Linear,
+    // //! #    lin2: nn::Linear,
+    // //! #    lin3: nn::Linear,
+    // //! # }
+    // //! # impl NeuralNetwork {
+    // //! #     // Basic constructor.
+    // //! #     fn new() -> Self {
+    // //! #         Self {
+    // //! #             lin1: nn::Linear::new(25, 30),
+    // //! #             lin2: nn::Linear::new(30, 35),
+    // //! #             lin3: nn::Linear::new(35, 5),
+    // //! #         }
+    // //! #     }
+    // //! # }
+    // //! # impl NeuralNetwork {
+    // //! #     // NeuralNetwork behavior. Notice the presence of the ReLU non-linearity.
+    // //! #     fn forward<I, T, U>(
+    // //! #         &self,
+    // //! #         input: I,
+    // //! #     ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
+    // //! #     where
+    // //! #         I: MatMatMulT<Learnable<Ix2>>,
+    // //! #         I::Output: Into<VarDiff<T, U>>,
+    // //! #         T: Data<Dim = Ix2> + Forward,
+    // //! #         U: Gradient<Dim = Ix2>,
+    // //! #     {
+    // //! #         let out1 = self.lin1.forward(input).relu();
+    // //! #         let out2 = self.lin2.forward(out1).relu();
+    // //! #         let out3 = self.lin3.forward(out2);
+    // //! #         out3
+    // //! #     }
+    // //! # }
+    // //! let model = NeuralNetwork::new();
+    // //!
+    // //! // Random data to be given in input to the model.
+    // //! let fictitious_data = neuronika::rand((200, 25));
+    // //!
+    // //! let out = model.forward(fictitious_data);
+    // //! out.forward(); // Always remember to call forward() !
+    // //! # assert_eq!(out.data().shape(), &[200, 5]);
+    // //! ```
+    // //! # Tracking parameters with ModelStatus
+    // //!
+    // //! In some circumstances you may find useful to group the parameters of a model. Consider for
+    // //! instance the following scenario.
+    // //!
+    // //! ```
+    // //! # use neuronika::nn;
+    // //! # use ndarray::Ix2;
+    // //! # use neuronika::{Backward, Data, Forward, Gradient, MatMatMulT, Overwrite, VarDiff};
+    // //! # use neuronika::nn::Learnable;
+    // //! # #[cfg(feature = "blas")]
+    // //! # extern crate blas_src;
+    // //! # struct NeuralNetwork {
+    // //! #    lin1: nn::Linear,
+    // //! #    lin2: nn::Linear,
+    // //! #    lin3: nn::Linear,
+    // //! # }
+    // //! # impl NeuralNetwork {
+    // //! #     // Basic constructor.
+    // //! #     fn new() -> Self {
+    // //! #         Self {
+    // //! #             lin1: nn::Linear::new(25, 30),
+    // //! #             lin2: nn::Linear::new(30, 35),
+    // //! #             lin3: nn::Linear::new(35, 5),
+    // //! #         }
+    // //! #     }
+    // //! # }
+    // //! # impl NeuralNetwork {
+    // //! #     // NeuralNetwork behavior. Notice the presence of the ReLU non-linearity.
+    // //! #     fn forward<I, T, U>(
+    // //! #         &self,
+    // //! #         input: I,
+    // //! #     ) -> VarDiff<impl Data<Dim = Ix2>, impl Gradient<Dim = Ix2>>
+    // //! #     where
+    // //! #         I: MatMatMulT<Learnable<Ix2>>,
+    // //! #         I::Output: Into<VarDiff<T, U>>,
+    // //! #         T: Data<Dim = Ix2>,
+    // //! #         U: Gradient<Dim = Ix2>,
+    // //! #     {
+    // //! #         let out1 = self.lin1.forward(input).relu();
+    // //! #         let out2 = self.lin2.forward(out1).relu();
+    // //! #         let out3 = self.lin3.forward(out2);
+    // //! #         out3
+    // //! #     }
+    // //! # }
+    // //! let model = NeuralNetwork::new();
+    // //!
+    // //! let some_other_variable = neuronika::rand((1, 25)).requires_grad();
+    // //!
+    // //! // Random perturbed data.
+    // //! let fictitious_data = neuronika::rand((200, 25)) + some_other_variable;
+    // //!
+    // //! let out = model.forward(fictitious_data);
+    // //! assert_eq!(out.parameters().len(), 7); // 7 leaf ancestors !
+    // //! ```
+    // //!
+    // //! You may notice how, if we feed in input to our neural network the result of an addition
+    // //! operation, in which one of the operands is a differentiable variable, and then
+    // //! request the network output's differentiable ancestors, we are given a vector containing 7
+    // //! [`Param`](struct@Param).
+    // //!
+    // //! By doing some quick math: 7 = 2 * 3 + 1, and by noticing that each of the three linear layers
+    // //! that the multilayer perceptron is made of has one learnable weight matrix and one learnable
+    // //! bias vector, we can conclude that the presence of the seventh ancestors is due to the addition
+    // //! between `fictitious_data` and `some_other_variable`.
+    // //!
+    // //! In fact, neuronika automatically tracks all the differentiable leaves that are involved in the
+    // //! computation of the output variable when assembling the computational graph corresponding to
+    // //! the issued operations.
+    // //!
+    // //! If you need to distinguish between the parameters of a model and another differentiable variable
+    // //! or between the parameters of several different models, you can use [`ModelStatus`].
+    // //!
+    // //! With `ModelStatus` you can build the exact same neural network only varying the implementation
+    // //! so slightly.
+    // //!
+    // //! ```
+    // //!  use neuronika::Param;
+    // //!  use neuronika::nn::{ModelStatus, Linear};
+    // //!
+    // //!  struct NeuralNetwork {
+    // //!     lin1: Linear,
+    // //!     lin2: Linear,
+    // //!     lin3: Linear,
+    // //!     status: ModelStatus,
+    // //!  }
+    // //!
+    // //!  impl NeuralNetwork {
+    // //!      fn new() -> Self {
+    // //!          // Initialize an empty model status.
+    // //!          let mut status = ModelStatus::default();
+    // //!
+    // //!          // We register each component whilst at the same time building the network.
+    // //!          Self {
+    // //!              lin1: status.register(Linear::new(25, 30)),
+    // //!              lin2: status.register(Linear::new(30, 35)),
+    // //!              lin3: status.register(Linear::new(35, 5)),
+    // //!              status,
+    // //!          }
+    // //!      }
+    // //!
+    // //!      /// Returns the model's parameters.
+    // //!      fn parameters(&self) -> Vec<Param> {
+    // //!          // We are now able to access the parameter of the neural network.
+    // //!          self.status.parameters()
+    // //!      }
+    // //!  }
+    // //! ```
+    // //!
+    // //! At last, we verify that the number of registered parameters for the new version of our neural
+    // //! network is indeed 6.
+    // //!
+    // //! ```
+    // //! # use neuronika::Param;
+    // //! # use neuronika::nn::{ModelStatus, Linear, Learnable};
+    // //! # struct NeuralNetwork {
+    // //! #     lin1: Linear,
+    // //! #     lin2: Linear,
+    // //! #     lin3: Linear,
+    // //! #     status: ModelStatus,
+    // //! # }
+    // //! # impl NeuralNetwork {
+    // //! #     // Basic constructor.
+    // //! #     fn new() -> Self {
+    // //! #         let mut status = ModelStatus::default();
+    // //! #
+    // //! #         Self {
+    // //! #            lin1: status.register(Linear::new(25, 30)),
+    // //! #            lin2: status.register(Linear::new(30, 35)),
+    // //! #            lin3: status.register(Linear::new(35, 5)),
+    // //! #            status,
+    // //! #         }
+    // //! #     }
+    // //! #
+    // //! #     fn parameters(&self) -> Vec<Param> {
+    // //! #        self.status.parameters()
+    // //! #     }
+    // //! # }
+    // //! let model = NeuralNetwork::new();
+    // //! assert_eq!(model.parameters().len(), 6);
+    // //! ```
+    // //! Do also note that in spite of the introduction of `ModelStatus`, the implementation of the
+    // //! `.forward()` method has not changed at all.
+    // //!
+    // //! # Train and Eval
+    // //!
+    // //! The status of a model determines the behavior of its components. Certain building blocks, such
+    // //! as the [`Dropout`], are turned on and off depending on whether the model is running in *training
+    // //! mode* or in *inference mode*.
+    // //!
+    // //! You can set a network in training mode or in inference mode either by calling [`.train()`] and
+    // //! [`.eval()`] directly on its output or by using `ModelStatus`.
+    // //!
+    // //! The former approach is preferable, as when multiple models are pipelined, calling `.train()`
+    // //! and `.eval()` directly on the final outputs will switch the statuses of all the models.
+    // //! Do also note that switching the status by using `ModelStatus` is the only way that allows for
+    // //! selectively training and evaluating multiple models.
+    // //!
+    // //! Let's picture it with a simple example.
+    // //!
+    // //! [`.eval()`]: VarDiff::eval()
+    // //! [`.train()`]: VarDiff::train()
+    // //!
+    // //! ```
+    // //!  use neuronika::Param;
+    // //!  use neuronika::nn::{ModelStatus, Linear, Dropout};
+    // //!
+    // //!  struct NeuralNetwork {
+    // //!     lin1: Linear,
+    // //!     drop: Dropout,
+    // //!     lin2: Linear,
+    // //!     status: ModelStatus,
+    // //!  }
+    // //!
+    // //!  impl NeuralNetwork {
+    // //!      fn new() -> Self {
+    // //!          let mut status = ModelStatus::default();
+    // //!
+    // //!          // Similarly to what we did before, we register the components
+    // //!          // to the network's status.
+    // //!          // Now the dropout layer, and every other changeable
+    // //!          // component, can be directly controlled by interacting
+    // //!          // with the model itself, as it is synced with the one of
+    // //!          // ModelStatus.
+    // //!          Self {
+    // //!              lin1: status.register(Linear::new(25, 35)),
+    // //!              drop: status.register(Dropout::new(0.5)),
+    // //!              lin2: status.register(Linear::new(35, 5)),
+    // //!              status,
+    // //!          }
+    // //!      }
+    // //!
+    // //!      fn parameters(&self) -> Vec<Param> {
+    // //!          self.status.parameters()
+    // //!      }
+    // //!
+    // //!      /// Switches the network in training mode.
+    // //!      fn train(&self) {
+    // //!          self.status.train()
+    // //!      }
+    // //!
+    // //!      /// Switches the network in inference mode.
+    // //!      fn eval(&self) {
+    // //!          self.status.eval()
+    // //!      }
+    // //!  }
+    // //! ```
+    // //!
+    // //! # Layers
+    // //!
+    // //! Here are listed all neuronika's building blocks.
+    // //!
+    // //! ## Linear Layers
+    // //!
+    // //! * [`nn::Linear`](struct@Linear) - Applies a linear transformation to the incoming data.
+    // //!
+    // //! ## Recurrent Layers
+    // //!
+    // //! * [`nn::GRUCell`](struct@GRUCell) - A gated recurrent unit cell.
+    // //!
+    // //! * [`nn::LSTMCell`](struct@LSTMCell) - A long short term memory cell.
+    // //!
+    // //! ## Convolution Layers
+    // //!
+    // //! * [`nn::Conv1d`](struct@Conv1d) - Applies a temporal convolution over an input signal composed
+    // //! of several input planes.
+    // //!
+    // //! * [`nn::GroupedConv1d`](struct@GroupedConv1d) - Applies a grouped temporal convolution over an
+    // //! input signal composed of several input planes.
+    // //!
+    // //! * [`nn::Conv2d`](struct@Conv2d) - Applies a spatial convolution over an input signal composed
+    // //! of several input planes.
+    // //!
+    // //! * [`nn::GroupedConv2d`](struct@GroupedConv2d) - Applies a grouped spatial convolution over an
+    // //! input signal composed of several input planes.
+    // //!
+    // //! * [`nn::Conv3d`](struct@Conv3d) - Applies a volumetric convolution over an input signal composed
+    // //! of several input planes.
+    // //!
+    // //! * [`nn::GroupedConv3d`](struct@GroupedConv3d) - Applies a grouped volumetric convolution over an
+    // //! input signal composed of several input planes.
+    // //!
+    // //! ## Dropout Layers
+    // //!
+    // //! * [`nn::Dropout`](struct@Dropout) - During training, randomly zeroes some of the elements of
+    // //! the input variable with probability *p* using samples from a Bernoulli distribution.
+    //!
+    //! # Layers' parameters initialization functions.
+    //!
+    //! These initializers define a way to set the initial random weights of neuronika's layers.
+    //!
+    //! # Using an initializer
+    //!
+    //! You can freely access any learnable component of any layer, as their visibility is public,
+    //! and pass them, via a mutable reference, to the initialization function of your choice.
+    //!
+    //! ```
+    //! use neuronika::nn;
+    //! use neuronika::nn::init::{calculate_gain, xavier_normal};
+    //!
+    //! let mut lin = nn::Linear::new(10, 10);
+    //!
+    //! xavier_normal(&lin.weight, calculate_gain("relu"));
+    //! ```
+    pub use neuronika_nn::*;
 }
 
-/// Creates a variable with zeroed data.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-///
-/// let t1 = neuronika::zeros(1);
-/// let t2 = neuronika::zeros((1, 5));
-/// let t3 = neuronika::zeros([1, 2, 3]);
-///
-/// assert_eq!(t1.data().shape(), &[1]);
-/// assert_eq!(t2.data().shape(), &[1, 5]);
-/// assert_eq!(t3.data().shape(), &[1, 2, 3]);
-/// ```
-pub fn zeros<D, Sh>(shape: Sh) -> Var<D>
-where
-    D: Dimension,
-    Sh: ShapeBuilder<Dim = D>,
-{
-    Var::leaf(Array::from_elem(shape, 0.0))
-}
-
-/// Creates a variable with data filled with ones.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-///
-/// let t1 = neuronika::ones(1);
-/// let t2 = neuronika::ones((1, 5));
-/// let t3 = neuronika::ones([1, 2, 3]);
-///
-/// assert_eq!(t1.data().shape(), &[1]);
-/// assert_eq!(t2.data().shape(), &[1, 5]);
-/// assert_eq!(t3.data().shape(), &[1, 2, 3]);
-/// ```
-pub fn ones<D, Sh>(shape: Sh) -> Var<D>
-where
-    D: Dimension,
-    Sh: ShapeBuilder<Dim = D>,
-{
-    Var::leaf(Array::from_elem(shape, 1.0))
-}
-
-/// Creates a variable with data filled with a constant value.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-///
-/// let t1 = neuronika::full(1, 5.); // Filled with 5.0
-/// let t2 = neuronika::full((1, 5), 6.); // Filled with 6.0
-/// let t3 = neuronika::full([1, 2, 3], 8.); // Filled with 8.0
-///
-/// assert_eq!(t1.data().shape(), &[1]);
-/// assert_eq!(t2.data().shape(), &[1, 5]);
-/// assert_eq!(t3.data().shape(), &[1, 2, 3]);
-/// ```
-pub fn full<D, Sh>(shape: Sh, elem: f32) -> Var<D>
-where
-    D: Dimension,
-    Sh: ShapeBuilder<Dim = D>,
-{
-    Var::leaf(Array::from_elem(shape, elem))
-}
-
-/// Creates a variable with values sampled from a uniform distribution on the interval *[0,1)*.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-///
-/// let x = neuronika::rand([4, 5, 6]);
-/// assert_eq!(x.data().shape(), &[4, 5, 6]);
-/// ```
-pub fn rand<D, Sh>(shape: Sh) -> Var<D>
-where
-    D: Dimension,
-    Sh: ShapeBuilder<Dim = D>,
-{
-    Var::leaf(Array::random(shape, Uniform::new(0., 1.)))
-}
-
-/// Creates a variable with an identity matrix of size *n*.
-///
-/// # Panics
-///
-/// If `n * n` would overflow `isize`.
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-/// use ndarray::Array2;
-///
-/// let tensor = neuronika::eye(3);
-/// assert_eq!(*tensor.data(), Array2::eye(3));
-/// ```
-pub fn eye(n: usize) -> Var<Ix2> {
-    Var::leaf(Array2::eye(n))
-}
-
-/// Creates a one-dimensional variable with *n* evenly spaced elements.
-///
-/// The elements range from `start` to `end` (exclusive).
-///
-/// # Panics
-///
-/// If the length is greater than [`isize::MAX`].
-///
-/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-/// use ndarray::arr1;
-///
-/// let tensor = neuronika::linspace(0., 1., 5);
-/// assert!(*tensor.data() == arr1(&[0.0, 0.25, 0.5, 0.75, 1.0]))
-/// ```
-pub fn linspace(start: f32, end: f32, n: usize) -> Var<Ix1> {
-    Var::leaf(Array::linspace(start, end, n))
-}
-
-/// Creates a one-dimensional variable with *n* logarithmically spaced elements.
-///
-/// The starting value is `base.powf(start)` and the final one is `base.powf(end)`.
-///
-/// If `base` is negative, all values will be negative.
-///
-/// # Panics
-///
-/// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
-///
-/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
-pub fn logspace(base: f32, start: f32, end: f32, n: usize) -> Var<Ix1> {
-    Var::leaf(Array::logspace(base, start, end, n))
-}
-
-/// Creates a one-dimensional variable with *n* geometrically spaced elements.
-///
-/// The elements range from `start` to `end` (inclusive).
-///
-/// Returns `None` if `start` and `end` have different signs or if either one is zero. Conceptually,
-/// this means that in order to obtain a `Some` result, `end / start` must be positive.
-///
-/// # Panics
-///
-/// If `n` is greater than [`isize::MAX`] or if converting `n - 1` to type `f32` fails.
-///
-/// [`isize::MAX`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
-pub fn geomspace(start: f32, end: f32, n: usize) -> Option<Var<Ix1>> {
-    Array::geomspace(start, end, n).map(Var::leaf)
-}
-
-/// Creates a one-dimensional variable with elements from *start* to *end* spaced by *step*.
-///
-/// The elements range from `start` to `end` (exclusive).
-///
-/// # Panics
-///
-/// If the length is greater than
-/// [`isize::MAX`].
-///
-/// [`isize::Max`]: https://doc.rust-lang.org/std/primitive.isize.html#associatedconstant.MAX
-///
-/// # Examples
-///
-/// ```
-/// use neuronika;
-/// use ndarray::arr1;
-///
-/// let tensor = neuronika::range(0., 5., 1.);
-/// assert!(*tensor.data() == arr1(&[0., 1., 2., 3., 4.]))
-/// ```
-pub fn range(start: f32, end: f32, step: f32) -> Var<Ix1> {
-    Var::leaf(Array::range(start, end, step))
-}
-
-/// Concatenates the variables `lhs` and `rhs` along `axis`.
-///
-/// All variables must have the same shape, except in the concatenating dimension.
-///
-/// # Arguments
-///
-/// * `lhs` - variable.
-///
-/// * `rhs` - other variable.
-///
-/// * `axis` - axis to concatenate along to.
-///
-/// # Panics
-///
-/// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
-/// if `axis` is out of bounds or if the result is larger than is possible to represent.
-pub fn cat<Lhs, Rhs>(lhs: Lhs, rhs: Rhs, axis: usize) -> <Lhs as Cat<Rhs>>::Output
-where
-    Lhs: Cat<Rhs>,
-{
-    Cat::cat(lhs, rhs, axis)
-}
-
-/// Stacks the variables `lhs` and `rhs` along `axis`.
-///
-/// All variables must have the same shape.
-///
-/// # Arguments
-///
-/// * `lhs` - variable.
-///
-/// * `rhs` - other variable.
-///
-/// * `axis` - axis to stack along to.
-///
-/// # Panics
-///
-/// If the variables have mismatching shapes, apart from along axis, if the variables are empty,
-/// if `axis` is out of bounds or if the result is larger than is possible to represent.
-pub fn stack<Lhs, Rhs>(lhs: Lhs, rhs: Rhs, axis: usize) -> <Lhs as Stack<Rhs>>::Output
-where
-    Lhs: Stack<Rhs>,
-{
-    Stack::stack(lhs, rhs, axis)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn from_ndarray_test() {
-        use super::from_ndarray;
-        let a = ndarray::array![[1., 2.], [3., 4.]];
-        let t = from_ndarray(a.clone());
-
-        assert_eq!(*t.data(), a);
-    }
-
-    #[test]
-    fn zeros() {
-        use super::zeros;
-
-        let t1 = zeros(1);
-        let t2 = zeros((1, 5));
-        let t3 = zeros([1, 2, 3]);
-
-        assert_eq!(t1.data().shape(), &[1]);
-        assert_eq!(t2.data().shape(), &[1, 5]);
-        assert_eq!(t3.data().shape(), &[1, 2, 3]);
-
-        assert!(
-            t1.data().iter().all(|el| *el <= f32::EPSILON)
-                && t2.data().iter().all(|el| *el <= f32::EPSILON)
-                && t3.data().iter().all(|el| *el <= f32::EPSILON)
-        )
-    }
-    #[test]
-    fn ones() {
-        use super::ones;
-
-        let t1 = ones(1);
-        let t2 = ones((1, 5));
-        let t3 = ones([1, 2, 3]);
-
-        assert_eq!(t1.data().shape(), &[1]);
-        assert_eq!(t2.data().shape(), &[1, 5]);
-        assert_eq!(t3.data().shape(), &[1, 2, 3]);
-
-        assert!(
-            t1.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
-                && t2.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
-                && t3.data().iter().all(|el| (*el - 1.).abs() <= f32::EPSILON)
-        )
-    }
-    #[test]
-    fn full() {
-        use super::full;
-
-        let t1 = full(1, 5.);
-        let t2 = full((1, 5), 6.);
-        let t3 = full([1, 2, 3], 8.);
-
-        assert!(
-            t1.data().iter().all(|el| (*el - 5.).abs() <= f32::EPSILON)
-                && t2.data().iter().all(|el| (*el - 6.).abs() <= f32::EPSILON)
-                && t3.data().iter().all(|el| (*el - 8.).abs() <= f32::EPSILON)
-        )
-    }
-
-    #[test]
-    fn rand_test() {
-        use super::rand;
-        let t = rand([4, 5, 6]);
-
-        assert_eq!(t.data().shape(), &[4, 5, 6]);
-    }
-
-    #[test]
-    fn eye_test() {
-        use super::{eye, Array2};
-        let tensor = eye(3);
-
-        assert_eq!(*tensor.data(), Array2::<f32>::eye(3));
-    }
-
-    #[test]
-    fn linspace() {
-        use super::linspace;
-        let tensor = linspace(0., 1., 5);
-        assert!(*tensor.data() == ndarray::arr1(&[0.0, 0.25, 0.5, 0.75, 1.0]))
-    }
-
-    #[test]
-    fn logspace() {
-        use super::logspace;
-        let tensor = logspace(2., 1., 5., 5);
-        assert!(*tensor.data() == ndarray::arr1(&[2., 4., 8., 16., 32.]))
-    }
-
-    #[test]
-    fn geomspace() {
-        use super::geomspace;
-        let tensor = geomspace(1., 1000., 4);
-        assert!(tensor
-            .unwrap()
-            .data()
-            .iter()
-            .zip(ndarray::arr1(&[1.0_f32, 10.0_f32, 100.0_f32, 1000.0_f32]).iter())
-            .all(|(&t, &a)| (t.round() - a.round()).abs() <= f32::EPSILON));
-    }
-
-    #[test]
-    fn range_test() {
-        use super::*;
-        let tensor = range(0., 5., 1.);
-        assert!(*tensor.data() == ndarray::arr1(&[0., 1., 2., 3., 4.]))
-    }
+pub mod data {
+    //! Data loading and manipulation utilities.
+    //!
+    //! # Dataset Types
+    //!
+    //! Neuronika provides two kinds of datasets, an unlabeled one, that is [`Dataset`], and a labeled
+    //! one, that is [`LabeledDataset`]. They both own their data uniquely.
+    //!
+    //! Datasets are basic containers for your data and are designed to easily interact with models
+    //! built with neuronika. They are created with the help of the [`DataLoader`] struct which performs
+    //! the actual I/O operations.
+    //!
+    //! Both datasets are generic on the [dimensionality] of their records and are organized as a tensors
+    //! in which the length of the outermost axis is equal to the total number of records and the
+    //! number of remaining axes represent the dimensionality of each data point.
+    //!
+    //! [`.from_csv()`]: crate::data::DataLoader::from_csv
+    //! [dimensionality]: ndarray::Dimension
+    //!
+    //! # Loading Data
+    //!
+    //! At the core of neuronika data utilities is the [`DataLoader`] struct. It can be used to load
+    //! data in *comma-separated values format* from a [*reader*](Read) or directly from a *.csv* file.
+    //!
+    //! Additional parsing settings are passed using `DataLoader`'s methods in the following way.
+    //!
+    //! ```should_panic
+    //! use neuronika::data::DataLoader;
+    //!
+    //! let data = DataLoader::default()           // A typical use case would be
+    //!     .with_labels(&[5, 6, 7])               // to load some data from
+    //!     .with_delimiter(',')                   // a .csv file.
+    //!     .from_csv("./folder/data.csv", 3, 1);
+    //! ```
+    //!
+    //! The result of the loading operation is either a [`Dataset`] or a [`LabeledDataset`], depending
+    //! on how the loader was configured.
+    //!
+    //! ## Handling Labels
+    //!
+    //! You may find useful, in many real world scenarios, to convert labels to floating point numbers.
+    //! In neuronika this is quickly achievable with closures. Take a look at the following example.
+    //!
+    //! ```rust
+    //! use neuronika::data::DataLoader;
+    //!
+    //! let csv_content = "\
+    //!     Paw_size,Tail_length,Weight,Animal\n\
+    //!     0.2,5.0,15.0,Dog\n\
+    //!     0.08,12.0,4.0,Cat\n\
+    //!     0.05,3.0,0.8,Mouse";
+    //!
+    //! let dataset = DataLoader::default().with_labels(&[3]).from_reader_fn(
+    //!     csv_content.as_bytes(),
+    //!     3,
+    //!     1,
+    //!     |(record, label): (Vec<f32>, String)| {
+    //!         let float_label = match label.as_str() {
+    //!             "Dog" => 1.,
+    //!             "Cat" => 2.,
+    //!              _ => 3.,
+    //!         };
+    //!         (record, vec![float_label])
+    //!     },
+    //! );
+    //! ```
+    pub use neuronika_data::*;
 }

@@ -1,0 +1,25 @@
+[package]
+authors = ["Francesco Iannelli \"frjnn\"", "Stefano Pacchini \"ste-pac\""]
+edition = "2021"
+keywords = ["auto-differentiation", "tensors"]
+license = "MIT OR Apache-2.0"
+name = "neuronika-variable"
+version = "0.1.0"
+
+[dependencies]
+itertools = "0.10.3"
+ndarray = {version = "0.15.4", features = ["rayon"]}
+ndarray-rand = "0.14.0"
+neuronika-core = {version = "*", path = "../neuronika-core"}
+rand = "0.8.4"
+rand_distr = "0.4.2"
+rayon = "1.5.1"
+serde = {version = "1.0.130", features = ["derive"]}
+
+[dev-dependencies]
+ndarray = {version = "0.15.4", features = ["rayon", "approx"]}
+
+[features]
+blas = ["ndarray/blas"]
+matrixmultiply-threading = ["ndarray/matrixmultiply-threading"]
+serialize = ["ndarray/serde"]
