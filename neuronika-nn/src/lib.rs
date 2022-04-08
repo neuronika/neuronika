@@ -386,8 +386,6 @@
 // //! * [`nn::Dropout`](struct@Dropout) - During training, randomly zeroes some of the elements of
 // //! the input variable with probability *p* using samples from a Bernoulli distribution.
 
-use std::{cell::Cell, rc::Rc};
-
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
 
 use neuronika_core::{Convolution, MatMatMulT};

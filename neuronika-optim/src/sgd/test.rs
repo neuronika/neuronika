@@ -1,5 +1,3 @@
-use neuronika_variable;
-
 use super::{super::L2, StochasticGD};
 
 #[test]

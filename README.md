@@ -49,10 +49,10 @@ There's no need for a FFI, everything happens in front of your eyes.
 You can use the following crate feature flags to configure the [`ndarray`] backend:
 
 * `serialize`:
-  Enables serialization support for [`serde`] `1.x`.
+  Enables serialization support for [`serde`] 1.x.
 
 * `blas`: 
-  Enables transparent [BLAS] support for matrix multiplication, which uses `blas-src` for pluggable backend, which needs to be configured separately. See [here] for more informations.
+  Enables transparent [BLAS] support for matrix multiplication, which uses `blas-src` for pluggable backend and needs to be configured separately. See [here] for more informations.
 
 * `matrixmultiply-threading`:
   Enables the `threading` feature in the [`matrixmultiply`] package.
