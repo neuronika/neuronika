@@ -28,11 +28,10 @@ mod forward {
     fn base_case() -> Result<(), Box<dyn Error>> {
         let left = Array::linspace(1., 9., 9).into_shape((3, 3))?;
         let right = Array::from_elem((3, 3), 2.);
-        let data = Array::zeros((3, 3));
         let op = Division::new(
             new_shared(left.clone()),
             new_shared(right.clone()),
-            new_shared(data),
+            new_shared(Array::zeros((3, 3))),
         );
 
         op.forward();
@@ -43,52 +42,28 @@ mod forward {
     fn left_broadcast() -> Result<(), Box<dyn Error>> {
         let left = Array::linspace(1., 3., 3).into_shape((1, 3))?;
         let right = Array::from_elem((2, 2, 3), 2.);
-        let data = Array::zeros((2, 2, 3));
         let op = Division::new(
             new_shared(left.clone()),
             new_shared(right.clone()),
-            new_shared(data),
+            new_shared(Array::zeros((2, 2, 3))),
         );
 
         op.forward();
         are_similar(op.data.borrow(), &(left / right))
-    }
-
-    #[test]
-    #[should_panic]
-    fn wrong_left_broadcast() {
-        let left = Array::zeros((3, 3));
-        let right = Array::zeros((2, 2, 3));
-        let data = Array::zeros((2, 2, 3));
-        let op = Division::new(new_shared(left), new_shared(right), new_shared(data));
-
-        op.forward();
     }
 
     #[test]
     fn right_broadcast() -> Result<(), Box<dyn Error>> {
         let left = Array::from_elem((2, 2, 3), 2.);
         let right = Array::linspace(1., 3., 3).into_shape((1, 3))?;
-        let data = Array::zeros((2, 2, 3));
         let op = Division::new(
             new_shared(left.clone()),
             new_shared(right.clone()),
-            new_shared(data),
+            new_shared(Array::zeros((2, 2, 3))),
         );
 
         op.forward();
         are_similar(op.data.borrow(), &(left / right))
-    }
-
-    #[test]
-    #[should_panic]
-    fn wrong_right_broadcast() {
-        let left = Array::zeros((2, 2, 3));
-        let right = Array::zeros((3, 3));
-        let data = Array::zeros((2, 2, 3));
-        let op = Division::new(new_shared(left), new_shared(right), new_shared(data));
-
-        op.forward();
     }
 }
 
@@ -121,12 +96,11 @@ mod backward {
 
     #[test]
     fn left_base_case() -> Result<(), Box<dyn Error>> {
-        let left_grad = Array::zeros((3, 3));
         let right_data = Array::from_elem((3, 3), 5.);
         let grad = Array::from_elem((3, 3), 1.);
         let op = DivisionBackwardLeft::new(
             new_shared(right_data.clone()),
-            Rc::new(Gradient::from_ndarray(left_grad)),
+            Rc::new(Gradient::zeros((3, 3))),
             Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
                 grad.clone(),
             )))),
@@ -145,12 +119,11 @@ mod backward {
 
     #[test]
     fn left_reduction() -> Result<(), Box<dyn Error>> {
-        let left_grad = Array::zeros(3);
         let right_data = Array::from_elem((3, 3), 5.);
         let grad = Array::from_elem((3, 3), 1.);
         let op = DivisionBackwardLeft::new(
             new_shared(right_data.clone()),
-            Rc::new(Gradient::from_ndarray(left_grad)),
+            Rc::new(Gradient::zeros(3)),
             Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
                 grad.clone(),
             )))),
@@ -165,21 +138,6 @@ mod backward {
         are_similar(op.left_gradient.borrow(), &Array::from_elem(3, 1.2))?;
         are_similar(op.right_data.borrow(), &right_data)?;
         are_similar(op.gradient.borrow(), &grad)
-    }
-
-    #[test]
-    #[should_panic]
-    fn wrong_left_reduction() {
-        let left_grad = Array::zeros((3, 3));
-        let right_data = Array::zeros((2, 2, 3));
-        let grad = Array::zeros((2, 2, 3));
-        let op = DivisionBackwardLeft::new(
-            new_shared(right_data),
-            Rc::new(Gradient::from_ndarray(left_grad)),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(grad)))),
-        );
-
-        op.backward();
     }
 
     #[test]
@@ -207,14 +165,11 @@ mod backward {
 
     #[test]
     fn right_base_case() -> Result<(), Box<dyn Error>> {
-        let left_data = Array::from_elem((3, 3), 3.);
-        let right_data = Array::from_elem((3, 3), 5.);
-        let right_grad = Array::zeros((3, 3));
         let grad = Array::ones((3, 3));
         let op = DivisionBackwardRight::new(
-            new_shared(left_data),
-            new_shared(right_data),
-            Rc::new(Gradient::from_ndarray(right_grad)),
+            new_shared(Array::from_elem((3, 3), 3.)),
+            new_shared(Array::from_elem((3, 3), 5.)),
+            Rc::new(Gradient::zeros((3, 3))),
             Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
                 grad.clone(),
             )))),
@@ -231,14 +186,11 @@ mod backward {
 
     #[test]
     fn right_reduction() -> Result<(), Box<dyn Error>> {
-        let left_data = Array::from_elem((3, 3), 3.);
-        let right_data = Array::from_elem(3, 5.);
-        let right_grad = Array::zeros(3);
         let grad = Array::ones((3, 3));
         let op = DivisionBackwardRight::new(
-            new_shared(left_data),
-            new_shared(right_data),
-            Rc::new(Gradient::from_ndarray(right_grad)),
+            new_shared(Array::from_elem((3, 3), 3.)),
+            new_shared(Array::from_elem(3, 5.)),
+            Rc::new(Gradient::zeros(3)),
             Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
                 grad.clone(),
             )))),
@@ -254,40 +206,20 @@ mod backward {
     }
 
     #[test]
-    #[should_panic]
-    fn wrong_right_reduction() {
-        let left_data = Array::zeros((2, 2, 3));
-        let right_data = Array::zeros((3, 3));
-        let right_grad = Array::zeros((3, 3));
-        let grad = Array::zeros((2, 2, 3));
-        let op = DivisionBackwardRight::new(
-            new_shared(left_data),
-            new_shared(right_data),
-            Rc::new(Gradient::from_ndarray(right_grad)),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(grad)))),
-        );
-
-        op.backward();
-    }
-
-    #[test]
     fn backward() -> Result<(), Box<dyn Error>> {
-        let left_data = Array::from_elem((3, 3), 3.);
-        let left_grad = Array::zeros((3, 3));
         let right_data = Array::from_elem((3, 3), 5.);
-        let right_grad = Array::zeros((3, 3));
         let grad = Array::from_elem((3, 3), 1.);
         let shared_grad = Rc::new(Gradient::from_ndarray(grad.clone()));
         let op = DivisionBackward::new(
             DivisionBackwardLeft::new(
                 new_shared(right_data.clone()),
-                Rc::new(Gradient::from_ndarray(left_grad)),
+                Rc::new(Gradient::zeros((3, 3))),
                 Rc::new(BufferedGradient::new(shared_grad.clone())),
             ),
             DivisionBackwardRight::new(
-                new_shared(left_data),
+                new_shared(Array::from_elem((3, 3), 3.)),
                 new_shared(right_data.clone()),
-                Rc::new(Gradient::from_ndarray(right_grad)),
+                Rc::new(Gradient::zeros((3, 3))),
                 Rc::new(BufferedGradient::new(shared_grad)),
             ),
         );

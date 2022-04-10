@@ -1,185 +1,128 @@
-use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, BCELoss, BCELossBackward,
-    Backward, Data, Forward, Gradient, Reduction,
-};
-use ndarray::arr0;
+use std::error::Error;
 
-#[test]
-fn mean() {
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
-    let input = new_input((3, 3), vec![0.1, 0.9, 0.9, 0., 0., 0., 0.8, 0., 0.]);
-    let loss = BCELoss::new(input.clone(), target.clone(), Reduction::Mean);
+use ndarray::{arr0, Array};
 
-    loss.forward();
-    assert_almost_equals(&*loss.data(), &arr0(22.9244));
+use crate::utils::{are_similar, new_shared};
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    let input_diff = new_backward_input((3, 3), vec![0.; 9]);
-    let loss_backward = BCELossBackward::new(input_diff.clone(), input, target, Reduction::Mean);
+#[cfg(test)]
+mod forward {
+    use super::super::{BinaryCrossEntropy, Forward, Reduction};
+    use super::*;
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    *loss_backward.gradient_mut() = arr0(1.);
+    #[test]
+    fn creation() -> Result<(), Box<dyn Error>> {
+        let input_data = Array::linspace(0., 1., 9).into_shape((3, 3))?;
+        let target_data = Array::linspace(1., 0., 9).into_shape((3, 3))?;
+        let data = Array::zeros(());
+        let op = BinaryCrossEntropy::new(
+            new_shared(input_data.clone()),
+            new_shared(target_data.clone()),
+            new_shared(data.clone()),
+            Reduction::Mean,
+        );
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    loss_backward.backward();
-    assert_almost_equals(
-        &*input_diff.gradient(),
-        &new_tensor(
-            (3, 3),
-            vec![
-                -1.1111e+00,
-                -1.2346e-01,
-                1.1111e+00,
-                0.0000e+00,
-                0.0000e+00,
-                -9.32067e+05,
-                5.5556e-01,
-                0.0000e+00,
-                -9.32067e+05,
-            ],
-        ),
-    );
+        are_similar(op.input_data.borrow(), &input_data)?;
+        are_similar(op.target_data.borrow(), &target_data)?;
+        are_similar(op.data.borrow(), &data)
+    }
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    loss_backward.backward();
-    assert_almost_equals(
-        &*input_diff.gradient(),
-        &(&new_tensor(
-            (3, 3),
-            vec![
-                -1.1111e+00,
-                -1.2346e-01,
-                1.1111e+00,
-                0.0000e+00,
-                0.0000e+00,
-                -9.32067e+05,
-                5.5556e-01,
-                0.0000e+00,
-                -9.32067e+05,
-            ],
-        ) * 2.),
-    );
+    #[test]
+    fn base_case_mean() -> Result<(), Box<dyn Error>> {
+        let op = BinaryCrossEntropy::new(
+            new_shared(Array::linspace(0., 1., 9).into_shape((3, 3))?),
+            new_shared(Array::linspace(1., 0., 9).into_shape((3, 3))?),
+            new_shared(arr0(0.)),
+            Reduction::Mean,
+        );
+
+        op.forward();
+        are_similar(op.data.borrow(), &arr0(23.12971))
+    }
+
+    #[test]
+    fn base_case_sum() -> Result<(), Box<dyn Error>> {
+        let op = BinaryCrossEntropy::new(
+            new_shared(Array::linspace(0., 1., 9).into_shape((3, 3))?),
+            new_shared(Array::linspace(1., 0., 9).into_shape((3, 3))?),
+            new_shared(arr0(0.)),
+            Reduction::Sum,
+        );
+
+        op.forward();
+        are_similar(op.data.borrow(), &arr0(208.16739))
+    }
 }
 
-#[test]
-fn sum() {
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Forward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
-    let input = new_input((3, 3), vec![0.1, 0.9, 0.9, 0., 0., 0., 0.8, 0., 0.]);
-    let loss = BCELoss::new(input.clone(), target.clone(), Reduction::Sum);
+#[cfg(test)]
+mod backward {
+    use std::rc::Rc;
 
-    loss.forward();
-    assert_almost_equals(&*loss.data(), &arr0(206.3199));
+    use super::super::{Backward, BinaryCrossEntropyBackward, Gradient, Reduction};
+    use super::*;
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Backward Pass ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #[test]
+    fn creation() -> Result<(), Box<dyn Error>> {
+        let input_data = Array::linspace(0., 1., 9).into_shape((3, 3))?;
+        let target_data = Array::linspace(1., 0., 9).into_shape((3, 3))?;
+        let input_gradient = Array::zeros((3, 3));
+        let gradient = arr0(0.);
+        let op = BinaryCrossEntropyBackward::new(
+            new_shared(input_data.clone()),
+            new_shared(target_data.clone()),
+            Rc::new(Gradient::from_ndarray(input_gradient.clone())),
+            Rc::new(Gradient::from_ndarray(gradient.clone())),
+            Reduction::Sum,
+        );
 
-    let input_diff = new_backward_input((3, 3), vec![0.; 9]);
-    let loss_backward = BCELossBackward::new(input_diff.clone(), input, target, Reduction::Sum);
+        are_similar(op.input_data.borrow(), &input_data)?;
+        are_similar(op.target_data.borrow(), &target_data)?;
+        are_similar(op.input_gradient.borrow(), &input_gradient)?;
+        are_similar(op.gradient.borrow(), &gradient)
+    }
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    *loss_backward.gradient_mut() = arr0(1.);
+    #[test]
+    fn base_case_mean() -> Result<(), Box<dyn Error>> {
+        let op = BinaryCrossEntropyBackward::new(
+            new_shared(Array::linspace(0., 1., 9).into_shape((3, 3))?),
+            new_shared(Array::linspace(1., 0., 9).into_shape((3, 3))?),
+            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::from_ndarray(arr0(1.))),
+            Reduction::Mean,
+        );
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    loss_backward.backward();
-    assert_almost_equals(
-        &*input_diff.gradient(),
-        &new_tensor(
-            (3, 3),
-            vec![
-                -1.0000e+01,
-                -1.1111e+00,
-                1.0000e+01,
-                0.0000e+00,
-                0.0000e+00,
-                -8.3886e+6,
-                5.0000e+00,
-                0.0000e+00,
-                -8.3886e+6,
-            ],
-        ),
-    );
+        op.backward();
+        are_similar(
+            op.input_gradient.borrow(),
+            &Array::from_shape_vec(
+                (3, 3),
+                vec![
+                    -932067.56, -0.761905, -0.296296, -0.118519, 0., 0.118519, 0.296296, 0.761905,
+                    932067.56,
+                ],
+            )?,
+        )
+    }
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 2nd Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    loss_backward.backward();
-    assert_almost_equals(
-        &*input_diff.gradient(),
-        &(&new_tensor(
-            (3, 3),
-            vec![
-                -1.0000e+01,
-                -1.1111e+00,
-                1.0000e+01,
-                0.0000e+00,
-                0.0000e+00,
-                -8.3886e+6,
-                5.0000e+00,
-                0.0000e+00,
-                -8.3886e+6,
-            ],
-        ) * 2.),
-    );
-}
+    #[test]
+    fn base_case_sum() -> Result<(), Box<dyn Error>> {
+        let op = BinaryCrossEntropyBackward::new(
+            new_shared(Array::linspace(0., 1., 9).into_shape((3, 3))?),
+            new_shared(Array::linspace(1., 0., 9).into_shape((3, 3))?),
+            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::from_ndarray(arr0(1.))),
+            Reduction::Sum,
+        );
 
-#[test]
-fn no_grad() {
-    // BCELossBackward
-    let node = BCELossBackward::new(
-        new_backward_input(3, vec![0.; 3]),
-        new_input(3, vec![0.; 3]),
-        new_input(3, vec![0.; 3]),
-        Reduction::Mean,
-    );
-
-    node.no_grad();
-    assert!(node.gradient.borrow().is_none());
-
-    node.with_grad();
-    assert_eq!(&*node.gradient(), arr0(0.));
-}
-
-#[test]
-fn debug_forward() {
-    let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
-    let input = new_input((3, 3), vec![0.1, 0.9, 0.9, 0., 0., 0., 0.8, 0., 0.]);
-    let loss = BCELoss::new(input.clone(), target.clone(), Reduction::Mean);
-
-    let output = "BCELoss { data: 0.0, shape=[], strides=[], layout=CFcf (0xf), const ndim=0, reduction: Mean, computed: false }";
-
-    assert_eq!(output, format!("{:?}", loss));
-}
-
-#[test]
-fn display_forward() {
-    let target = new_input((3, 3), vec![1., 1., 0., 0., 0., 1., 0., 0., 1.]);
-    let input = new_input((3, 3), vec![0.1, 0.9, 0.9, 0., 0., 0., 0.8, 0., 0.]);
-    let loss = BCELoss::new(input.clone(), target.clone(), Reduction::Mean);
-
-    assert_eq!(format!("{}", loss.data()), format!("{}", loss));
-}
-
-#[test]
-fn debug_backward() {
-    let loss = BCELossBackward::new(
-        new_backward_input(3, vec![0.; 3]),
-        new_input(3, vec![0.; 3]),
-        new_input(3, vec![0.; 3]),
-        Reduction::Mean,
-    );
-
-    let output = "BCELossBackward { gradient: Some(0.0, shape=[], strides=[], layout=CFcf (0xf), const ndim=0), reduction: Mean, overwrite: true }";
-
-    assert_eq!(output, format!("{:?}", loss));
-}
-
-#[test]
-fn display_backward() {
-    let loss = BCELossBackward::new(
-        new_backward_input(3, vec![0.; 3]),
-        new_input(3, vec![0.; 3]),
-        new_input(3, vec![0.; 3]),
-        Reduction::Mean,
-    );
-
-    assert_eq!(format!("{}", loss.gradient()), format!("{}", loss));
+        op.backward();
+        are_similar(
+            op.input_gradient.borrow(),
+            &Array::from_shape_vec(
+                (3, 3),
+                vec![
+                    -8388608., -6.857143, -2.666667, -1.066667, 0., 1.066667, 2.666667, 6.857143,
+                    8388608.,
+                ],
+            )?,
+        )
+    }
 }

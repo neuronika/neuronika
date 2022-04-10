@@ -523,8 +523,8 @@ where
         let grad = Rc::new(Gradient::zeros(().into_dimension()));
         let op = BinaryCrossEntropyBackward::new(
             self.var.data.clone(),
-            self.grad,
             target.data.clone(),
+            self.grad,
             grad.clone(),
             reduction,
         );

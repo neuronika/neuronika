@@ -26,6 +26,8 @@ where
         data: Shared<Array<f32, Ix0>>,
         reduction: Reduction,
     ) -> Self {
+        debug_assert_eq!(input_data.borrow().shape(), target_data.borrow().shape());
+
         Self {
             input_data,
             target_data,
@@ -40,20 +42,19 @@ where
     D: Dimension,
 {
     fn forward(&self) {
-        let (input_data, target_data) = (self.input_data.borrow(), self.target_data.borrow());
+        const LOG_MIN: f32 = 100.;
 
-        const MIN_LOG: f32 = -100.;
+        let input_data = self.input_data.borrow();
         *self.data.borrow_mut() = {
-            let total_loss =
-                Zip::from(&*input_data)
-                    .and(&*target_data)
-                    .fold(0., |loss, &input, &target| {
-                        loss + (target * input.ln().clamp(MIN_LOG, f32::MAX)
-                            + (1. - target) * (1. - input).ln().clamp(MIN_LOG, f32::MAX))
-                    });
+            let total_loss = Zip::from(&*input_data)
+                .and(&*self.target_data.borrow())
+                .fold(0., |loss, &input, &target| {
+                    loss - target * input.ln().clamp(-LOG_MIN, f32::MAX)
+                        + (target - 1.) * (1. - input).ln().clamp(-LOG_MIN, f32::MAX)
+                });
             match self.reduction {
-                Reduction::Mean => arr0(-total_loss / input_data.len() as f32),
-                Reduction::Sum => arr0(-total_loss),
+                Reduction::Mean => arr0(total_loss / input_data.len() as f32),
+                Reduction::Sum => arr0(total_loss),
             }
         };
     }
@@ -64,8 +65,8 @@ where
     D: Dimension,
 {
     input_data: Shared<Array<f32, D>>,
-    input_gradient: Rc<Gradient<D>>,
     target_data: Shared<Array<f32, D>>,
+    input_gradient: Rc<Gradient<D>>,
     gradient: Rc<Gradient<Ix0>>,
     reduction: Reduction,
 }
@@ -76,15 +77,18 @@ where
 {
     pub(crate) fn new(
         input_data: Shared<Array<f32, D>>,
-        input_gradient: Rc<Gradient<D>>,
         target_data: Shared<Array<f32, D>>,
+        input_gradient: Rc<Gradient<D>>,
         gradient: Rc<Gradient<Ix0>>,
         reduction: Reduction,
     ) -> Self {
+        debug_assert_eq!(input_data.borrow().shape(), target_data.borrow().shape());
+        debug_assert_eq!(target_data.borrow().shape(), input_gradient.shape().slice());
+
         Self {
             input_data,
-            input_gradient,
             target_data,
+            input_gradient,
             gradient,
             reduction,
         }
@@ -111,20 +115,17 @@ where
                 let n = input_data.len() as f32;
                 zip.for_each(|op_grad, &grad, &input, &target| {
                     *op_grad +=
-                        (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad / n
+                        (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad / n;
                 });
             }
             Reduction::Sum => {
                 zip.for_each(|op_grad, &grad, &input, &target| {
-                    *op_grad += (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad
+                    *op_grad += (input - target) / ((1. - input) * input).max(f32::EPSILON) * grad;
                 });
             }
         }
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;

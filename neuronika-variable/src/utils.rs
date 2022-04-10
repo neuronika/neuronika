@@ -482,6 +482,9 @@ pub(crate) fn check_groups_args(input_shape: &[usize], kernel_shape: &[usize], g
 }
 
 #[cfg(test)]
+pub(crate) const F16_EPSILON: f32 = 4.88e-04;
+
+#[cfg(test)]
 pub(crate) fn new_shared<T>(item: T) -> Rc<RefCell<T>> {
     Rc::new(RefCell::new(item))
 }
@@ -491,7 +494,7 @@ pub(crate) fn are_similar<D: Dimension>(
     result: std::cell::Ref<Array<f32, D>>,
     expected: &Array<f32, D>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !result.abs_diff_eq(expected, f32::EPSILON) {
+    if !result.abs_diff_eq(expected, F16_EPSILON) {
         return Err(format!("Result: {} | Expected: {}", result, expected).into());
     }
 

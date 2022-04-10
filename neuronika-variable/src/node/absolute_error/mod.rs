@@ -6,7 +6,6 @@ use crate::{gradient::Gradient, utils::Shared, Reduction};
 
 use super::{Backward, Forward};
 
-#[allow(clippy::upper_case_acronyms)]
 pub struct AbsoluteError<D>
 where
     D: Dimension,
@@ -27,6 +26,8 @@ where
         data: Shared<Array<f32, Ix0>>,
         reduction: Reduction,
     ) -> Self {
+        debug_assert_eq!(input_data.borrow().shape(), target_data.borrow().shape());
+
         Self {
             input_data,
             target_data,
@@ -41,10 +42,10 @@ where
     D: Dimension,
 {
     fn forward(&self) {
-        let (input_data, target_data) = (self.input_data.borrow(), self.target_data.borrow());
+        let input_data = self.input_data.borrow();
         *self.data.borrow_mut() = {
             let total_loss = Zip::from(&*input_data)
-                .and(&*target_data)
+                .and(&*self.target_data.borrow())
                 .fold(0., |loss, &input, &target| loss + (input - target).abs());
 
             match self.reduction {
@@ -55,7 +56,6 @@ where
     }
 }
 
-#[allow(clippy::upper_case_acronyms)]
 pub struct AbsoluteErrorBackward<D>
 where
     D: Dimension,
@@ -78,6 +78,9 @@ where
         gradient: Rc<Gradient<Ix0>>,
         reduction: Reduction,
     ) -> Self {
+        debug_assert_eq!(input_data.borrow().shape(), target_data.borrow().shape());
+        debug_assert_eq!(target_data.borrow().shape(), input_gradient.shape().slice());
+
         Self {
             input_data,
             target_data,
@@ -121,8 +124,5 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-//#[cfg(test)]
-//mod test;
+#[cfg(test)]
+mod test;

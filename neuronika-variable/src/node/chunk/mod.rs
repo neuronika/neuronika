@@ -25,6 +25,13 @@ where
         data: Shared<Array<f32, D>>,
         chunk_no: usize,
     ) -> Self {
+        debug_assert!(data
+            .borrow()
+            .shape()
+            .iter()
+            .zip(operand_data.borrow().shape())
+            .all(|(l, r)| l <= r));
+
         let shape = data.borrow().raw_dim();
 
         Self {
@@ -41,22 +48,16 @@ where
     D: Dimension,
 {
     fn forward(&self) {
-        let (mut data, operand_data, shape, chunk_no) = (
-            self.data.borrow_mut(),
-            self.operand_data.borrow(),
-            &self.shape,
-            self.chunk_no,
-        );
-
+        let operand_data = self.operand_data.borrow();
         let operand_data_chunk = operand_data
-            .exact_chunks(shape.clone())
+            .exact_chunks(self.shape.clone())
             .into_iter()
-            .skip(chunk_no)
+            .skip(self.chunk_no)
             .take(1)
             .next()
             .unwrap();
 
-        data.assign(&operand_data_chunk);
+        self.data.borrow_mut().assign(&operand_data_chunk);
     }
 }
 
@@ -78,6 +79,13 @@ where
         gradient: Rc<Gradient<D>>,
         chunk_no: usize,
     ) -> Self {
+        debug_assert!(gradient
+            .shape()
+            .slice()
+            .iter()
+            .zip(operand_gradient.shape().slice())
+            .all(|(l, r)| l <= r));
+
         Self {
             operand_gradient,
             gradient,
@@ -104,8 +112,5 @@ where
     }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;

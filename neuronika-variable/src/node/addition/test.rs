@@ -28,11 +28,10 @@ mod forward {
     fn base_case() -> Result<(), Box<dyn Error>> {
         let left = Array::linspace(1., 9., 9).into_shape((3, 3))?;
         let right = Array::zeros((3, 3));
-        let data = Array::zeros((3, 3));
         let op = Addition::new(
             new_shared(left.clone()),
             new_shared(right.clone()),
-            new_shared(data),
+            new_shared(Array::zeros((3, 3))),
         );
 
         op.forward();
@@ -43,61 +42,38 @@ mod forward {
     fn left_broadcast() -> Result<(), Box<dyn Error>> {
         let left = Array::linspace(1., 3., 3).into_shape((1, 3))?;
         let right = Array::ones((2, 2, 3));
-        let data = Array::zeros((2, 2, 3));
         let op = Addition::new(
             new_shared(left.clone()),
             new_shared(right.clone()),
-            new_shared(data),
+            new_shared(Array::zeros((2, 2, 3))),
         );
 
         op.forward();
         are_similar(op.data.borrow(), &(left + right))
-    }
-
-    #[test]
-    #[should_panic]
-    fn wrong_left_broadcast() {
-        let left = Array::zeros((3, 3));
-        let right = Array::zeros((2, 2, 3));
-        let data = Array::zeros((2, 2, 3));
-        let op = Addition::new(new_shared(left), new_shared(right), new_shared(data));
-
-        op.forward();
     }
 
     #[test]
     fn right_broadcast() -> Result<(), Box<dyn Error>> {
         let left = Array::ones((2, 2, 3));
         let right = Array::linspace(1., 3., 3).into_shape((1, 3))?;
-        let data = Array::zeros((2, 2, 3));
         let op = Addition::new(
             new_shared(left.clone()),
             new_shared(right.clone()),
-            new_shared(data),
+            new_shared(Array::zeros((2, 2, 3))),
         );
 
         op.forward();
         are_similar(op.data.borrow(), &(left + right))
     }
-
-    #[test]
-    #[should_panic]
-    fn wrong_right_broadcast() {
-        let left = Array::zeros((2, 2, 3));
-        let right = Array::zeros((3, 3));
-        let data = Array::zeros((2, 2, 3));
-        let op = Addition::new(new_shared(left), new_shared(right), new_shared(data));
-
-        op.forward();
-    }
 }
 
 mod backward {
+    use ndarray::{Ix1, Ix2};
+
     use super::super::{
         AdditionBackward, AdditionBackwardLeft, AdditionBackwardRight, Backward, Gradient,
     };
     use super::*;
-    use ndarray::{Ix1, Ix2};
 
     #[test]
     fn left_creation() -> Result<(), Box<dyn Error>> {
@@ -132,10 +108,9 @@ mod backward {
 
     #[test]
     fn left_reduction() -> Result<(), Box<dyn Error>> {
-        let left = Array::zeros(3);
         let grad = Array::ones((3, 3));
         let op = AdditionBackwardLeft::<Ix1, Ix2>::new(
-            Rc::new(Gradient::from_ndarray(left)),
+            Rc::new(Gradient::zeros(3)),
             Rc::new(Gradient::from_ndarray(grad.clone())),
         );
 
@@ -146,19 +121,6 @@ mod backward {
         op.backward();
         are_similar(op.operand_gradient.borrow(), &Array::from_elem(3, 6.))?;
         are_similar(op.gradient.borrow(), &grad)
-    }
-
-    #[test]
-    #[should_panic]
-    fn wrong_left_reduction() {
-        let left = Array::zeros(2);
-        let grad = Array::zeros((2, 3));
-        let op = AdditionBackwardLeft::<Ix1, Ix2>::new(
-            Rc::new(Gradient::from_ndarray(left)),
-            Rc::new(Gradient::from_ndarray(grad)),
-        );
-
-        op.backward();
     }
 
     #[test]
@@ -194,10 +156,9 @@ mod backward {
 
     #[test]
     fn right_reduction() -> Result<(), Box<dyn Error>> {
-        let right = Array::zeros(3);
         let grad = Array::ones((3, 3));
         let op = AdditionBackwardRight::<Ix2, Ix1>::new(
-            Rc::new(Gradient::from_ndarray(right)),
+            Rc::new(Gradient::zeros(3)),
             Rc::new(Gradient::from_ndarray(grad.clone())),
         );
 
@@ -208,19 +169,6 @@ mod backward {
         op.backward();
         are_similar(op.operand_gradient.borrow(), &Array::from_elem(3, 6.))?;
         are_similar(op.gradient.borrow(), &grad)
-    }
-
-    #[test]
-    #[should_panic]
-    fn wrong_right_reduction() {
-        let right = Array::zeros(2);
-        let grad = Array::zeros((2, 3));
-        let op = AdditionBackwardRight::<Ix2, Ix1>::new(
-            Rc::new(Gradient::from_ndarray(right)),
-            Rc::new(Gradient::from_ndarray(grad)),
-        );
-
-        op.backward();
     }
 
     #[test]
