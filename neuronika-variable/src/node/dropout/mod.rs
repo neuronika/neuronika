@@ -1,9 +1,8 @@
 use std::{cell::Cell, rc::Rc};
 
+use ndarray::{Array, Dimension, Zip};
 use rand::thread_rng;
 use rand_distr::{Bernoulli, Distribution};
-
-use ndarray::{Array, Dimension, Zip};
 
 use crate::{gradient::Gradient, utils::Shared};
 
@@ -33,10 +32,7 @@ where
         status: Rc<Cell<bool>>,
     ) -> Self {
         if !(0. ..=1.).contains(&p) {
-            panic!(
-                "Dropout probability has to be between 0 and 1, but got {}.",
-                p
-            );
+            panic!("Wrong probability received: {}.", p);
         }
 
         Self {
@@ -55,12 +51,12 @@ where
     D: Dimension,
 {
     fn forward(&self) {
-        if !self.status.get() || self.p <= f64::EPSILON {
+        if !self.status.get() || self.p == 0.0 {
             self.data.borrow_mut().assign(&*self.operand_data.borrow());
             return;
         }
 
-        if 1. - self.p <= f64::EPSILON {
+        if (1. - self.p) == 0.0 {
             Zip::from(&mut *self.data.borrow_mut()).for_each(|data_el| *data_el = 0.);
             return;
         }
@@ -96,8 +92,8 @@ where
     pub(crate) fn new(
         operand_gradient: Rc<Gradient<D>>,
         gradient: Rc<Gradient<D>>,
-        noise: Shared<Array<f32, D>>,
         p: f64,
+        noise: Shared<Array<f32, D>>,
         status: Rc<Cell<bool>>,
     ) -> Self {
         Self {
@@ -115,7 +111,7 @@ where
     D: Dimension,
 {
     fn backward(&self) {
-        if !self.status.get() || self.p <= f64::EPSILON {
+        if !self.status.get() || self.p == 0.0 {
             *self.operand_gradient.borrow_mut() += &*self.gradient.borrow();
             return;
         }
@@ -127,8 +123,5 @@ where
     }
 }
 
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Tests ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
