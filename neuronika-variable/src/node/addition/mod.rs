@@ -29,15 +29,6 @@ where
         right_data: Shared<Array<f32, E>>,
         data: Shared<Array<f32, Broadcast<D, E>>>,
     ) -> Self {
-        debug_assert!(left_data
-            .borrow()
-            .broadcast(data.borrow().shape())
-            .is_some());
-        debug_assert!(right_data
-            .borrow()
-            .broadcast(data.borrow().shape())
-            .is_some());
-
         Self {
             left_data,
             right_data,

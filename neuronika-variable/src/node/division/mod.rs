@@ -29,15 +29,6 @@ where
         right_data: Shared<Array<f32, E>>,
         data: Shared<Array<f32, Broadcast<D, E>>>,
     ) -> Self {
-        debug_assert!(left_data
-            .borrow()
-            .broadcast(data.borrow().shape())
-            .is_some());
-        debug_assert!(right_data
-            .borrow()
-            .broadcast(data.borrow().shape())
-            .is_some());
-
         Self {
             left_data,
             right_data,
@@ -80,10 +71,6 @@ where
         gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
     ) -> Self {
         debug_assert!(left_gradient
-            .borrow()
-            .broadcast(gradient.shape().slice())
-            .is_some());
-        debug_assert!(right_data
             .borrow()
             .broadcast(gradient.shape().slice())
             .is_some());
@@ -135,14 +122,6 @@ where
         gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
     ) -> Self {
         debug_assert_eq!(right_data.borrow().shape(), right_gradient.shape().slice());
-        debug_assert!(left_data
-            .borrow()
-            .broadcast(gradient.shape().slice())
-            .is_some());
-        debug_assert!(right_data
-            .borrow()
-            .broadcast(gradient.shape().slice())
-            .is_some());
 
         Self {
             left_data,

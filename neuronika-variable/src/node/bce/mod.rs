@@ -26,8 +26,6 @@ where
         data: Shared<Array<f32, Ix0>>,
         reduction: Reduction,
     ) -> Self {
-        debug_assert_eq!(input_data.borrow().shape(), target_data.borrow().shape());
-
         Self {
             input_data,
             target_data,
@@ -82,9 +80,6 @@ where
         gradient: Rc<Gradient<Ix0>>,
         reduction: Reduction,
     ) -> Self {
-        debug_assert_eq!(input_data.borrow().shape(), target_data.borrow().shape());
-        debug_assert_eq!(target_data.borrow().shape(), input_gradient.shape().slice());
-
         Self {
             input_data,
             target_data,
