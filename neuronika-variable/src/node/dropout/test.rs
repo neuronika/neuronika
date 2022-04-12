@@ -105,9 +105,7 @@ mod forward {
 }
 
 mod backward {
-    use crate::gradient::Gradient;
-
-    use super::super::{Backward, DropoutBackward};
+    use super::super::{Backward, DropoutBackward, Gradient};
     use super::*;
 
     #[test]
