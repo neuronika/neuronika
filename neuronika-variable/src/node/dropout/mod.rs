@@ -82,8 +82,8 @@ pub(crate) struct DropoutBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     noise: Shared<Array<f32, D>>,
     p: f64,
     status: Rc<Cell<bool>>,
@@ -94,8 +94,8 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         p: f64,
         noise: Shared<Array<f32, D>>,
         status: Rc<Cell<bool>>,

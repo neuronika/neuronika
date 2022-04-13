@@ -54,8 +54,8 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<Broadcast<D, E>>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
 }
 
 impl<D, E> SubtractionBackwardLeft<D, E>
@@ -64,8 +64,8 @@ where
     E: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<Broadcast<D, E>>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
     ) -> Self {
         debug_assert!(operand_gradient
             .borrow()
@@ -97,8 +97,8 @@ where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
-    operand_gradient: Rc<Gradient<E>>,
-    gradient: Rc<Gradient<Broadcast<D, E>>>,
+    operand_gradient: Rc<Gradient<Array<f32, E>, E>>,
+    gradient: Rc<Gradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
 }
 
 impl<D, E> SubtractionBackwardRight<D, E>
@@ -107,8 +107,8 @@ where
     E: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<E>>,
-        gradient: Rc<Gradient<Broadcast<D, E>>>,
+        operand_gradient: Rc<Gradient<Array<f32, E>, E>>,
+        gradient: Rc<Gradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
     ) -> Self {
         debug_assert!(operand_gradient
             .borrow()

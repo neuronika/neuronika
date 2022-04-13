@@ -37,7 +37,7 @@ where
     D: Dimension,
 {
     pub(crate) var: Var<D>,
-    pub(crate) grad: Rc<Gradient<D>>,
+    pub(crate) grad: Rc<Gradient<Array<f32, D>, D>>,
     pub(crate) history: History<(Rc<dyn Backward>, Rc<dyn NoGrad>)>,
 }
 
@@ -55,7 +55,7 @@ where
 
     pub(crate) fn node(
         var: Var<D>,
-        grad: Rc<Gradient<D>>,
+        grad: Rc<Gradient<Array<f32, D>, D>>,
         op: (Rc<dyn Backward>, Rc<dyn NoGrad>),
         mut history: History<(Rc<dyn Backward>, Rc<dyn NoGrad>)>,
     ) -> VarDiff<D> {
@@ -259,7 +259,7 @@ where
     ///
     /// `exp` - exponent.
     pub fn pow(self, exp: i32) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let op = PowerBackward::new(self.grad, self.var.data.clone(), grad.clone(), exp);
         let var = self.var.pow(exp);
 
@@ -268,7 +268,7 @@ where
 
     /// Takes the square root element-wise and returns a differentiable variable with the result.
     pub fn sqrt(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let var = self.var.sqrt();
         let op = SqrtBackward::new(self.grad, var.data.clone(), grad.clone());
 
@@ -280,7 +280,7 @@ where
     ///
     /// *ReLU(x) = max(0, x)*
     pub fn relu(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let op = ReLUBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.relu();
 
@@ -292,7 +292,7 @@ where
     ///
     /// *LeakyReLU(x) = max(0, x) + 0.01 * min(0, x)*
     pub fn leaky_relu(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let op = LeakyReLUBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.leaky_relu();
 
@@ -303,7 +303,7 @@ where
     ///
     /// *Softplus(x) = log(1 + exp(x))*
     pub fn softplus(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let op = SoftPlusBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.softplus();
 
@@ -312,7 +312,7 @@ where
 
     /// Applies the *sigmoid* element-wise and returns a differentiable variable with the result.
     pub fn sigmoid(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let var = self.var.sigmoid();
         let op = SigmoidBackward::new(self.grad, var.data.clone(), grad.clone());
 
@@ -321,7 +321,7 @@ where
 
     /// Applies the *tanh* element-wise and returns a differentiable variable with the result.
     pub fn tanh(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let var = self.var.tanh();
         let op = TanHBackward::new(self.grad, var.data.clone(), grad.clone());
 
@@ -331,7 +331,7 @@ where
     /// Applies the *natural logarithm* element-wise and returns a differentiable variable with the
     /// result.
     pub fn ln(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let op = LognBackward::new(self.grad, self.var.data.clone(), grad.clone());
         let var = self.var.ln();
 
@@ -341,7 +341,7 @@ where
     /// Applies the *exponential* element-wise and returns a differentiable variable with the
     /// result.
     pub fn exp(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let var = self.var.exp();
         let op = ExpBackward::new(self.grad, var.data.clone(), grad.clone());
 
@@ -357,7 +357,7 @@ where
     ///
     /// `axis` - axis along which softmax will be computed.
     pub fn softmax(self, axis: usize) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let var = self.var.softmax(axis);
         let op = SoftmaxBackward::new(self.grad, var.data.clone(), grad.clone(), axis);
 
@@ -379,7 +379,7 @@ where
     ///
     /// `axis` - axis along which log-softmax will be computed.
     pub fn log_softmax(self, axis: usize) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let var = self.var.log_softmax(axis);
         let op = LogSoftmaxBackward::new(self.grad, var.data.clone(), grad.clone(), axis);
 
@@ -388,7 +388,7 @@ where
 
     /// Returns a differentiable variable equivalent to `self` with its dimensions reversed.
     pub fn t(self) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let op = TransposeBackward::new(self.grad, grad.clone());
         let var = self.var.t();
 
@@ -416,7 +416,7 @@ where
     ///
     /// * `status` - dropout status.
     pub fn dropout(self, p: f64, status: Rc<Cell<bool>>) -> VarDiff<D> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let noise = Rc::new(RefCell::new(Array::zeros(self.grad.shape())));
         let var = self
             .var
@@ -440,7 +440,7 @@ where
         vars.into_iter()
             .enumerate()
             .map(|(i, var)| {
-                let grad = Rc::new(Gradient::zeros(var.data.borrow().raw_dim()));
+                let grad = Rc::new(Gradient::ndarray_zeros(var.data.borrow().raw_dim()));
                 let op = ChunkBackward::new(self.grad.clone(), grad.clone(), i);
 
                 VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history.clone())
@@ -455,7 +455,9 @@ where
     ///
     /// `axis` - dimension to insert the new axis at.
     pub fn unsqueeze(self, axis: usize) -> VarDiff<D::Larger> {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape().insert_axis(Axis(axis))));
+        let grad = Rc::new(Gradient::ndarray_zeros(
+            self.grad.shape().insert_axis(Axis(axis)),
+        ));
         let op = UnsqueezeBackward::new(self.grad, grad.clone());
         let var = self.var.unsqueeze(axis);
 
@@ -470,7 +472,7 @@ where
     ///
     /// * `reduction` - reduction to apply to the criterion's output.
     pub fn mae(self, target: Var<D>, reduction: Reduction) -> VarDiff<Ix0> {
-        let grad = Rc::new(Gradient::zeros(().into_dimension()));
+        let grad = Rc::new(Gradient::ndarray_zeros(().into_dimension()));
         let op = AbsoluteErrorBackward::new(
             self.var.data.clone(),
             target.data.clone(),
@@ -491,7 +493,7 @@ where
     ///
     /// * `reduction` - reduction to apply to the criterion's output.
     pub fn mse(self, target: Var<D>, reduction: Reduction) -> VarDiff<Ix0> {
-        let grad = Rc::new(Gradient::zeros(().into_dimension()));
+        let grad = Rc::new(Gradient::ndarray_zeros(().into_dimension()));
         let op = SquaredErrorBackward::new(
             self.var.data.clone(),
             target.data.clone(),
@@ -521,7 +523,7 @@ where
     ///
     /// * `reduction` - reduction to apply to the criterion's output.
     pub fn bce(self, target: Var<D>, reduction: Reduction) -> VarDiff<Ix0> {
-        let grad = Rc::new(Gradient::zeros(().into_dimension()));
+        let grad = Rc::new(Gradient::ndarray_zeros(().into_dimension()));
         let op = BinaryCrossEntropyBackward::new(
             self.var.data.clone(),
             target.data.clone(),
@@ -550,7 +552,7 @@ where
     ///
     /// * `reduction` - reduction to apply to the criterion's output.
     pub fn bce_with_logits(self, target: Var<D>, reduction: Reduction) -> VarDiff<Ix0> {
-        let grad = Rc::new(Gradient::zeros(().into_dimension()));
+        let grad = Rc::new(Gradient::ndarray_zeros(().into_dimension()));
         let op = BCEWithLogitsBackward::new(
             self.var.data.clone(),
             self.grad,
@@ -579,7 +581,7 @@ where
     ///
     /// * `reduction` - reduction to apply to the criterion's output.
     pub fn kldiv(self, target: Var<D>, reduction: Reduction) -> VarDiff<Ix0> {
-        let grad = Rc::new(Gradient::zeros(().into_dimension()));
+        let grad = Rc::new(Gradient::ndarray_zeros(().into_dimension()));
         let op = KLDivBackward::new(self.grad, target.data.clone(), grad.clone(), reduction);
         let var = self.var.kldiv(target, reduction);
 
@@ -634,7 +636,7 @@ where
             op_grads.push(var.grad);
         });
 
-        let grad = Rc::new(Gradient::zeros(var.data.borrow().raw_dim()));
+        let grad = Rc::new(Gradient::ndarray_zeros(var.data.borrow().raw_dim()));
         let op = MultiConcatenateBackward::new(op_grads, grad.clone(), axis);
 
         VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
@@ -688,7 +690,7 @@ where
             op_grands.push(var.grad);
         });
 
-        let grad = Rc::new(Gradient::zeros(var.data.borrow().raw_dim()));
+        let grad = Rc::new(Gradient::ndarray_zeros(var.data.borrow().raw_dim()));
         let op = MultiStackBackward::new(op_grands, grad.clone(), axis);
 
         VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
@@ -721,7 +723,7 @@ where
     ///
     /// * `reduction` - reduction to apply to the criterion's output.
     pub fn nll(self, target: Var<D::Smaller>, reduction: Reduction) -> VarDiff<Ix0> {
-        let grad = Rc::new(Gradient::zeros(().into_dimension()));
+        let grad = Rc::new(Gradient::ndarray_zeros(().into_dimension()));
         let op = NegativeLogLikelihoodBackward::new(
             target.data.clone(),
             self.grad,
@@ -747,7 +749,7 @@ where
         E: IntoDimension<Dim = <D::Smaller as Dimension>::Smaller>,
     {
         let padding = padding.into_dimension();
-        let grad = Rc::new(Gradient::zeros(self.var.data().raw_dim()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.var.data().raw_dim()));
         let var = self.var.pad(padding, mode);
         let op = PadBackward::new(self.grad, grad.clone(), padding);
 
@@ -868,7 +870,7 @@ where
     type Output = VarDiff<D>;
 
     fn neg(self) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(self.grad.shape()));
+        let grad = Rc::new(Gradient::ndarray_zeros(self.grad.shape()));
         let op = NegationBackward::new(self.grad, grad.clone());
         let var = self.var.neg();
 
@@ -979,7 +981,7 @@ where
             &self.var.data.borrow(),
             &rhs.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::new(grad.clone()));
+        let buff = Rc::new(BufferedGradient::from_ndarray(grad.clone()));
         let op = MultiplicationBackwardLeft::new(rhs.data.clone(), self.grad, buff.clone());
         let var = self.var.mul(rhs);
 
@@ -1001,7 +1003,7 @@ where
             &self.var.data.borrow(),
             &rhs.var.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::new(grad.clone()));
+        let buff = Rc::new(BufferedGradient::from_ndarray(grad.clone()));
         let left = MultiplicationBackwardLeft::new(rhs.var.data.clone(), self.grad, buff.clone());
         let right = MultiplicationBackwardRight::new(self.var.data.clone(), rhs.grad, buff.clone());
         let op = MultiplicationBackward::new(left, right);
@@ -1025,7 +1027,7 @@ where
             &self.var.data.borrow(),
             &rhs.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::new(grad.clone()));
+        let buff = Rc::new(BufferedGradient::from_ndarray(grad.clone()));
         let op = DivisionBackwardLeft::new(rhs.data.clone(), self.grad, buff.clone());
         let var = self.var.div(rhs);
 
@@ -1047,7 +1049,7 @@ where
             &self.var.data.borrow(),
             &rhs.var.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::new(grad.clone()));
+        let buff = Rc::new(BufferedGradient::from_ndarray(grad.clone()));
         let left = DivisionBackwardLeft::new(rhs.var.data.clone(), self.grad, buff.clone());
         let right = DivisionBackwardRight::new(
             self.var.data.clone(),
@@ -1072,7 +1074,7 @@ impl MatMatMul<Var<Ix2>> for VarDiff<Ix2> {
     type Output = VarDiff<Ix2>;
 
     fn mm(self, rhs: Var<Ix2>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.data().raw_dim(),
         )));
@@ -1089,7 +1091,7 @@ impl MatMatMul<VarDiff<Ix2>> for VarDiff<Ix2> {
     fn mm(mut self, rhs: VarDiff<Ix2>) -> Self::Output {
         self.history.merge(rhs.history);
 
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1109,7 +1111,7 @@ impl MatMatMulT<Var<Ix2>> for VarDiff<Ix2> {
     type Output = VarDiff<Ix2>;
 
     fn mm_t(self, rhs: Var<Ix2>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.data.borrow().t().raw_dim(),
         )));
@@ -1126,7 +1128,7 @@ impl MatMatMulT<VarDiff<Ix2>> for VarDiff<Ix2> {
     fn mm_t(mut self, rhs: VarDiff<Ix2>) -> Self::Output {
         self.history.merge(rhs.history);
 
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1146,7 +1148,7 @@ impl MatVecMul<Var<Ix1>> for VarDiff<Ix2> {
     type Output = VarDiff<Ix1>;
 
     fn mv(self, rhs: Var<Ix1>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.data().raw_dim(),
         )));
@@ -1163,7 +1165,7 @@ impl MatVecMul<VarDiff<Ix1>> for VarDiff<Ix2> {
     fn mv(mut self, rhs: VarDiff<Ix1>) -> Self::Output {
         self.history.merge(rhs.history);
 
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1183,7 +1185,7 @@ impl VecMatMul<Var<Ix2>> for VarDiff<Ix1> {
     type Output = VarDiff<Ix1>;
 
     fn vm(self, rhs: Var<Ix2>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.data().raw_dim(),
         )));
@@ -1200,7 +1202,7 @@ impl VecMatMul<VarDiff<Ix2>> for VarDiff<Ix1> {
     fn vm(mut self, rhs: VarDiff<Ix2>) -> Self::Output {
         self.history.merge(rhs.history);
 
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.var.data().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1367,7 +1369,7 @@ where
         let shape = var.data().raw_dim();
         let stride = stride.into_dimension();
         let dilation = dilation.into_dimension();
-        let grad = Rc::new(Gradient::zeros(shape));
+        let grad = Rc::new(Gradient::ndarray_zeros(shape));
         let op = ConvolutionBackwardKernel::new(
             input_data,
             self.grad,
@@ -1404,7 +1406,7 @@ where
         let input_grad = input.grad.clone();
         let var = self.var.convolution(input.var, stride, dilation, groups);
         let shape = var.data().raw_dim();
-        let grad = Rc::new(Gradient::zeros(shape));
+        let grad = Rc::new(Gradient::ndarray_zeros(shape));
         let backward_input = ConvolutionBackwardInput::new(
             kernel_data,
             input_grad,

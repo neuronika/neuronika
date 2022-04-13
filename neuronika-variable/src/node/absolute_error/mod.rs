@@ -63,8 +63,8 @@ where
 {
     input_data: Shared<Array<f32, D>>,
     target_data: Shared<Array<f32, D>>,
-    input_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<Ix0>>,
+    input_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
     reduction: Reduction,
 }
 
@@ -75,8 +75,8 @@ where
     pub(crate) fn new(
         input_data: Shared<Array<f32, D>>,
         target_data: Shared<Array<f32, D>>,
-        input_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<Ix0>>,
+        input_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {

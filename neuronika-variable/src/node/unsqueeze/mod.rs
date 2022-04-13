@@ -44,8 +44,8 @@ pub(crate) struct UnsqueezeBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D::Larger>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
 }
 
 impl<D> UnsqueezeBackward<D>
@@ -53,8 +53,8 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D::Larger>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
     ) -> Self {
         Self {
             operand_gradient,

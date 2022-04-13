@@ -40,15 +40,18 @@ pub(crate) struct NegationBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
 }
 
 impl<D> NegationBackward<D>
 where
     D: Dimension,
 {
-    pub(crate) fn new(operand_gradient: Rc<Gradient<D>>, gradient: Rc<Gradient<D>>) -> Self {
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
+    ) -> Self {
         Self {
             operand_gradient,
             gradient,

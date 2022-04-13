@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use ndarray::{linalg::general_mat_vec_mul, s, Array, Ix1, Ix2, NewAxis, Zip};
+use ndarray::{linalg::general_mat_vec_mul, s, Array1, Array2, Ix1, Ix2, NewAxis, Zip};
 
 use crate::{
     autograd::{Backward, Forward},
@@ -9,16 +9,16 @@ use crate::{
 };
 
 pub(crate) struct VectorMatrixMul {
-    left_data: Shared<Array<f32, Ix1>>,
-    right_data: Shared<Array<f32, Ix2>>,
-    data: Shared<Array<f32, Ix1>>,
+    left_data: Shared<Array1<f32>>,
+    right_data: Shared<Array2<f32>>,
+    data: Shared<Array1<f32>>,
 }
 
 impl VectorMatrixMul {
     pub(crate) fn new(
-        left_data: Shared<Array<f32, Ix1>>,
-        right_data: Shared<Array<f32, Ix2>>,
-        data: Shared<Array<f32, Ix1>>,
+        left_data: Shared<Array1<f32>>,
+        right_data: Shared<Array2<f32>>,
+        data: Shared<Array1<f32>>,
     ) -> Self {
         Self {
             left_data,
@@ -41,16 +41,16 @@ impl Forward for VectorMatrixMul {
 }
 
 pub(crate) struct VectorMatrixMulBackwardLeft {
-    left_gradient: Rc<Gradient<Ix1>>,
-    right_data: Shared<Array<f32, Ix2>>,
-    gradient: Rc<Gradient<Ix1>>,
+    left_gradient: Rc<Gradient<Array1<f32>, Ix1>>,
+    right_data: Shared<Array2<f32>>,
+    gradient: Rc<Gradient<Array1<f32>, Ix1>>,
 }
 
 impl VectorMatrixMulBackwardLeft {
     pub(crate) fn new(
-        left_gradient: Rc<Gradient<Ix1>>,
-        right_data: Shared<Array<f32, Ix2>>,
-        gradient: Rc<Gradient<Ix1>>,
+        left_gradient: Rc<Gradient<Array1<f32>, Ix1>>,
+        right_data: Shared<Array2<f32>>,
+        gradient: Rc<Gradient<Array1<f32>, Ix1>>,
     ) -> Self {
         Self {
             left_gradient,
@@ -73,16 +73,16 @@ impl Backward for VectorMatrixMulBackwardLeft {
 }
 
 pub(crate) struct VectorMatrixMulBackwardRight {
-    left_data: Shared<Array<f32, Ix1>>,
-    right_gradient: Rc<Gradient<Ix2>>,
-    gradient: Rc<Gradient<Ix1>>,
+    left_data: Shared<Array1<f32>>,
+    right_gradient: Rc<Gradient<Array2<f32>, Ix2>>,
+    gradient: Rc<Gradient<Array1<f32>, Ix1>>,
 }
 
 impl VectorMatrixMulBackwardRight {
     pub(crate) fn new(
-        left_data: Shared<Array<f32, Ix1>>,
-        right_gradient: Rc<Gradient<Ix2>>,
-        gradient: Rc<Gradient<Ix1>>,
+        left_data: Shared<Array1<f32>>,
+        right_gradient: Rc<Gradient<Array2<f32>, Ix2>>,
+        gradient: Rc<Gradient<Array1<f32>, Ix1>>,
     ) -> Self {
         Self {
             left_data,

@@ -970,7 +970,7 @@ where
             &self.data.borrow(),
             &rhs.var.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::new(grad.clone()));
+        let buff = Rc::new(BufferedGradient::from_ndarray(grad.clone()));
         let op = MultiplicationBackwardRight::new(self.data.clone(), rhs.grad, buff.clone());
         let var = self.mul(rhs.var);
 
@@ -1012,7 +1012,7 @@ where
             &self.data.borrow(),
             &rhs.var.data.borrow(),
         )));
-        let buff = Rc::new(BufferedGradient::new(grad.clone()));
+        let buff = Rc::new(BufferedGradient::from_ndarray(grad.clone()));
         let op = DivisionBackwardRight::new(
             self.data.clone(),
             rhs.var.data.clone(),
@@ -1049,7 +1049,7 @@ impl MatMatMul<VarDiff<Ix2>> for Var<Ix2> {
     type Output = VarDiff<Ix2>;
 
     fn mm(self, rhs: VarDiff<Ix2>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.data.borrow().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1082,7 +1082,7 @@ impl MatMatMulT<VarDiff<Ix2>> for Var<Ix2> {
     type Output = VarDiff<Ix2>;
 
     fn mm_t(self, rhs: VarDiff<Ix2>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.data.borrow().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1115,7 +1115,7 @@ impl MatVecMul<VarDiff<Ix1>> for Var<Ix2> {
     type Output = VarDiff<Ix1>;
 
     fn mv(self, rhs: VarDiff<Ix1>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.data.borrow().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1148,7 +1148,7 @@ impl VecMatMul<VarDiff<Ix2>> for Var<Ix1> {
     type Output = VarDiff<Ix1>;
 
     fn vm(self, rhs: VarDiff<Ix2>) -> Self::Output {
-        let grad = Rc::new(Gradient::zeros(DotDim::shape(
+        let grad = Rc::new(Gradient::ndarray_zeros(DotDim::shape(
             self.data.borrow().raw_dim(),
             rhs.var.data().raw_dim(),
         )));
@@ -1356,7 +1356,7 @@ where
         let shape = var.data().raw_dim();
         let stride = stride.into_dimension();
         let dilation = dilation.into_dimension();
-        let grad = Rc::new(Gradient::zeros(shape));
+        let grad = Rc::new(Gradient::ndarray_zeros(shape));
         let op = ConvolutionBackwardInput::new(
             kernel_data,
             input.grad,

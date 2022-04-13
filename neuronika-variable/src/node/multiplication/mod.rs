@@ -55,8 +55,8 @@ where
     E: Dimension,
 {
     right_data: Shared<Array<f32, E>>,
-    left_gradient: Rc<Gradient<D>>,
-    gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
+    left_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<BufferedGradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
 }
 
 impl<D, E> MultiplicationBackwardLeft<D, E>
@@ -66,8 +66,8 @@ where
 {
     pub(crate) fn new(
         right_data: Shared<Array<f32, E>>,
-        left_gradient: Rc<Gradient<D>>,
-        gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
+        left_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<BufferedGradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
     ) -> Self {
         debug_assert!(left_gradient
             .borrow()
@@ -105,8 +105,8 @@ where
     E: Dimension,
 {
     left_data: Shared<Array<f32, D>>,
-    right_gradient: Rc<Gradient<E>>,
-    gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
+    right_gradient: Rc<Gradient<Array<f32, E>, E>>,
+    gradient: Rc<BufferedGradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
 }
 
 impl<D, E> MultiplicationBackwardRight<D, E>
@@ -116,8 +116,8 @@ where
 {
     pub(crate) fn new(
         left_data: Shared<Array<f32, D>>,
-        right_gradient: Rc<Gradient<E>>,
-        gradient: Rc<BufferedGradient<Broadcast<D, E>>>,
+        right_gradient: Rc<Gradient<Array<f32, E>, E>>,
+        gradient: Rc<BufferedGradient<Array<f32, Broadcast<D, E>>, Broadcast<D, E>>>,
     ) -> Self {
         debug_assert!(right_gradient
             .borrow()

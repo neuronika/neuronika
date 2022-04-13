@@ -11,19 +11,40 @@ pub(crate) trait NoGrad {
     fn with_grad(&self);
 }
 
-pub(crate) struct Gradient<D>
+pub(crate) struct Gradient<T, D>
 where
     D: Dimension,
 {
     shape: D,
-    array: RefCell<Option<Array<f32, D>>>,
+    array: RefCell<Option<T>>,
 }
 
-impl<D> Gradient<D>
+impl<T, D> Gradient<T, D>
 where
     D: Dimension,
 {
-    pub(crate) fn zeros<Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Self {
+    pub(crate) fn borrow(&self) -> Ref<T> {
+        Ref::map(self.array.borrow(), |option| {
+            option.as_ref().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
+        })
+    }
+
+    pub(crate) fn borrow_mut(&self) -> RefMut<T> {
+        RefMut::map(self.array.borrow_mut(), |option| {
+            option.as_mut().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
+        })
+    }
+
+    pub(crate) fn shape(&self) -> D {
+        self.shape.clone()
+    }
+}
+
+impl<D> Gradient<Array<f32, D>, D>
+where
+    D: Dimension,
+{
+    pub(crate) fn ndarray_zeros<Sh: ShapeBuilder<Dim = D>>(shape: Sh) -> Self {
         let array = Array::zeros(shape);
 
         Self {
@@ -38,25 +59,9 @@ where
 
         Self { shape, array }
     }
-
-    pub(crate) fn borrow(&self) -> Ref<Array<f32, D>> {
-        Ref::map(self.array.borrow(), |option| {
-            option.as_ref().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
-        })
-    }
-
-    pub(crate) fn borrow_mut(&self) -> RefMut<Array<f32, D>> {
-        RefMut::map(self.array.borrow_mut(), |option| {
-            option.as_mut().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
-        })
-    }
-
-    pub(crate) fn shape(&self) -> D {
-        self.shape.clone()
-    }
 }
 
-impl<D> NoGrad for Gradient<D>
+impl<D> NoGrad for Gradient<Array<f32, D>, D>
 where
     D: Dimension,
 {
@@ -73,36 +78,30 @@ where
     }
 }
 
-pub(crate) struct BufferedGradient<D>
+pub(crate) struct BufferedGradient<T, D>
 where
     D: Dimension,
 {
-    gradient: Rc<Gradient<D>>,
-    buffer: RefCell<Option<Array<f32, D>>>,
+    gradient: Rc<Gradient<T, D>>,
+    buffer: RefCell<Option<T>>,
 }
 
-impl<D> BufferedGradient<D>
+impl<T, D> BufferedGradient<T, D>
 where
     D: Dimension,
 {
-    pub(crate) fn new(gradient: Rc<Gradient<D>>) -> Self {
-        let buffer = RefCell::new(Some(Array::zeros(gradient.shape())));
-
-        Self { gradient, buffer }
-    }
-
-    pub(crate) fn borrow(&self) -> Ref<Array<f32, D>> {
+    pub(crate) fn borrow(&self) -> Ref<T> {
         self.gradient.borrow()
     }
 
     #[cfg(test)]
-    pub(crate) fn buffer(&self) -> Ref<Array<f32, D>> {
+    pub(crate) fn buffer(&self) -> Ref<T> {
         Ref::map(self.buffer.borrow(), |option| {
             option.as_ref().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
         })
     }
 
-    pub(crate) fn buffer_mut(&self) -> RefMut<Array<f32, D>> {
+    pub(crate) fn buffer_mut(&self) -> RefMut<T> {
         RefMut::map(self.buffer.borrow_mut(), |option| {
             option.as_mut().expect("Trying to get a de-allocated gradient. Switch on the gradients first by using `.with_grad()`")
         })
@@ -113,7 +112,18 @@ where
     }
 }
 
-impl<D> NoGrad for BufferedGradient<D>
+impl<D> BufferedGradient<Array<f32, D>, D>
+where
+    D: Dimension,
+{
+    pub(crate) fn from_ndarray(gradient: Rc<Gradient<Array<f32, D>, D>>) -> Self {
+        let buffer = RefCell::new(Some(Array::zeros(gradient.shape())));
+
+        Self { gradient, buffer }
+    }
+}
+
+impl<D> NoGrad for BufferedGradient<Array<f32, D>, D>
 where
     D: Dimension,
 {

@@ -85,7 +85,7 @@ mod backward {
         let op = BinaryCrossEntropyBackward::new(
             new_shared(Array::linspace(0., 1., 9).into_shape((3, 3))?),
             new_shared(Array::linspace(1., 0., 9).into_shape((3, 3))?),
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(arr0(1.))),
             Reduction::Mean,
         );
@@ -108,7 +108,7 @@ mod backward {
         let op = BinaryCrossEntropyBackward::new(
             new_shared(Array::linspace(0., 1., 9).into_shape((3, 3))?),
             new_shared(Array::linspace(1., 0., 9).into_shape((3, 3))?),
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(arr0(1.))),
             Reduction::Sum,
         );

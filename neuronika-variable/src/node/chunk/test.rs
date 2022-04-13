@@ -70,7 +70,7 @@ mod backward {
     #[test]
     fn base_case() -> Result<(), Box<dyn Error>> {
         let op = ChunkBackward::new(
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(Array::ones((1, 3)))),
             0,
         );
@@ -86,7 +86,7 @@ mod backward {
         )?;
 
         let op = ChunkBackward::new(
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(Array::ones((1, 3)))),
             1,
         );
@@ -102,7 +102,7 @@ mod backward {
         )?;
 
         let op = ChunkBackward::new(
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(Array::ones((1, 3)))),
             2,
         );

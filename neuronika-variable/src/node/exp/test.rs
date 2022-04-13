@@ -61,7 +61,7 @@ mod backward {
     fn base_case() -> Result<(), Box<dyn Error>> {
         let data = Array::from_shape_fn(9, |i| (-4. + i as f32).exp()).into_shape((3, 3))?;
         let op = ExpBackward::new(
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             new_shared(data.clone()),
             Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
         );

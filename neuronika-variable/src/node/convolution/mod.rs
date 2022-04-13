@@ -392,8 +392,8 @@ where
     D: Dimension + RemoveAxis,
 {
     kernel_data: Shared<Array<f32, D>>,
-    input_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D>>,
+    input_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     stride: <D::Smaller as Dimension>::Smaller,
     dilation: <D::Smaller as Dimension>::Smaller,
     groups: usize,
@@ -405,8 +405,8 @@ where
 {
     pub(crate) fn new(
         kernel_data: Shared<Array<f32, D>>,
-        input_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D>>,
+        input_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         stride: <D::Smaller as Dimension>::Smaller,
         dilation: <D::Smaller as Dimension>::Smaller,
         groups: usize,
@@ -453,8 +453,8 @@ where
     D: Dimension + RemoveAxis,
 {
     input_data: Shared<Array<f32, D>>,
-    kernel_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D>>,
+    kernel_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     stride: <D::Smaller as Dimension>::Smaller,
     dilation: <D::Smaller as Dimension>::Smaller,
     groups: usize,
@@ -466,8 +466,8 @@ where
 {
     pub(crate) fn new(
         input_data: Shared<Array<f32, D>>,
-        kernel_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D>>,
+        kernel_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         stride: <D::Smaller as Dimension>::Smaller,
         dilation: <D::Smaller as Dimension>::Smaller,
         groups: usize,

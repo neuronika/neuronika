@@ -85,7 +85,7 @@ mod backward {
         let op = AbsoluteErrorBackward::new(
             new_shared(Array::linspace(1., 9., 9).into_shape((3, 3))?),
             new_shared(Array::linspace(10., 18., 9).into_shape((3, 3))?),
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(arr0(1.))),
             Reduction::Mean,
         );
@@ -102,7 +102,7 @@ mod backward {
         let op = AbsoluteErrorBackward::new(
             new_shared(Array::linspace(1., 9., 9).into_shape((3, 3))?),
             new_shared(Array::linspace(10., 18., 9).into_shape((3, 3))?),
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(arr0(1.))),
             Reduction::Sum,
         );

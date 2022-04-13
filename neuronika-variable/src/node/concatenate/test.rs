@@ -86,7 +86,7 @@ mod backward {
     #[test]
     fn left_rows() -> Result<(), Box<dyn Error>> {
         let op = ConcatenateBackwardLeft::new(
-            Rc::new(Gradient::zeros((2, 3))),
+            Rc::new(Gradient::ndarray_zeros((2, 3))),
             Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
             0,
         );
@@ -101,7 +101,7 @@ mod backward {
     #[test]
     fn left_columns() -> Result<(), Box<dyn Error>> {
         let op = ConcatenateBackwardLeft::new(
-            Rc::new(Gradient::zeros((3, 2))),
+            Rc::new(Gradient::ndarray_zeros((3, 2))),
             Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
             1,
         );
@@ -132,7 +132,7 @@ mod backward {
     #[test]
     fn right_rows() -> Result<(), Box<dyn Error>> {
         let op = ConcatenateBackwardRight::new(
-            Rc::new(Gradient::zeros((1, 3))),
+            Rc::new(Gradient::ndarray_zeros((1, 3))),
             Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
             0,
             2,
@@ -148,7 +148,7 @@ mod backward {
     #[test]
     fn right_columns() -> Result<(), Box<dyn Error>> {
         let op = ConcatenateBackwardRight::new(
-            Rc::new(Gradient::zeros((3, 1))),
+            Rc::new(Gradient::ndarray_zeros((3, 1))),
             Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
             1,
             2,
@@ -165,8 +165,17 @@ mod backward {
     fn base_case() -> Result<(), Box<dyn Error>> {
         let shared_grad = Rc::new(Gradient::from_ndarray(Array::ones((3, 3))));
         let op = ConcatenateBackward::new(
-            ConcatenateBackwardLeft::new(Rc::new(Gradient::zeros((2, 3))), shared_grad.clone(), 0),
-            ConcatenateBackwardRight::new(Rc::new(Gradient::zeros((1, 3))), shared_grad, 0, 2),
+            ConcatenateBackwardLeft::new(
+                Rc::new(Gradient::ndarray_zeros((2, 3))),
+                shared_grad.clone(),
+                0,
+            ),
+            ConcatenateBackwardRight::new(
+                Rc::new(Gradient::ndarray_zeros((1, 3))),
+                shared_grad,
+                0,
+                2,
+            ),
         );
 
         op.backward();

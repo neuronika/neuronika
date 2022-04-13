@@ -41,16 +41,16 @@ impl Forward for MatrixVectorMul {
 }
 
 pub(crate) struct MatrixVectorMulBackwardLeft {
-    left_gradient: Rc<Gradient<Ix2>>,
+    left_gradient: Rc<Gradient<Array2<f32>, Ix2>>,
     right_data: Shared<Array1<f32>>,
-    gradient: Rc<Gradient<Ix1>>,
+    gradient: Rc<Gradient<Array1<f32>, Ix1>>,
 }
 
 impl MatrixVectorMulBackwardLeft {
     pub(crate) fn new(
-        left_gradient: Rc<Gradient<Ix2>>,
+        left_gradient: Rc<Gradient<Array2<f32>, Ix2>>,
         right_data: Shared<Array1<f32>>,
-        gradient: Rc<Gradient<Ix1>>,
+        gradient: Rc<Gradient<Array1<f32>, Ix1>>,
     ) -> Self {
         Self {
             left_gradient,
@@ -71,15 +71,15 @@ impl Backward for MatrixVectorMulBackwardLeft {
 
 pub(crate) struct MatrixVectorMulBackwardRight {
     left_data: Shared<Array2<f32>>,
-    right_gradient: Rc<Gradient<Ix1>>,
-    gradient: Rc<Gradient<Ix1>>,
+    right_gradient: Rc<Gradient<Array1<f32>, Ix1>>,
+    gradient: Rc<Gradient<Array1<f32>, Ix1>>,
 }
 
 impl MatrixVectorMulBackwardRight {
     pub(crate) fn new(
         left_data: Shared<Array2<f32>>,
-        right_gradient: Rc<Gradient<Ix1>>,
-        gradient: Rc<Gradient<Ix1>>,
+        right_gradient: Rc<Gradient<Array1<f32>, Ix1>>,
+        gradient: Rc<Gradient<Array1<f32>, Ix1>>,
     ) -> Self {
         Self {
             left_data,

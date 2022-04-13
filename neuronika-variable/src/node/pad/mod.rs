@@ -132,8 +132,8 @@ pub(crate) struct PadBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     padding: SampleDim<D>,
 }
 
@@ -142,8 +142,8 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         padding: SampleDim<D>,
     ) -> Self {
         Self {

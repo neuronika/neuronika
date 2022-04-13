@@ -132,7 +132,7 @@ mod backward {
     #[test]
     fn one_probability() -> Result<(), Box<dyn Error>> {
         let op = DropoutBackward::new(
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
             1.,
             new_shared(Array::zeros((3, 3))),
@@ -146,7 +146,7 @@ mod backward {
     #[test]
     fn zero_probability() -> Result<(), Box<dyn Error>> {
         let op = DropoutBackward::new(
-            Rc::new(Gradient::zeros((3, 3))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
             Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
             0.,
             new_shared(Array::zeros((3, 3))),

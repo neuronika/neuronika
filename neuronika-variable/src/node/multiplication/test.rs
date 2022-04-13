@@ -83,9 +83,9 @@ mod backward {
         let op = MultiplicationBackwardLeft::new(
             new_shared(right_data.clone()),
             Rc::new(Gradient::from_ndarray(left_grad.clone())),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
-                grad.clone(),
-            )))),
+            Rc::new(BufferedGradient::from_ndarray(Rc::new(
+                Gradient::from_ndarray(grad.clone()),
+            ))),
         );
 
         are_similar(op.left_gradient.borrow(), &left_grad)?;
@@ -100,10 +100,10 @@ mod backward {
         let grad = Array::from_elem((3, 3), 1.);
         let op = MultiplicationBackwardLeft::new(
             new_shared(right_data.clone()),
-            Rc::new(Gradient::zeros((3, 3))),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
-                grad.clone(),
-            )))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
+            Rc::new(BufferedGradient::from_ndarray(Rc::new(
+                Gradient::from_ndarray(grad.clone()),
+            ))),
         );
 
         op.backward();
@@ -123,10 +123,10 @@ mod backward {
         let grad = Array::from_elem((3, 3), 1.);
         let op = MultiplicationBackwardLeft::new(
             new_shared(right_data.clone()),
-            Rc::new(Gradient::zeros(3)),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
-                grad.clone(),
-            )))),
+            Rc::new(Gradient::ndarray_zeros(3)),
+            Rc::new(BufferedGradient::from_ndarray(Rc::new(
+                Gradient::from_ndarray(grad.clone()),
+            ))),
         );
 
         op.backward();
@@ -149,9 +149,9 @@ mod backward {
         let op = MultiplicationBackwardRight::new(
             new_shared(left_data.clone()),
             Rc::new(Gradient::from_ndarray(right_grad.clone())),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
-                grad.clone(),
-            )))),
+            Rc::new(BufferedGradient::from_ndarray(Rc::new(
+                Gradient::from_ndarray(grad.clone()),
+            ))),
         );
 
         are_similar(op.left_data.borrow(), &left_data)?;
@@ -165,10 +165,10 @@ mod backward {
         let grad = Array::ones((3, 3));
         let op = MultiplicationBackwardRight::new(
             new_shared(Array::from_elem((3, 3), 5.)),
-            Rc::new(Gradient::zeros((3, 3))),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
-                grad.clone(),
-            )))),
+            Rc::new(Gradient::ndarray_zeros((3, 3))),
+            Rc::new(BufferedGradient::from_ndarray(Rc::new(
+                Gradient::from_ndarray(grad.clone()),
+            ))),
         );
 
         op.backward();
@@ -185,10 +185,10 @@ mod backward {
         let grad = Array::ones((3, 3));
         let op = MultiplicationBackwardRight::new(
             new_shared(Array::from_elem((3, 3), 5.)),
-            Rc::new(Gradient::zeros(3)),
-            Rc::new(BufferedGradient::new(Rc::new(Gradient::from_ndarray(
-                grad.clone(),
-            )))),
+            Rc::new(Gradient::ndarray_zeros(3)),
+            Rc::new(BufferedGradient::from_ndarray(Rc::new(
+                Gradient::from_ndarray(grad.clone()),
+            ))),
         );
 
         op.backward();
@@ -209,13 +209,13 @@ mod backward {
         let op = MultiplicationBackward::new(
             MultiplicationBackwardLeft::new(
                 new_shared(right_data.clone()),
-                Rc::new(Gradient::zeros((3, 3))),
-                Rc::new(BufferedGradient::new(shared_grad.clone())),
+                Rc::new(Gradient::ndarray_zeros((3, 3))),
+                Rc::new(BufferedGradient::from_ndarray(shared_grad.clone())),
             ),
             MultiplicationBackwardRight::new(
                 new_shared(left_data.clone()),
-                Rc::new(Gradient::zeros((3, 3))),
-                Rc::new(BufferedGradient::new(shared_grad)),
+                Rc::new(Gradient::ndarray_zeros((3, 3))),
+                Rc::new(BufferedGradient::from_ndarray(shared_grad)),
             ),
         );
 

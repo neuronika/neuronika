@@ -38,15 +38,18 @@ pub(crate) struct MeanBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<Ix0>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
 }
 
 impl<D> MeanBackward<D>
 where
     D: Dimension,
 {
-    pub(crate) fn new(operand_gradient: Rc<Gradient<D>>, gradient: Rc<Gradient<Ix0>>) -> Self {
+    pub(crate) fn new(
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
+    ) -> Self {
         Self {
             operand_gradient,
             gradient,

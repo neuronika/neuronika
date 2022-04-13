@@ -42,9 +42,9 @@ pub(crate) struct ReLUBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
     operand_data: Shared<Array<f32, D>>,
-    gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
 }
 
 impl<D> ReLUBackward<D>
@@ -52,9 +52,9 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
         operand_data: Shared<Array<f32, D>>,
-        gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
     ) -> Self {
         Self {
             operand_gradient,

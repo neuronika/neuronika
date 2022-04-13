@@ -110,7 +110,7 @@ mod backward {
     fn left_reduction() -> Result<(), Box<dyn Error>> {
         let grad = Array::ones((3, 3));
         let op = SubtractionBackwardLeft::<Ix1, Ix2>::new(
-            Rc::new(Gradient::zeros(3)),
+            Rc::new(Gradient::ndarray_zeros(3)),
             Rc::new(Gradient::from_ndarray(grad.clone())),
         );
 
@@ -158,7 +158,7 @@ mod backward {
     fn right_reduction() -> Result<(), Box<dyn Error>> {
         let grad = Array::ones((3, 3));
         let op = SubtractionBackwardRight::<Ix2, Ix1>::new(
-            Rc::new(Gradient::zeros(3)),
+            Rc::new(Gradient::ndarray_zeros(3)),
             Rc::new(Gradient::from_ndarray(grad.clone())),
         );
 

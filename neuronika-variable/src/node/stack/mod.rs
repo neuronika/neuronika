@@ -74,8 +74,8 @@ pub(crate) struct StackBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D::Larger>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
     axis: Axis,
 }
 
@@ -84,8 +84,8 @@ where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D::Larger>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -117,8 +117,8 @@ pub(crate) struct StackBackwardRight<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D::Larger>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
     axis: Axis,
 }
 
@@ -127,8 +127,8 @@ where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D::Larger>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {

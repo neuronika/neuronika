@@ -54,8 +54,8 @@ pub(crate) struct MultiStackBackward<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operands_gradients: Vec<Rc<Gradient<D>>>,
-    gradient: Rc<Gradient<D::Larger>>,
+    operands_gradients: Vec<Rc<Gradient<Array<f32, D>, D>>>,
+    gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
     axis: Axis,
 }
 
@@ -64,8 +64,8 @@ where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        operands_gradients: Vec<Rc<Gradient<D>>>,
-        gradient: Rc<Gradient<D::Larger>>,
+        operands_gradients: Vec<Rc<Gradient<Array<f32, D>, D>>>,
+        gradient: Rc<Gradient<Array<f32, D::Larger>, D::Larger>>,
         axis: usize,
     ) -> Self {
         Self {

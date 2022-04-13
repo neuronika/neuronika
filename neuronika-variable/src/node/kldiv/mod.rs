@@ -66,9 +66,9 @@ pub(crate) struct KLDivBackward<D>
 where
     D: Dimension,
 {
-    input_gradient: Rc<Gradient<D>>,
+    input_gradient: Rc<Gradient<Array<f32, D>, D>>,
     target_data: Shared<Array<f32, D>>,
-    gradient: Rc<Gradient<Ix0>>,
+    gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
     reduction: Reduction,
 }
 
@@ -77,9 +77,9 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        input_gradient: Rc<Gradient<D>>,
+        input_gradient: Rc<Gradient<Array<f32, D>, D>>,
         target_data: Shared<Array<f32, D>>,
-        gradient: Rc<Gradient<Ix0>>,
+        gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
         reduction: Reduction,
     ) -> Self {
         Self {

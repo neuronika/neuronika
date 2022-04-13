@@ -36,15 +36,15 @@ impl Forward for VectorVectorMul {
 
 pub(crate) struct VectorVectorMulBackwardUnary {
     operand_data: Shared<Array<f32, Ix1>>,
-    operand_gradient: Rc<Gradient<Ix1>>,
-    gradient: Rc<Gradient<Ix0>>,
+    operand_gradient: Rc<Gradient<Array<f32, Ix1>, Ix1>>,
+    gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
 }
 
 impl VectorVectorMulBackwardUnary {
     pub(crate) fn new(
         operand_data: Shared<Array<f32, Ix1>>,
-        operand_gradient: Rc<Gradient<Ix1>>,
-        gradient: Rc<Gradient<Ix0>>,
+        operand_gradient: Rc<Gradient<Array<f32, Ix1>, Ix1>>,
+        gradient: Rc<Gradient<Array<f32, Ix0>, Ix0>>,
     ) -> Self {
         Self {
             operand_gradient,

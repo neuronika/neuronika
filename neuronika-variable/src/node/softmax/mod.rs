@@ -56,9 +56,9 @@ pub(crate) struct SoftmaxBackward<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
     data: Shared<Array<f32, D>>,
-    gradient: Rc<Gradient<D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     axis: Axis,
 }
 
@@ -67,9 +67,9 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
         data: Shared<Array<f32, D>>,
-        gradient: Rc<Gradient<D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         axis: usize,
     ) -> Self {
         Self {

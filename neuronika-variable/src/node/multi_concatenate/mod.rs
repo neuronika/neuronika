@@ -56,8 +56,8 @@ pub(crate) struct MultiConcatenateBackward<D>
 where
     D: Dimension,
 {
-    operands_gradients: Vec<Rc<Gradient<D>>>,
-    gradient: Rc<Gradient<D>>,
+    operands_gradients: Vec<Rc<Gradient<Array<f32, D>, D>>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     axis: Axis,
 }
 
@@ -66,8 +66,8 @@ where
     D: Dimension,
 {
     pub(crate) fn new(
-        operands_gradients: Vec<Rc<Gradient<D>>>,
-        gradient: Rc<Gradient<D>>,
+        operands_gradients: Vec<Rc<Gradient<Array<f32, D>, D>>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         axis: usize,
     ) -> Self {
         Self {

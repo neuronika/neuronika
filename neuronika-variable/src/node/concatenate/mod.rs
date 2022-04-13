@@ -62,8 +62,8 @@ pub(crate) struct ConcatenateBackwardLeft<D>
 where
     D: Dimension + RemoveAxis,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     axis: Axis,
 }
 
@@ -72,8 +72,8 @@ where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         axis: usize,
     ) -> Self {
         Self {
@@ -103,8 +103,8 @@ pub(crate) struct ConcatenateBackwardRight<D>
 where
     D: Dimension,
 {
-    operand_gradient: Rc<Gradient<D>>,
-    gradient: Rc<Gradient<D>>,
+    operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+    gradient: Rc<Gradient<Array<f32, D>, D>>,
     axis: Axis,
     offset: usize,
 }
@@ -114,8 +114,8 @@ where
     D: Dimension + RemoveAxis,
 {
     pub(crate) fn new(
-        operand_gradient: Rc<Gradient<D>>,
-        gradient: Rc<Gradient<D>>,
+        operand_gradient: Rc<Gradient<Array<f32, D>, D>>,
+        gradient: Rc<Gradient<Array<f32, D>, D>>,
         axis: usize,
         offset: usize,
     ) -> Self {
