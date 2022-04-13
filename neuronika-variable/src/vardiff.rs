@@ -421,7 +421,7 @@ where
         let var = self
             .var
             .dropout_with_noise(self.grad.shape(), p, noise.clone(), status.clone());
-        let op = DropoutBackward::new(self.grad, grad.clone(), noise, p, status);
+        let op = DropoutBackward::new(self.grad, grad.clone(), p, noise, status);
 
         VarDiff::node(var, grad.clone(), (Rc::new(op), grad), self.history)
     }

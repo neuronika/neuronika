@@ -1,262 +1,75 @@
-use super::{
-    assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Cache, Data, Exp,
-    ExpBackward, Forward, Gradient, Overwrite, Rc, Tensor,
-};
+use std::error::Error;
 
+use ndarray::Array;
+
+use crate::utils::{are_similar, new_shared};
+
+#[cfg(test)]
 mod forward {
-    use super::{assert_almost_equals, new_input, new_tensor, Cache, Data, Exp, Forward, Tensor};
+    use super::super::{Exp, Forward};
+    use super::*;
 
     #[test]
-    fn creation() {
-        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let node = Exp::new(input);
+    fn creation() -> Result<(), Box<dyn Error>> {
+        let operand_data = Array::zeros((3, 3));
+        let data = Array::ones((3, 3));
+        let op = Exp::new(new_shared(operand_data.clone()), new_shared(data.clone()));
 
-        assert_eq!(*node.data(), Tensor::from_elem((3, 3), 0.));
-        assert_eq!(*node.data_mut(), Tensor::from_elem((3, 3), 0.));
-        assert!(!node.was_computed());
+        are_similar(op.operand_data.borrow(), &operand_data)?;
+        are_similar(op.data.borrow(), &data)
     }
 
     #[test]
-    fn computation_was_computed_transition() {
-        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let node = Exp::new(input);
-
-        node.forward();
-        assert!(node.was_computed());
-
-        node.forward();
-        assert!(node.was_computed());
-
-        node.reset_computation();
-        assert!(!node.was_computed());
-
-        node.reset_computation();
-        assert!(!node.was_computed());
-    }
-
-    #[test]
-    fn forward() {
-        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let node = Exp::new(input.clone());
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor(
-                (3, 3),
-                vec![
-                    1.83156e-02,
-                    4.97871e-02,
-                    1.35335e-01,
-                    3.67879e-01,
-                    1.00000e+00,
-                    2.71828e+00,
-                    7.38906e+00,
-                    2.00855e+01,
-                    5.45981e+01,
-                ],
-            ),
+    fn base_case() -> Result<(), Box<dyn Error>> {
+        let op = Exp::new(
+            new_shared(Array::linspace(-4., 4., 9).into_shape((3, 3))?),
+            new_shared(Array::zeros((3, 3))),
         );
 
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ No Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        {
-            let mut data = input.data_mut();
-            *data = &*data + &Tensor::from_elem(1, 1.);
-        }
-        assert_almost_equals(
-            &*input.data(),
-            &new_tensor((3, 3), vec![-3., -2., -1., 0., 1., 2., 3., 4., 5.]),
-        );
-
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor(
-                (3, 3),
-                vec![
-                    1.83156e-02,
-                    4.97871e-02,
-                    1.35335e-01,
-                    3.67879e-01,
-                    1.00000e+00,
-                    2.71828e+00,
-                    7.38906e+00,
-                    2.00855e+01,
-                    5.45981e+01,
-                ],
-            ),
-        );
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.reset_computation();
-        node.forward();
-        assert_almost_equals(
-            &*node.data(),
-            &new_tensor(
-                (3, 3),
-                vec![
-                    4.97871e-02,
-                    1.35335e-01,
-                    3.67879e-01,
-                    1.00000e+00,
-                    2.71828e+00,
-                    7.38906e+00,
-                    2.00855e+01,
-                    5.45981e+01,
-                    1.48413e+02,
-                ],
-            ),
-        );
-    }
-
-    #[test]
-    fn debug() {
-        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let node = Exp::new(input);
-
-        let output = "Exp { data: [[0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0],\n [0.0, 0.0, 0.0]], shape=[3, 3], strides=[3, 1], layout=Cc (0x5), const ndim=2, computed: false }";
-
-        assert_eq!(output, format!("{:?}", node));
-    }
-
-    #[test]
-    fn display() {
-        let input = new_input((3, 3), vec![-4., -3., -2., -1., 0., 1., 2., 3., 4.]);
-        let node = Exp::new(input);
-
-        assert_eq!(format!("{}", node.data()), format!("{}", node));
+        op.forward();
+        are_similar(
+            op.data.borrow(),
+            &Array::from_shape_fn(9, |i| (-4. + i as f32).exp()).into_shape((3, 3))?,
+        )
     }
 }
 
+#[cfg(test)]
 mod backward {
-    use super::{
-        assert_almost_equals, new_backward_input, new_input, new_tensor, Backward, Exp,
-        ExpBackward, Forward, Gradient, Overwrite, Rc, Tensor,
-    };
+    use std::rc::Rc;
+
+    use super::super::{Backward, ExpBackward, Gradient};
+    use super::*;
 
     #[test]
-    fn creation() {
-        let node = ExpBackward::new(
-            new_backward_input(3, vec![0.; 3]),
-            Rc::new(Exp::new(new_input(3, vec![1., 2., 3.]))),
+    fn creation() -> Result<(), Box<dyn Error>> {
+        let operand_gradient = Array::zeros((3, 3));
+        let data = Array::ones((3, 3));
+        let gradient = Array::from_elem((3, 3), 2.);
+        let op = ExpBackward::new(
+            Rc::new(Gradient::from_ndarray(operand_gradient.clone())),
+            new_shared(data.clone()),
+            Rc::new(Gradient::from_ndarray(gradient.clone())),
         );
 
-        assert_eq!(*node.gradient(), Tensor::from_elem(3, 0.));
-        assert_eq!(*node.gradient_mut(), Tensor::from_elem(3, 0.));
-        assert!(node.can_overwrite());
+        are_similar(op.operand_gradient.borrow(), &operand_gradient)?;
+        are_similar(op.data.borrow(), &data)?;
+        are_similar(op.gradient.borrow(), &gradient)
     }
 
     #[test]
-    fn computation_state_transition() {
-        let diff = new_backward_input(3, vec![0.; 3]);
-        let node = ExpBackward::new(
-            diff.clone(),
-            Rc::new(Exp::new(new_input(3, vec![1., 2., 3.]))),
+    fn base_case() -> Result<(), Box<dyn Error>> {
+        let data = Array::from_shape_fn(9, |i| (-4. + i as f32).exp()).into_shape((3, 3))?;
+        let op = ExpBackward::new(
+            Rc::new(Gradient::zeros((3, 3))),
+            new_shared(data.clone()),
+            Rc::new(Gradient::from_ndarray(Array::ones((3, 3)))),
         );
 
-        node.backward();
-        assert!(node.can_overwrite());
-        assert!(!diff.can_overwrite());
+        op.backward();
+        are_similar(op.operand_gradient.borrow(), &data)?;
 
-        node.backward();
-        assert!(node.can_overwrite());
-        assert!(!diff.can_overwrite());
-
-        diff.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(diff.can_overwrite());
-
-        diff.set_overwrite(true);
-        assert!(node.can_overwrite());
-        assert!(diff.can_overwrite());
-
-        node.set_overwrite(false);
-        assert!(!node.can_overwrite());
-        assert!(diff.can_overwrite());
-
-        node.set_overwrite(false);
-        assert!(!node.can_overwrite());
-        assert!(diff.can_overwrite());
-
-        node.backward();
-        assert!(!node.can_overwrite());
-        assert!(!diff.can_overwrite());
-
-        node.backward();
-        assert!(!node.can_overwrite());
-        assert!(!diff.can_overwrite());
-    }
-
-    #[allow(clippy::approx_constant)]
-    #[test]
-    fn backward() {
-        let diff = new_backward_input(3, vec![0.; 3]);
-        let not_diff = Rc::new(Exp::new(new_input(3, vec![1., 2., 3.])));
-        not_diff.forward();
-        let node = ExpBackward::new(diff.clone(), not_diff);
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Seed Gradient ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        *node.gradient_mut() = new_tensor(3, vec![1.; 3]);
-        assert_almost_equals(&*node.gradient(), &new_tensor(3, vec![1.; 3]));
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ First Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(
-            &*diff.gradient(),
-            &new_tensor(3, vec![2.7183, 7.3891, 20.0855]),
-        );
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Second Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        node.backward();
-        assert_almost_equals(
-            &*diff.gradient(),
-            &new_tensor(3, vec![5.4366, 14.7782, 40.171]),
-        );
-
-        // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Third Evaluation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        diff.set_overwrite(true);
-        node.backward();
-        assert_almost_equals(
-            &*diff.gradient(),
-            &new_tensor(3, vec![2.7183, 7.3891, 20.0855]),
-        );
-    }
-
-    #[test]
-    fn no_grad() {
-        // ExpBackward
-        let node = ExpBackward::new(
-            new_backward_input((3, 3), vec![0.; 9]),
-            new_input((3, 3), vec![0.; 9]),
-        );
-
-        node.no_grad();
-        assert!(node.gradient.borrow().is_none());
-
-        node.with_grad();
-        assert_eq!(&*node.gradient(), Tensor::zeros(node.shape));
-    }
-
-    #[test]
-    fn debug() {
-        let diff = new_backward_input(3, vec![0.; 3]);
-        let not_diff = Rc::new(Exp::new(new_input(3, vec![1., 2., 3.])));
-        not_diff.forward();
-        let node = ExpBackward::new(diff.clone(), not_diff);
-
-        let output = "ExpBackward { gradient: Some([0.0, 0.0, 0.0], shape=[3], strides=[1], layout=CFcf (0xf), const ndim=1), overwrite: true }";
-
-        assert_eq!(output, format!("{:?}", node));
-    }
-
-    #[test]
-    fn display() {
-        let diff = new_backward_input(3, vec![0.; 3]);
-        let not_diff = Rc::new(Exp::new(new_input(3, vec![1., 2., 3.])));
-        not_diff.forward();
-        let node = ExpBackward::new(diff.clone(), not_diff);
-
-        assert_eq!(format!("{}", node.gradient()), format!("{}", node));
+        op.backward();
+        are_similar(op.operand_gradient.borrow(), &(data * 2.))
     }
 }
