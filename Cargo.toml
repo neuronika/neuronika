@@ -25,6 +25,7 @@ matrixmultiply-threading = ["neuronika-variable/matrixmultiply-threading"]
 serialize = ["neuronika-variable/serialize"]
 
 [dependencies]
+neuronika-core = {version = "*", path = "./neuronika-core"}
 neuronika-data = {version = "*", path = "./neuronika-data"}
 neuronika-nn = {version = "*", path = "./neuronika-nn"}
 neuronika-optim = {version = "*", path = "./neuronika-optim"}
