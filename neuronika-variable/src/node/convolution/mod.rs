@@ -9,11 +9,10 @@ use ndarray::{
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::{
+    autograd::{Backward, Forward},
     gradient::Gradient,
     utils::{as_windows, as_windows_mut, columns_shape, Shared},
 };
-
-use super::{Backward, Forward};
 
 /// Iterators needed for the **backward pass** of a grouped convolution.
 type GroupedBackwardArgs<'a, D> = (

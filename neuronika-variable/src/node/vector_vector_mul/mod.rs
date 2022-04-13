@@ -2,9 +2,11 @@ use std::rc::Rc;
 
 use ndarray::{arr0, Array, Ix0, Ix1, Zip};
 
-use crate::{gradient::Gradient, utils::Shared};
-
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+};
 
 pub(crate) struct VectorVectorMul {
     left_data: Shared<Array<f32, Ix1>>,

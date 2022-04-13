@@ -2,9 +2,12 @@ use std::rc::Rc;
 
 use ndarray::{arr0, Array, Dimension, Ix0, Zip};
 
-use crate::{gradient::Gradient, utils::Shared, Reduction};
-
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+    Reduction,
+};
 
 pub(crate) struct BinaryCrossEntropy<D>
 where

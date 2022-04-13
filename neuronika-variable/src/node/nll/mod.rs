@@ -3,11 +3,11 @@ use std::rc::Rc;
 use ndarray::{arr0, Array, Axis, Dimension, Ix0, RemoveAxis, Zip};
 
 use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
     Reduction,
-    {gradient::Gradient, utils::Shared},
 };
-
-use super::{Backward, Forward};
 
 #[allow(clippy::upper_case_acronyms)]
 pub(crate) struct NegativeLogLikelihood<D>

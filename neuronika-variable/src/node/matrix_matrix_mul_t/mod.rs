@@ -2,9 +2,11 @@ use std::rc::Rc;
 
 use ndarray::{linalg::general_mat_mul, Array2, Ix2};
 
-use crate::{gradient::Gradient, utils::Shared};
-
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+};
 
 pub(crate) struct MatrixMatrixMulT {
     left_data: Shared<Array2<f32>>,

@@ -87,26 +87,22 @@ where
     padded_input_shape
 }
 
-/// Creates an empty tensor whose shape is the result of broadcasting between those of `left` and
-/// `right`.
+/// Computes the result of broadcasting between `left` and `right`.
 ///
 /// # Arguments
 ///
-/// * `left` - left operand in the binary operations that admits broadcasting.
+/// * `left` - left dimensions.
 ///
-/// * `right` - right operand in the binary operations that admits broadcasting.
-pub(crate) fn cobroadcasted_zeros<D, E>(
-    left: &Array<f32, D>,
-    right: &Array<f32, E>,
-) -> Array<f32, Broadcast<D, E>>
+/// * `right` - right dimensions.
+pub(crate) fn cobroadcast<D, E>(left: D, right: E) -> Broadcast<D, E>
 where
     D: Dimension + DimMax<E>,
     E: Dimension,
 {
     let (bigger, smaller) = if left.ndim() >= right.ndim() {
-        (left.shape(), right.shape())
+        (left.slice(), right.slice())
     } else {
-        (right.shape(), left.shape())
+        (right.slice(), left.slice())
     };
 
     let mut out = <D as DimMax<E>>::Output::zeros(bigger.len());
@@ -125,7 +121,26 @@ where
             _ => assert_eq!(r, 1, "The two tensors have incompatible shape."),
         });
 
-    Array::zeros(out)
+    out
+}
+
+/// Creates an empty tensor whose shape is the result of broadcasting between those of `left` and
+/// `right`.
+///
+/// # Arguments
+///
+/// * `left` - left operand in the binary operations that admits broadcasting.
+///
+/// * `right` - right operand in the binary operations that admits broadcasting.
+pub(crate) fn cobroadcasted_zeros<D, E>(
+    left: &Array<f32, D>,
+    right: &Array<f32, E>,
+) -> Array<f32, Broadcast<D, E>>
+where
+    D: Dimension + DimMax<E>,
+    E: Dimension,
+{
+    Array::zeros(cobroadcast(left.raw_dim(), right.raw_dim()))
 }
 
 /// Accumulates `source` into `target`, reverting the broadcasting.

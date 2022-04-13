@@ -10,9 +10,11 @@ use ndarray::{Array, Dimension, RemoveAxis, Slice};
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use crate::{gradient::Gradient, utils::Shared};
-
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+};
 
 pub use constant::Constant;
 pub use padding_mode::PaddingMode;

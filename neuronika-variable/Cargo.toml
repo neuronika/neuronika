@@ -7,6 +7,9 @@ name = "neuronika-variable"
 version = "0.1.0"
 
 [dependencies]
+blastoff = {git = "https://github.com/Rust-GPU/Rust-CUDA", optional = true}
+cudnn = {git = "https://github.com/Rust-GPU/Rust-CUDA", optional = true}
+cust = {git = "https://github.com/Rust-GPU/Rust-CUDA", optional = true}
 itertools = "0.10.3"
 ndarray = {version = "0.15.4", features = ["rayon"]}
 ndarray-rand = "0.14.0"
@@ -21,5 +24,6 @@ ndarray = {version = "0.15.4", features = ["rayon", "approx"]}
 
 [features]
 blas = ["ndarray/blas"]
+cuda = ["dep:blastoff", "dep:cust", "dep:cudnn"]
 matrixmultiply-threading = ["ndarray/matrixmultiply-threading"]
 serialize = ["ndarray/serde"]

@@ -11,6 +11,7 @@ use ndarray::{
 };
 
 use crate::{
+    autograd::Backward,
     gradient::{BufferedGradient, Gradient, NoGrad},
     history::History,
     node::*,

@@ -1,10 +1,12 @@
 use std::rc::Rc;
 
-use crate::{gradient::Gradient, utils::Shared};
-
 use ndarray::{Array, Dimension, Zip};
 
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+};
 
 pub(crate) struct Transpose<D>
 where

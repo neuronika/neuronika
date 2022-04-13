@@ -2,9 +2,11 @@ use std::rc::Rc;
 
 use ndarray::{Array, Axis, Dimension, Slice};
 
-use crate::{gradient::Gradient, utils::Shared};
-
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+};
 
 pub(crate) struct MultiConcatenate<D>
 where

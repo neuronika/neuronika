@@ -2,9 +2,11 @@ use std::rc::Rc;
 
 use ndarray::{Array, Dimension};
 
-use crate::{gradient::Gradient, utils::Shared};
-
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+};
 
 pub(crate) struct Chunk<D>
 where

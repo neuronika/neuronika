@@ -1,3 +1,4 @@
+mod autograd;
 mod gradient;
 mod history;
 mod node;
@@ -19,6 +20,9 @@ pub use crate::{
     var::Var,
     vardiff::VarDiff,
 };
+
+#[cfg(feature = "cuda")]
+pub mod cuda;
 
 /// Specifies the reduction to apply to the criterion output.
 #[derive(Copy, Clone, Debug)]

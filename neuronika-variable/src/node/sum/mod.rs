@@ -2,9 +2,11 @@ use std::rc::Rc;
 
 use ndarray::{arr0, Array, Array0, Dimension, Ix0};
 
-use crate::{gradient::Gradient, utils::Shared};
-
-use super::{Backward, Forward};
+use crate::{
+    autograd::{Backward, Forward},
+    gradient::Gradient,
+    utils::Shared,
+};
 
 pub(crate) struct Sum<D>
 where

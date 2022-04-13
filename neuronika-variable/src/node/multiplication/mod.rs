@@ -3,11 +3,10 @@ use std::rc::Rc;
 use ndarray::{Array, DimMax, Dimension, Zip};
 
 use crate::{
+    autograd::{Backward, Forward},
     gradient::{BufferedGradient, Gradient},
     utils::{accumulate, Broadcast, Shared},
 };
-
-use super::{Backward, Forward};
 
 pub(crate) struct Multiplication<D, E>
 where
