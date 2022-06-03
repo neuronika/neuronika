@@ -381,6 +381,15 @@
 //! * [`nn::GroupedConv3d`](struct@GroupedConv3d) - Applies a grouped volumetric convolution over an
 //! input signal composed of several input planes.
 //!
+//! ## Max Pooling Layers
+//!
+//! * [`nn::MaxPool1d`](struct@MaxPool1d) - Max pooling operation for 1D temporal data.
+//!
+//! * [`nn::MaxPool2d`](struct@MaxPool2d) - Max pooling operation for 2d spatial data.
+//!
+//! * [`nn::MaxPool3d`](struct@MaxPool3d) - Max pooling operation for 3D data (spatial or
+//! spatio-temporal).
+//!
 //! ## Dropout Layers
 //!
 //! * [`nn::Dropout`](struct@Dropout) - During training, randomly zeroes some of the elements of
@@ -388,8 +397,8 @@
 use super::{Input, InputBackward, Param};
 use crate::variable::{
     self, Convolve, ConvolveWithGroups, Data, Dropout as DropoutNode,
-    DropoutBackward as DropoutBackwardNode, Eval, Gradient, MatMatMulT, Overwrite, RawParam,
-    Tensor, Var, VarDiff,
+    DropoutBackward as DropoutBackwardNode, Eval, Gradient, MatMatMulT, MaxPooling, Overwrite,
+    RawParam, Tensor, Var, VarDiff,
 };
 pub use crate::variable::{Constant, PaddingMode, Reflective, Replicative, Zero};
 use ndarray::{Ix1, Ix2, Ix3, Ix4, Ix5};
@@ -1633,4 +1642,145 @@ impl<Pad: PaddingMode> Register for GroupedConv3d<Pad> {
     }
 
     fn register_status(&mut self, _: Rc<Cell<bool>>) {}
+}
+
+/// Max pooling operation for 1D temporal data.
+pub struct MaxPool1d {
+    pub pool_shape: usize,
+    pub stride: usize,
+}
+
+impl MaxPool1d {
+    /// Creates a MaxPool1d layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_shape` - shape of the pool, a number for this one-dimensional case.
+    ///
+    /// * `stride` - stride of the pooling, a number for this one-dimensional case.
+    pub fn new(
+        pool_shape: usize,
+        stride: usize,
+    ) -> Self {
+        Self {
+            pool_shape,
+            stride,
+        }
+    }
+
+    /// Applies the pooling to the variable in input.
+    ///
+    /// # Arguments
+    ///
+    /// `input` - variable in input to the layer.
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim=Ix3>, impl Gradient<Dim=Ix3>>
+        where
+            I: MaxPooling<I>,
+            I::Output: Into<VarDiff<T, U>>,
+            T: Data<Dim=Ix3>,
+            U: Gradient<Dim=Ix3>,
+    {
+        I::max_pool(
+            input,
+            &[self.pool_shape],
+            &[self.stride],
+        ).into()
+    }
+}
+
+/// Max pooling operation for 2D spatial data.
+pub struct MaxPool2d {
+    pub pool_shape: (usize, usize),
+    pub stride: (usize, usize),
+}
+
+impl MaxPool2d {
+    /// Creates a MaxPool2d layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_shape` - shape of the pool, a 2-tuple for this two-dimensional case.
+    ///
+    /// * `stride` - stride of the pooling, a 2-tuple for this two-dimensional case.
+    pub fn new(
+        pool_shape: (usize, usize),
+        stride: (usize, usize),
+    ) -> Self {
+        Self {
+            pool_shape,
+            stride,
+        }
+    }
+
+    /// Applies the pooling to the variable in input.
+    ///
+    /// # Arguments
+    ///
+    /// `input` - variable in input to the layer.
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim=Ix4>, impl Gradient<Dim=Ix4>>
+        where
+            I: MaxPooling<I>,
+            I::Output: Into<VarDiff<T, U>>,
+            T: Data<Dim=Ix4>,
+            U: Gradient<Dim=Ix4>,
+    {
+        I::max_pool(
+            input,
+            &[self.pool_shape.0, self.pool_shape.1],
+            &[self.stride.0, self.stride.1],
+        ).into()
+    }
+}
+
+/// Max pooling operation for 3D data (spatial or spatio-temporal).
+pub struct MaxPool3d {
+    pub pool_shape: (usize, usize, usize),
+    pub stride: (usize, usize, usize),
+}
+
+impl MaxPool3d {
+    /// Creates a MaxPool3d layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_shape` - shape of the pool, a 3-tuple for this three-dimensional case.
+    ///
+    /// * `stride` - stride of the pooling, a 3-tuple for this three-dimensional case.
+    pub fn new(
+        pool_shape: (usize, usize, usize),
+        stride: (usize, usize, usize),
+    ) -> Self {
+        Self {
+            pool_shape,
+            stride,
+        }
+    }
+
+    /// Applies the pooling to the variable in input.
+    ///
+    /// # Arguments
+    ///
+    /// `input` - variable in input to the layer.
+    pub fn forward<I, T, U>(
+        &self,
+        input: I,
+    ) -> VarDiff<impl Data<Dim=Ix5>, impl Gradient<Dim=Ix5>>
+        where
+            I: MaxPooling<I>,
+            I::Output: Into<VarDiff<T, U>>,
+            T: Data<Dim=Ix5>,
+            U: Gradient<Dim=Ix5>,
+    {
+        I::max_pool(
+            input,
+            &[self.pool_shape.0, self.pool_shape.1, self.pool_shape.2],
+            &[self.stride.0, self.stride.1, self.stride.2],
+        ).into()
+    }
 }

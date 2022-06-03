@@ -16,6 +16,7 @@ mod sum;
 mod tanh;
 mod transpose;
 mod unsqueeze;
+mod max_pool;
 
 use super::{
     expect_tensor, expect_tensor_mut, push_gradient, Backward, Cache, Data, Eval, Forward,
@@ -43,3 +44,5 @@ pub(crate) use sum::{Sum, SumBackward};
 pub(crate) use tanh::{TanH, TanHBackward};
 pub(crate) use transpose::{Transpose, TransposeBackward};
 pub(crate) use unsqueeze::{Unsqueeze, UnsqueezeBackward};
+
+pub use max_pool::MaxPooling;

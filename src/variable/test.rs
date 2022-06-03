@@ -1042,3 +1042,32 @@ fn convolve_groups_diff() {
     assert_eq!(convolve.past.len(), 1);
     assert_eq!(convolve.past.parameters.len(), 2);
 }
+
+#[test]
+fn max_pooling() {
+    use crate::MaxPooling;
+
+    let input = crate::ones((4, 2, 6, 6));
+    let max_pool = super::Var::max_pool(
+        input,
+        &[2, 2],
+        &[2, 2],
+    );
+
+    assert_eq!(max_pool.past.len(), 1);
+    assert!(max_pool.past.changeables.is_empty());
+}
+
+#[test]
+fn max_pooling_diff() {
+    use crate::MaxPooling;
+
+    let max_pool = super::VarDiff::max_pool(
+        crate::ones((4, 2, 6, 6)).requires_grad(),
+        &[2, 2],
+        &[2, 2],
+    );
+
+    assert_eq!(max_pool.past.len(), 1);
+    assert_eq!(max_pool.past.parameters.len(), 1)
+}

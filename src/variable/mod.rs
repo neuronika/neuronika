@@ -15,7 +15,7 @@ pub use vardiff::VarDiff;
 pub(crate) use node::*;
 pub use node::{
     Backward, Cache, Constant, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, Input,
-    InputBackward, Overwrite, PaddingMode, Reflective, Replicative, Zero,
+    InputBackward, MaxPooling, Overwrite, PaddingMode, Reflective, Replicative, Zero,
 };
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

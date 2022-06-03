@@ -202,7 +202,7 @@ use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 pub use variable::{
     Backward, Cache, Cat, Convolve, ConvolveWithGroups, Data, Eval, Forward, Gradient, MatMatMul,
-    MatMatMulT, MatVecMul, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
+    MatMatMulT, MatVecMul, MaxPooling, Overwrite, Param, Stack, Var, VarDiff, VecMatMul, VecVecMul,
 };
 use variable::{Input, InputBackward};
 
