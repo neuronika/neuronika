@@ -624,8 +624,8 @@ impl Linear {
     where
         I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix2>,
-        U: Gradient<Dim = Ix2>,
+        T: Data<Dim = Ix2> + 'static,
+        U: Gradient<Dim = Ix2> + 'static,
     {
         input.mm_t(self.weight.clone()).into() + self.bias.clone()
     }
@@ -718,8 +718,8 @@ impl LSTMCell {
         Hb: Gradient<Dim = Ix2>,
         I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix2>,
-        U: Gradient<Dim = Ix2>,
+        T: Data<Dim = Ix2> + 'static,
+        U: Gradient<Dim = Ix2> + 'static,
     {
         let (cell_state, hidden) = state;
         let gates = hidden.mm_t(self.weight_hh.clone())
@@ -824,8 +824,8 @@ impl GRUCell {
         Hb: Gradient<Dim = Ix2>,
         I: MatMatMulT<Learnable<Ix2>>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix2>,
-        U: Gradient<Dim = Ix2>,
+        T: Data<Dim = Ix2> + 'static,
+        U: Gradient<Dim = Ix2> + 'static,
     {
         let (igates, hgates) = {
             (
@@ -947,8 +947,8 @@ impl<Pad: PaddingMode> Conv1d<Pad> {
     where
         I: Convolve<I, Learnable<Ix3>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix3>,
-        U: Gradient<Dim = Ix3>,
+        T: Data<Dim = Ix3> + 'static,
+        U: Gradient<Dim = Ix3> + 'static,
     {
         I::convolve(
             input,
@@ -1077,8 +1077,8 @@ impl<Pad: PaddingMode> GroupedConv1d<Pad> {
     where
         I: ConvolveWithGroups<I, Learnable<Ix3>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix3>,
-        U: Gradient<Dim = Ix3>,
+        T: Data<Dim = Ix3> + 'static,
+        U: Gradient<Dim = Ix3> + 'static,
     {
         I::convolve_with_groups(
             input,
@@ -1199,8 +1199,8 @@ impl<Pad: PaddingMode> Conv2d<Pad> {
     where
         I: Convolve<I, Learnable<Ix4>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix4>,
-        U: Gradient<Dim = Ix4> + Overwrite,
+        T: Data<Dim = Ix4> + 'static,
+        U: Gradient<Dim = Ix4> + Overwrite + 'static,
     {
         let (stride_h, stride_w) = self.stride;
         let (padding_h, padding_w) = self.padding;
@@ -1336,8 +1336,8 @@ impl<Pad: PaddingMode> GroupedConv2d<Pad> {
     where
         I: ConvolveWithGroups<I, Learnable<Ix4>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix4>,
-        U: Gradient<Dim = Ix4>,
+        T: Data<Dim = Ix4> + 'static,
+        U: Gradient<Dim = Ix4> + 'static,
     {
         let (stride_h, stride_w) = self.stride;
         let (padding_h, padding_w) = self.padding;
@@ -1465,8 +1465,8 @@ impl<Pad: PaddingMode> Conv3d<Pad> {
     where
         I: Convolve<I, Learnable<Ix5>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix5>,
-        U: Gradient<Dim = Ix5>,
+        T: Data<Dim = Ix5> + 'static,
+        U: Gradient<Dim = Ix5> + 'static,
     {
         let (stride_d, stride_h, stride_w) = self.stride;
         let (padding_d, padding_h, padding_w) = self.padding;
@@ -1604,8 +1604,8 @@ impl<Pad: PaddingMode> GroupedConv3d<Pad> {
     where
         I: ConvolveWithGroups<I, Learnable<Ix5>, Pad>,
         I::Output: Into<VarDiff<T, U>>,
-        T: Data<Dim = Ix5>,
-        U: Gradient<Dim = Ix5>,
+        T: Data<Dim = Ix5> + 'static,
+        U: Gradient<Dim = Ix5> + 'static,
     {
         let (stride_d, stride_h, stride_w) = self.stride;
         let (padding_d, padding_h, padding_w) = self.padding;
