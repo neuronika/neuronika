@@ -1,0 +1,16 @@
+[package]
+authors = ["Francesco Iannelli \"frjnn\"", "Stefano Pacchini \"ste-pac\""]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+name = "neuronika-nn"
+version = "0.1.0"
+
+[dependencies]
+ndarray = "0.15.4"
+neuronika-core = {version = "*", path = "../neuronika-core"}
+neuronika-variable = {version = "*", path = "../neuronika-variable"}
+rand = "0.8.4"
+rand_distr = "0.4.2"
+
+[features]
+serialize = ["neuronika-variable/serialize"]

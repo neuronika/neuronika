@@ -1,23 +1,35 @@
 [package]
-authors = ["frjnn <f.iannelli.francesco229@gmail.com>", "stepac <stefanopacchini@mail.com>"]
+authors = ["Francesco Iannelli \"frjnn\"", "Stefano Pacchini \"ste-pac\""]
 description = "Tensors and dynamic neural networks."
 edition = "2021"
 exclude = ["misc/*"]
 keywords = ["deep-learning", "auto-differentiation", "machine-learning", "tensors"]
-license = "MPL-2.0"
+license = "MIT OR Apache-2.0"
 name = "neuronika"
 repository = "https://github.com/neuronika/neuronika"
 version = "0.2.0"
 
+[workspace]
+members = [
+  "neuronika-variable",
+  "neuronika-nn",
+  "neuronika-optim",
+  "neuronika-data",
+  "neuronika-core",
+]
+
+[features]
+blas = ["neuronika-variable/blas"]
+cuda = ["neuronika-variable/cuda"]
+matrixmultiply-threading = ["neuronika-variable/matrixmultiply-threading"]
+serialize = ["neuronika-variable/serialize"]
+
 [dependencies]
-csv = "1.1.6"
-itertools = "0.10.3"
-ndarray = {version = "0.15.4", features = ["rayon"]}
-ndarray-rand = "0.14.0"
-rand = "0.8.4"
-rand_distr = "0.4.2"
-rayon = "1.5.1"
-serde = {version = "1.0.130", features = ["derive"]}
+neuronika-core = {version = "*", path = "./neuronika-core"}
+neuronika-data = {version = "*", path = "./neuronika-data"}
+neuronika-nn = {version = "*", path = "./neuronika-nn"}
+neuronika-optim = {version = "*", path = "./neuronika-optim"}
+neuronika-variable = {version = "*", path = "./neuronika-variable"}
 
 [dev-dependencies]
 serde_json = "1.0.72"
@@ -25,8 +37,3 @@ serde_json = "1.0.72"
 [[example]]
 name = "quickstart"
 required-features = ["serialize"]
-
-[features]
-blas = ["ndarray/blas"]
-matrixmultiply-threading = ["ndarray/matrixmultiply-threading"]
-serialize = ["ndarray/serde"]

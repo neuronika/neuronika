@@ -5,21 +5,21 @@
 <hr/>
 
 <p align="center">
-<a href="https://app.circleci.com/pipelines/github/neuronika">
-  <img src="https://circleci.com/gh/neuronika/neuronika.svg?style=svg&circle-token=a4dc29e597fde3872a02c582dc42c058f41f7869"/>
-</a>
+  <a href="https://app.circleci.com/pipelines/github/neuronika">
+    <img alt="CircleCI" src="https://img.shields.io/circleci/build/github/neuronika/neuronika/main?logo=circleci&style=for-the-badge&token=a4dc29e597fde3872a02c582dc42c058f41f7869">
+  </a>
 
-<a href="https://codecov.io/gh/neuronika/neuronika">
-  <img src="https://codecov.io/gh/neuronika/neuronika/branch/main/graph/badge.svg?token=H7J7TF511B"/>
-</a>
+  <a href="https://codecov.io/gh/neuronika/neuronika">
+    <img alt="Codecov branch" src="https://img.shields.io/codecov/c/github/neuronika/neuronika/main?logo=codecov&style=for-the-badge&token=H7J7TF511B">
+  </a>
 
-<a href="https://opensource.org/licenses/MPL-2.0">
-  <img src="https://img.shields.io/badge/License-MPL%202.0-ff69b4.svg"/>
-</a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT%2FApache%202.0-informational?logo=opensourceinitiative&style=for-the-badge">
+  </a>
 
-<a href="https://docs.rs/neuronika">
-  <img src="https://img.shields.io/badge/API-reference-brightgreen"/>
-</a>
+  <a href="https://docs.rs/neuronika">
+    <img src="https://img.shields.io/badge/API-Reference-brightgreen?style=for-the-badge&logo=docsdotrs"/>
+  </a>
 </p>
 
 Neuronika is a machine learning framework written in pure Rust, built with a focus on ease of
@@ -35,8 +35,7 @@ neuronika = { git = "https://github.com/neuronika/neuronika" }
 
 ## Dynamic neural networks and auto-differentiation
 
-At the core of Neuronika lies a mechanism called reverse-mode automatic differentiation, that allows you
-to define dynamically changing neural networks with very low effort and no overhead by using a lean, fully imperative and define by run API.
+At the core of Neuronika lies a mechanism *called reverse-mode automatic differentiation*, that allows you to define dynamically changing neural networks with very low effort and no overhead by using a lean, fully imperative and define by run API.
 
 ![](./misc/neuronika_ad.gif)
 
@@ -47,16 +46,23 @@ There's no need for a FFI, everything happens in front of your eyes.
 
 ## Crate Feature Flags
 
-The following crate feature flags are available. They configure the [`ndarray`](https://github.com/rust-ndarray/ndarray) backend.
+* `cuda` Enables gpu accelerated primitives.
 
-* `serialize` 
-  * Enables serialization support for [`serde`](https://github.com/serde-rs/serde) 1.x.
+You can use the following crate feature flags to configure the [`ndarray`] backend:
 
-* `blas`
-  * Enables transparent BLAS support for matrix multiplication. Uses `blas-src` for pluggable backend, which needs to be configured separately. See [`here`](https://github.com/rust-ndarray/ndarray#how-to-enable-blas-integration) for more informations.
+* `serialize` Enables serialization support for [`serde`] 1.x.
 
-* `matrixmultiply-threading`
-  * Enables the `threading` feature in the [`matrixmultiply`](https://github.com/bluss/matrixmultiply) package.
+* `blas` Enables transparent [BLAS] support for matrix multiplication, which uses `blas-src` for pluggable backend and needs to be configured separately. See [here] for more informations.
+
+* `matrixmultiply-threading` Enables the `threading` feature in the [`matrixmultiply`] package.
+  
+
+
+[`ndarray`]: https://github.com/rust-ndarray/ndarray
+[`serde`]: https://github.com/serde-rs/serde
+[BLAS]: https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms
+[here]: https://github.com/rust-ndarray/ndarray#how-to-enable-blas-integration
+[`matrixmultiply`]: https://github.com/bluss/matrixmultiply
 
 ## Contributing
 
@@ -75,3 +81,9 @@ is not there, please ask for help by opening a [discussion](https://github.com/n
 ## Project Status
 
 Neuronika is very young and rapidly evolving, we are continuously developing the project and breaking changes are expected during transitions from version to version. We adopt the newest stable Rust's features if we need them.
+
+## License
+
+Dual-licensed to be compatible with the Rust project.
+
+Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) or the [MIT license](http://opensource.org/licenses/MIT), at your option. This file may not be copied, modified, or distributed except according to those terms.
